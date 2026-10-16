@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Актогай — цифровой двойник: участок карьера и сульфидная фабрика №1</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <!-- The 3D view loads three.js from the copy in vendor/ (pinned version, see vendor/three/VERSION). -->
+  <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+  <!-- The mine fills the window: the 3D view, or the plan one click away. -->
+  <main class="stage" id="stage">
+    <div class="plan-view" id="plan-view" data-shown="3d">
+      <canvas id="plan-static" aria-hidden="true"></canvas>
+      <canvas id="plan-live" tabindex="0" role="img"
+        aria-label="План рудника сверху: карьер с уступами и блоками, дороги, экскаваторы, буровые станки, самосвалы, отвал, рудные склады и фабрика. Стрелки двигают план, плюс и минус меняют масштаб. Все объекты плана есть в списке «Объекты»."></canvas>
+      <div class="scene" id="scene">
+        <canvas id="scene-gl" tabindex="0" role="img"
+          aria-label="Рудник в 3D: карьер уступами в глубину, съезды и дороги, отвал, рудные склады, дробилка, конвейер и фабрика до хвостохранилища; самосвалы, экскаваторы и буровые станки там, где они сейчас. Перетаскивание поворачивает вид, правая кнопка или Shift — сдвигает, колесо — приближает; стрелки поворачивают, плюс и минус приближают. Все объекты есть в списке «Объекты»."></canvas>
+        <canvas id="scene-labels" aria-hidden="true"></canvas>
+        <div class="scene-panels" id="scene-panels" role="group" aria-label="Живые показатели над оборудованием"></div>
+      </div>
+      <div class="scale-bar" id="scale-bar" aria-hidden="true"><span id="scale-line"></span><span id="scale-text"></span></div>
+      <div class="plan-tip" id="plan-tip" hidden></div>
+    </div>
+  </main>
+
+  <header class="topbar">
+    <a class="brand" href="#/twin/mine" title="Актогай: карточка рудника">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M2 19 L9 6 L13 13 L16 9 L22 19 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-name">Актогай</span>
+      <span class="brand-sub">карьер и фабрика №1 · цифровой двойник</span>
+    </a>
+    <div class="finder" role="search">
+      <svg class="finder-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11 L15 15" stroke="currentColor" stroke-width="1.6"/></svg>
+      <input type="search" id="twin-search" placeholder="Найти: самосвал, экскаватор, блок…" aria-label="Поиск объектов рудника" autocomplete="off">
+      <button type="button" id="drawer-toggle" class="ghost" aria-expanded="false" aria-controls="drawer">Объекты <span class="count" id="twin-count"></span></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="clock" title="Модельное время рудника">
+      <span id="sim-clock">—</span>
+      <span class="clock-sub"><span id="sim-shift"></span><a id="weather" class="weather" href="#/twin/weather"></a></span>
+    </div>
+    <div class="speed seg" role="group" aria-label="Скорость модельного времени">
+      <button type="button" data-speedup="1" aria-label="Скорость ×1">×1</button>
+      <button type="button" data-speedup="10" aria-label="Скорость ×10">×10</button>
+      <button type="button" data-speedup="20" aria-label="Скорость ×20">×20</button>
+      <button type="button" data-speedup="60" aria-label="Скорость ×60">×60</button>
+    </div>
+    <button type="button" id="pause-toggle" class="ghost">Пауза</button>
+    <span id="link-state" class="link-state" role="status" data-state="wait">Подключение…</span>
+    <button type="button" id="about-open" class="ghost" aria-haspopup="dialog">О модели</button>
+    <button type="button" id="help-open" class="ghost" aria-haspopup="dialog">Справка</button>
+  </header>
+
+  <section class="ribbon" id="ribbon" aria-label="Показатели смены">
+    <div class="kpis" id="kpis"></div>
+    <div class="plan-chips" id="plan-chips" aria-label="Что происходит сейчас"></div>
+  </section>
+
+  <section class="kpi-detail glass" id="kpi-detail" aria-labelledby="kpi-detail-title" hidden>
+    <header class="glass-head">
+      <h2 id="kpi-detail-title"></h2>
+      <button type="button" class="icon" id="kpi-detail-close" aria-label="Закрыть подробности показателя">×</button>
+    </header>
+    <p class="kpi-detail-text" id="kpi-detail-text"></p>
+    <h3 class="sub-title">Цепочка от забоя до концентрата</h3>
+    <nav class="flow" id="flow" aria-label="Технологическая цепочка: от забоя до концентрата"></nav>
+    <h3 class="sub-title">Ещё показатели смены</h3>
+    <dl class="kpi-more" id="kpi-more"></dl>
+    <div class="kpi-detail-actions" id="kpi-detail-actions"></div>
+  </section>
+
+  <aside class="left-panel" id="left-panel">
+    <nav class="drawer glass" id="drawer" aria-labelledby="drawer-title" hidden>
+      <header class="glass-head">
+        <h2 id="drawer-title">Объекты</h2>
+        <button type="button" class="icon" id="drawer-close" aria-label="Закрыть список объектов">×</button>
+      </header>
+      <div id="twin-list" class="scroll" aria-label="Список объектов по типам">
+        <p class="muted pad" id="list-wait">Загрузка двойников с платформы…</p>
+      </div>
+    </nav>
+    <section id="details" class="details glass" aria-label="Выбранный объект" hidden></section>
+  </aside>
+
+  <aside class="stack scroll" id="control" aria-label="Советник, сценарии и модули">
+    <section id="advisor" class="advisor-holder" aria-label="Советник: варианты действий при происшествии" hidden></section>
+    <section class="group-card glass" id="scenarios-card" aria-labelledby="scenarios-title">
+      <header class="group-head">
+        <h2 id="scenarios-title">Сценарии «что если»</h2>
+        <span class="count" id="scenario-count"></span>
+        <button type="button" class="icon collapse" aria-expanded="true" aria-controls="scenarios" aria-label="Свернуть или развернуть сценарии"></button>
+      </header>
+      <div id="scenarios" class="cards"><p class="muted pad">Загрузка…</p></div>
+    </section>
+    <section class="group-card glass" id="modules-card" aria-labelledby="modules-title">
+      <header class="group-head">
+        <h2 id="modules-title">Модули управления</h2>
+        <span class="count" id="module-count"></span>
+        <button type="button" class="icon collapse" aria-expanded="true" aria-controls="modules" aria-label="Свернуть или развернуть модули"></button>
+      </header>
+      <div id="modules" class="cards"><p class="muted pad">Загрузка…</p></div>
+    </section>
+  </aside>
+
+  <footer class="dock" id="dock">
+    <div class="seg" role="group" aria-label="Вид рудника" id="mode-buttons">
+      <button type="button" data-mode="3d" aria-pressed="true">3D</button>
+      <button type="button" data-mode="plan" aria-pressed="false">План</button>
+    </div>
+    <div class="seg" role="group" aria-label="Точка обзора" id="camera-buttons">
+      <button type="button" data-camera="overview" aria-pressed="false">Обзор</button>
+      <button type="button" data-camera="faces" aria-pressed="false">Забои</button>
+      <button type="button" data-camera="ramps" aria-pressed="false">Съезды</button>
+      <button type="button" data-camera="plant" aria-pressed="false">Фабрика</button>
+    </div>
+    <div class="seg" role="group" aria-label="Масштаб">
+      <button type="button" data-zoom="out" aria-label="Отдалить">−</button>
+      <button type="button" data-zoom="in" aria-label="Приблизить">+</button>
+    </div>
+    <div class="seg" role="group" aria-label="Стиль 3D-вида" id="style-buttons">
+      <button type="button" data-style="hologram" aria-pressed="true" title="Стиль: голограмма — оборудование светящимся стеклом, живые показатели над ним">Голограмма</button>
+      <button type="button" data-style="realistic" aria-pressed="false" title="Стиль: реалистичный — солнце, небо и погода модельного времени">Реалистичный</button>
+    </div>
+    <button type="button" id="layers-toggle" class="ghost" aria-expanded="false" aria-controls="layers">Слои и знаки</button>
+    <div class="ticker" id="ticker">
+      <button type="button" id="journal-toggle" aria-expanded="false" aria-controls="journal-panel">
+        <span class="ticker-label">Журнал</span>
+        <span class="ticker-time" id="ticker-time"></span>
+        <span class="ticker-text" id="ticker-text">События рудника появятся здесь</span>
+      </button>
+    </div>
+  </footer>
+
+  <section class="layers glass" id="layers" aria-labelledby="layers-title" hidden>
+    <header class="glass-head">
+      <h2 id="layers-title">Слои и условные знаки</h2>
+      <button type="button" class="icon" id="layers-close" aria-label="Закрыть слои">×</button>
+    </header>
+    <div class="seg seg-wrap" role="group" aria-label="Что показывает цвет блоков" id="layer-buttons">
+      <button type="button" data-layer="none" aria-pressed="true">Без окраски</button>
+      <button type="button" data-layer="status" aria-pressed="false">Состояние</button>
+      <button type="button" data-layer="grade" aria-pressed="false">Содержание Cu</button>
+      <button type="button" data-layer="hardness" aria-pressed="false">Крепость</button>
+      <button type="button" data-layer="destination" aria-pressed="false">Назначение</button>
+    </div>
+    <div class="legend" id="legend" aria-label="Условные обозначения"></div>
+  </section>
+
+  <section class="journal glass" id="journal-panel" aria-labelledby="journal-title" hidden>
+    <header class="glass-head">
+      <h2 id="journal-title">Журнал событий <span class="count" id="journal-count"></span></h2>
+      <a class="head-link" href="/grafana" target="_blank" rel="noopener" title="Панель «Актогай — история» в Grafana: графики за последние часы, без входа, в новой вкладке">История в Grafana ↗</a>
+      <button type="button" class="icon" id="journal-close" aria-label="Закрыть журнал">×</button>
+    </header>
+    <ol id="journal" class="scroll" aria-live="polite"></ol>
+  </section>
+
+  <p class="scene-note" id="scene-note" role="status" hidden></p>
+
+  <dialog id="help" class="help" aria-labelledby="help-title">
+    <header>
+      <h2 id="help-title">Как читать эту страницу</h2>
+      <button type="button" id="help-close" aria-label="Закрыть справку">Закрыть</button>
+    </header>
+    <div class="help-body">
+      <p class="lead">Страница показывает работу модели медного рудника Актогай: участок карьера и сульфидную
+        фабрику №1. Каждый объект — самосвал, блок, участок дороги, мельница — это цифровой двойник на платформе
+        OpenEgiz; всё, что видно на странице, приходит из двойников и обновляется само. Что представляет модель,
+        на какие реальные цифры она настроена и что в ней допущено — в окне «О модели».</p>
+      <div class="help-grid">
+        <section>
+          <h3>Рудник в 3D</h3>
+          <ul>
+            <li>Весь экран — рудник: карьер уступами в глубину с цветом породы по горизонтам, съезды с
+              валами вдоль бровки, отвал ярусами, рудные склады, дробилка, конвейер на эстакаде через степь,
+              склад дроблёной руды, корпус с мельницами под стеклянной крышей, флотация, сгуститель
+              и хвостохранилище.</li>
+            <li>Самосвалы Caterpillar 785C едут по дорогам и поднимают кузов на разгрузке; экскаваторы Hitachi
+              поворачиваются от забоя к самосвалу; буровые станки Sandvik поднимают мачту, когда бурят. Пыль
+              встаёт за самосвалами на сухой дороге.</li>
+            <li>Цветной круг под машиной — её состояние: зелёный — работает, синий — в пути, жёлтый — очередь,
+              красный с мигающим маячком — неисправна, серый — простой или обслуживание.</li>
+            <li>Солнце стоит там, где оно стоит над Актогаем в модельное время: вечером — закат, ночью горят фары,
+              прожекторы у забоев и огни фабрики. Дождь и снег идут, когда так говорит двойник погоды.</li>
+            <li>Перетаскивание поворачивает вид, правая кнопка или Shift — сдвигает, колесо приближает. С клавиатуры:
+              стрелки поворачивают, Shift со стрелками сдвигает, «+» и «−» приближают, «0» — общий вид.</li>
+            <li>Кнопки внизу — точки обзора: «Обзор», «Забои», «Съезды», «Фабрика». Машины на общем виде нарисованы
+              крупнее, чем есть, чтобы их было видно; вблизи — в своих размерах.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>События на сцене</h3>
+          <ul>
+            <li>Закрытая дорога перегорожена красно-белыми блоками со знаком «въезд запрещён»; ограничение
+              скорости — жёлтый знак.</li>
+            <li>Перед взрывом над блоком стоит красный купол опасной зоны и отсчёт времени до взрыва; после — облако
+              пыли и ожидание допуска.</li>
+            <li>Всё, что затронул идущий сценарий, подсвечено янтарным; выбранный объект и его связи — голубым.</li>
+            <li>Жёлтая метка с числом — очередь у экскаватора или дробилки.</li>
+            <li>Кнопка «Слои и знаки» окрашивает блоки по состоянию, содержанию меди, крепости или назначению
+              и показывает все условные знаки.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Показатели сверху</h3>
+          <ul>
+            <li>Шесть чисел, за которыми следит начальник смены: подача на мельницу, запас склада дроблёной руды
+              в часах, медь в час, самосвалы в работе, переменная маржа и выбросы CO₂.</li>
+            <li>Щелчок по числу открывает подробности: что это за показатель, цепочку от забоя до флотации
+              в цифрах и остальные показатели смены.</li>
+            <li>Потоки в т/ч — средние за 15 минут модельного времени, поэтому они не скачут, пока дробилка
+              работает рывками.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Объекты и поиск</h3>
+          <ul>
+            <li>Поле поиска вверху находит любой двойник по имени, типу или состоянию; кнопка «Объекты» открывает
+              список всех двойников по типам.</li>
+            <li>Выбор объекта в списке или щелчок по нему на сцене подводит к нему камеру и открывает его карточку:
+              показатели, графики за последние минуты, связи и действия.</li>
+            <li>У каждого объекта свой адрес <code>#/twin/имя</code>: ссылкой можно поделиться.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Сценарии справа</h3>
+          <ol>
+            <li>Раскройте сценарий в стопке справа и выберите объект, например участок дороги. Объекты, на которых
+              сценарий сейчас не запустить, показаны серым с причиной.</li>
+            <li>Нажмите «Запустить». На сцене всё затронутое подсвечено, в карточке — цепочка показателей от причины
+              к следствию: до запуска и сейчас.</li>
+            <li>«Отменить» возвращает рудник к обычной работе.</li>
+          </ol>
+        </section>
+        <section>
+          <h3>Модули</h3>
+          <ul>
+            <li>Модуль принимает решения вместо постоянных правил: кому из самосвалов куда ехать, куда везти руду
+              блока, сколько руды подавать на мельницу, когда ставить технику на обслуживание.</li>
+            <li>Переключатель включает и выключает модуль; раскрытая карточка показывает решения и эффект модуля
+              вместе с тем, как он измерен.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Прогноз: два варианта будущего</h3>
+          <ul>
+            <li>«Прогноз на 12 ч» в сценарии и «Что даёт модуль?» в модуле просят модель сделать копию рудника
+              и быстро прожить на ней 12 часов дважды. Настоящий рудник при этом не меняется.</li>
+            <li>Вариант А — всё идёт как сейчас (серая пунктирная линия), вариант Б — с одним изменением (сплошная
+              оранжевая). Графики — подача на мельницу и склад по часам, таблица — медь, руда, маржа и CO₂;
+              у склада на сцене появляется подпись «через 12 ч».</li>
+            <li>Отдельная строка «Поправка: запасы руды и вскрыша» — во что оценены руда на складах и снятая
+              вскрыша к концу срока: задел на потом, а не выручка.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Советник</h3>
+          <ul>
+            <li>Когда что-то случается — сломался экскаватор, встала дробилка, закрыта дорога, пошёл дождь, — сверху
+              справа раскрывается «Советник» с вариантами действий, каждый проверен прогнозом и поставлен на место
+              по деньгам и меди. Вариант 1 — «ничего не менять», с ним сравниваются остальные.</li>
+            <li>«Применить» отправляет решение на рудник; что из этого вышло, видно в журнале и на сцене.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>План, время и журнал</h3>
+          <ul>
+            <li>Кнопка «План» внизу показывает рудник сверху: все подписи и цифры на одном листе. Вид входит в адрес:
+              <code>?view=plan</code> открывает план, <code>?view=3d</code> — 3D.</li>
+            <li>Время модельное и идёт быстрее настоящего: кнопки ×1, ×10, ×20 и ×60 меняют скорость, «Пауза»
+              останавливает модель.</li>
+            <li>Строка журнала внизу — последнее событие; щелчок открывает весь журнал. История за последние часы —
+              на панели <a href="/grafana" target="_blank" rel="noopener">«Актогай — история» в Grafana</a>, без входа.</li>
+            <li>Видеокарта не нужна: сцена рисуется программно. Если браузер совсем не рисует WebGL, 3D-вид
+              рисуется проще и обновляется реже.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="about" class="help about" aria-labelledby="about-title">
+    <header>
+      <h2 id="about-title">О модели: Актогай, участок карьера и сульфидная фабрика №1</h2>
+      <button type="button" id="about-close" aria-label="Закрыть окно «О модели»">Закрыть</button>
+    </header>
+    <div class="help-body">
+      <p class="lead">Цифровой двойник построен по открытым данным о медном руднике Актогай (Абайская область,
+        Казахстан). В уменьшенном масштабе он изображает участок открытого карьера с его техникой и одну из двух
+        линий сульфидной обогатительной фабрики — путь руды от забоя до медного концентрата.</p>
+      <div class="about-grid">
+        <section>
+          <h3>Для кого и для какого решения</h3>
+          <ul>
+            <li>Для начальника смены. Его вопрос: что делать, когда между карьером и фабрикой случается сбой —
+              отказ экскаватора, остановка дробилки, закрытая дорога, ливень, массовый взрыв, крепкая руда.</li>
+            <li>Двойник показывает, как сбой скажется на подаче руды на мельницу, складе дроблёной руды и меди за
+              смену, и сравнивает варианты ответа: перераспределить самосвалы, брать руду с рудных складов,
+              изменить подачу на мельницу.</li>
+            <li>Каждый вариант проверяется прогнозом на 12 часов на копии рудника; настоящий рудник при этом не
+              меняется. Решение остаётся за человеком.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>В модели сейчас</h3>
+          <ul id="about-live">
+            <li class="muted">Загрузка двойников…</li>
+          </ul>
+        </section>
+        <section class="about-wide" id="about-passport" hidden>
+          <h3>Как модель описывает себя в двойнике рудника</h3>
+          <ul id="about-passport-list"></ul>
+        </section>
+        <section class="about-wide">
+          <h3>Реальные цифры, по которым настроена модель</h3>
+          <table class="about-table">
+            <thead><tr><th scope="col">Показатель</th><th scope="col">Значение</th><th scope="col">Источник</th></tr></thead>
+            <tbody>
+              <tr><td>Переработано сульфидной руды, 2025</td><td>62,1 млн т на двух линиях, из них линия 1 — 30,9 млн т</td><td><a href="https://www.kazminerals.com/?attachment_id=6823" target="_blank" rel="noopener">KAZ Minerals, производственный отчёт за 2025 г.</a>, с. 3</td></tr>
+              <tr><td>Содержание меди в руде, 2025</td><td>0,41 %</td><td>там же</td></tr>
+              <tr><td>Извлечение меди, 2025</td><td>87,2 %</td><td>там же</td></tr>
+              <tr><td>Медь в концентрате, 2025</td><td>220,3 тыс. т на двух линиях</td><td>там же</td></tr>
+              <tr><td>Добыто руды, 2025: вся руда</td><td>81,0 млн т, из них сульфидной 75,5 млн т (идёт на фабрики) и окисленной 5,5 млн т (на выщелачивание)</td><td>там же</td></tr>
+              <tr><td>Проектная мощность одной линии</td><td>25 млн т руды в год</td><td><a href="https://www.kazminerals.com/media/2828/projects_update_111214.pdf" target="_blank" rel="noopener">KAZ Minerals, Projects Update, 11.12.2014</a>, с. 12</td></tr>
+              <tr><td>Первичная дробилка</td><td>гирационная, 60″ × 113″, 4 186 т/ч, 750 кВт (в модели — 4 690 т/ч: линия работает на 12 % выше проекта 2014 года)</td><td>Projects Update 2014, с. 12</td></tr>
+              <tr><td>Мельница полусамоизмельчения</td><td>40 × 26 футов, 28 МВт, 3 425 т/ч</td><td>Projects Update 2014, с. 16</td></tr>
+              <tr><td>Шаровые мельницы</td><td>2 шт., 28 × 44 фута, по 22 МВт</td><td>Projects Update 2014, с. 17</td></tr>
+              <tr><td>Флотация</td><td>самоаэрирующиеся камеры, 1 576 т/ч твёрдого</td><td>Projects Update 2014, с. 18</td></tr>
+              <tr><td>Сгустители хвостов</td><td>2 шт., диаметр 80 м</td><td>Projects Update 2014, с. 19</td></tr>
+              <tr><td>Конвейер дроблёной руды</td><td>3,8 км, 4 880 т/ч</td><td>Projects Update 2014, с. 13</td></tr>
+              <tr><td>Проектный парк техники</td><td>18 самосвалов Caterpillar 785C «до 140 т» (номинальная грузоподъёмность по паспорту — 136 т, её берёт модель); 4 экскаватора Hitachi с ковшом 21 м³; 4 буровых станка Sandvik D55</td><td>Projects Update 2014, с. 10–11</td></tr>
+              <tr><td>Схема фабрики</td><td>дробление, МПСИ и шаровые мельницы, флотация, сгущение и фильтрация концентрата, хвостохранилище</td><td><a href="https://www.kazminerals.com/media/17039/aktogay-sulphide-flowsheet.pdf" target="_blank" rel="noopener">KAZ Minerals, схема сульфидной фабрики Актогая</a></td></tr>
+            </tbody>
+          </table>
+          <p class="about-note">Оборудование и парк — проектные данные 2014 года. Документ описывает фабрику Бозшаколя и
+            называет инженерные решения Актогая такими же (с. 36); что из этого стоит на Актогае сегодня, открытые
+            источники не подтверждают.</p>
+        </section>
+        <section>
+          <h3>Что уменьшено и что допущено</h3>
+          <ul>
+            <li>Карьер — участок, а не весь карьер: из него идёт руда на одну линию фабрики, поэтому парк техники и
+              добыча уменьшены в той же доле.</li>
+            <li>Отметки, контуры уступов и съездов Актогая не опубликованы. Геометрия карьера — уступы по 15 м,
+              углы бортов, съезды с разворотами — построена по типовым для таких карьеров значениям. Размеры
+              карьера к концу отработки, 2 545 × 370 × 340 м, взяты из выпускной работы студента Satbayev University
+              и служат только проверкой масштаба.</li>
+            <li>Расстановка объектов на площадке, длины дорог и плечи откатки условные; здания фабрики на 3D-виде
+              нарисованы по типовым размерам такого оборудования.</li>
+            <li>Часовая производительность линии взята по факту 2025 года (около 3 500–3 900 т/ч), а не по
+              проекту 2014 года.</li>
+            <li>Окисленная руда с кучным выщелачиванием и SX-EW, молибден и золото в модели не показаны.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Источники и оговорка</h3>
+          <ul>
+            <li>Модель собрана из открытых источников: производственные отчёты, презентации и страницы
+              KAZ Minerals, материалы поставщиков оборудования, справочные базы. Полный список с номерами страниц —
+              в описании решения.</li>
+            <li>Модель не связана с KAZ Minerals и не согласована с компанией. Её цифры — расчёт модели, а не данные
+              оператора.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+# The Aktogay mine slice: an overlay on deploy/compose/docker-compose.yml,
+# started by `make mine` from the repository root. Paths are relative to
+# deploy/compose/, the directory of the first compose file.
+#
+# MINE_NAMESPACE (environment or deploy/compose/.env) sets the namespace of
+# the twins for every service; empty means the one in mine/model/world.yaml,
+# kz.aktogay.
+
+# What the module services have in common.
+x-mine-module: &mine-module
+  image: aktogay/mine:local
+  pull_policy: never
+  restart: unless-stopped
+  mem_limit: 128m
+  environment:
+    MQTT_HOST: mosquitto
+    MQTT_PORT: "1883"
+    DITTO_URL: http://ditto-nginx:80
+    DITTO_PASSWORD: ${DITTO_PASSWORD:?run make mine to generate deploy/compose/.env}
+    MINE_NAMESPACE: ${MINE_NAMESPACE:-}
+    # `false` starts the modules switched off; they can be switched on from the page.
+    MODULE_ENABLED: ${MINE_MODULES_ENABLED:-true}
+  depends_on:
+    mine-twins:
+      condition: service_completed_successfully
+    mosquitto:
+      condition: service_healthy
+    ditto-nginx:
+      condition: service_healthy
+  healthcheck:
+    # A module touches this file on every round while it is connected to the broker.
+    test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/mine-module.alive 2>/dev/null || echo 0) )) -lt 20"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
+
+services:
+  # One-shot job: creates the twins generated from mine/model/world.yaml.
+  # `make mine` builds the image itself before `up` (see the Makefile for why);
+  # `build:` is here so that a plain `docker compose up --build` works too.
+  mine-twins:
+    build: ../../mine
+    image: aktogay/mine:local
+    restart: "no"
+    command: ["python", "-m", "mine.model.setup_twins"]
+    environment:
+      MINE_NAMESPACE: ${MINE_NAMESPACE:-}
+      DITTO_URL: http://ditto-nginx:80
+      DITTO_PASSWORD: ${DITTO_PASSWORD:?run make mine to generate deploy/compose/.env}
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # The simulator: the only writer of the physical twins, the scenario twins,
+  # the forecast twins and the journal. It uses the image built for
+  # mine-twins; `pull_policy: never` keeps Compose from looking for that local
+  # image in a registry. Forecasts run in worker processes forked inside this
+  # container (up to `forecast.max_parallel` = 12 at a time for the advisor and
+  # the modules, plus the page's two branches; about 30 MB each).
+  mine-sim:
+    image: aktogay/mine:local
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 1024m
+    command: ["python", "-m", "mine.sim"]
+    environment:
+      MINE_NAMESPACE: ${MINE_NAMESPACE:-}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      SIM_SPEEDUP: ${SIM_SPEEDUP:-20}
+      # Set to a directory to keep the model copies forecasts start from (for running them again offline).
+      FORECAST_DUMP_DIR: ${FORECAST_DUMP_DIR:-}
+    depends_on:
+      mine-twins:
+        condition: service_completed_successfully
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      # The simulator touches this file on every tick while it is connected to the broker.
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/mine-sim.alive 2>/dev/null || echo 0) )) -lt 20"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # The decision modules: one service each, all from the mine image. A
+  # module reads the twins from Ditto (HTTP for the initial state, MQTT twin
+  # events for changes), acts by Ditto live messages and writes its own twin
+  # `module-<name>`. Stopping one of these containers switches that module
+  # off for the mine: `docker compose stop mine-dispatch`.
+  mine-dispatch:
+    <<: *mine-module
+    command: ["python", "-m", "mine.modules.dispatch"]
+
+  mine-grade:
+    <<: *mine-module
+    command: ["python", "-m", "mine.modules.grade"]
+
+  mine-plant:
+    <<: *mine-module
+    command: ["python", "-m", "mine.modules.plant"]
+
+  mine-maint:
+    <<: *mine-module
+    command: ["python", "-m", "mine.modules.maint"]
+
+  # The advisor: on an incident it asks the simulator for forecasts of its
+  # response options and ranks them; `apply {option}` sends the chosen one.
+  mine-advisor:
+    <<: *mine-module
+    command: ["python", "-m", "mine.modules.advisor"]
+
+  # The page at http://localhost:8088 and its gateway to Ditto and to the
+  # history in InfluxDB. The credentials stay in this container: nginx adds
+  # them to proxied requests.
+  mine-ui:
+    image: docker.io/library/nginx:1.25-alpine
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      DITTO_BASIC_AUTH: ${DITTO_BASIC_AUTH:?run make mine to generate deploy/compose/.env}
+      INFLUX_TOKEN: ${INFLUXDB_TOKEN:?run make mine to generate deploy/compose/.env}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      # Namespace of the mine's twins, the same setting as the services'. While
+      # the mine moves to another namespace, set MINE_NAMESPACE_PREVIOUS to the
+      # old one: the page then shows whichever of the two holds the mine, the
+      # new one first, and follows the move by itself.
+      MINE_NAMESPACES: "${MINE_NAMESPACE:-kz.aktogay} ${MINE_NAMESPACE_PREVIOUS:-}"
+    ports:
+      - "${OPENEGIZ_BIND:-127.0.0.1}:${MINE_UI_PORT:-8088}:80"
+    volumes:
+      - ../../mine/ui/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ../../mine/ui/site:/usr/share/nginx/html:ro
+    depends_on:
+      ditto-nginx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # The platform's Grafana, plus the mine history «Актогай — история»
+  # (mine/grafana/dashboards/aktogay-history.json). In the platform's
+  # organisation it is provisioned from the file and needs a login like
+  # everything there. Visitors without an account enter a separate
+  # organisation as viewers: it holds only this dashboard and a data source
+  # that may only read the history (mine/grafana/setup.sh makes both), not the
+  # OpenEgiz app, whose proxy carries the platform's credentials.
+  grafana:
+    entrypoint: ["/bin/sh", "/etc/mine-grafana/start.sh"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Актогай"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
+    volumes:
+      - ../../mine/grafana:/etc/mine-grafana:ro
+      - ../../mine/grafana/dashboards/aktogay-history.json:/var/lib/grafana/example-dashboards/aktogay-history.json:ro

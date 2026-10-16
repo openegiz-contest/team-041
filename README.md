@@ -1,43 +1,58 @@
-# <Team name>: a digital mine on OpenEgiz
+# Актогай: цифровой двойник участка карьера и сульфидной фабрики на OpenEgiz
 
-> Team Repository of the contest “Digital Mine on OpenEgiz”. **Replace the contents of this file with the instructions for your Submission.** The AI Jury runs the Submission strictly by these instructions, from scratch, in the Judge Environment. Accepted languages: English, Kazakh, Russian.
+Модель реального медного рудника Актогай (Абайская область, Казахстан) в масштабе одной линии: участок карьера глубиной 255 м, 32 самосвала, экскаваторы и буровые станки, дробилка, конвейер, склад, мельницы, флотация, концентрат и хвостохранилище. Двойником пользуется начальник смены: он видит рудник в 2D и 3D, проигрывает последствия сбоев на 12 часов вперёд и получает от советника варианты действий, включая вторую ремонтную бригаду и аварийный ремонт дороги, с их ценой и оценкой в тоннах меди и тенге: советник сравнивает, на сколько хватит склада руды, с тем, сколько продлится ремонт. Цифры откалиброваны по открытым отчётам KAZ Minerals; модель построена по публичным данным и не связана с оператором рудника.
 
-> **Start with the Concept**, the first section of [SUBMISSION.md](SUBMISSION.md): the Team writes it before any code. What AI agents build from this Template without a Concept is the Default Solution, published on the [contest site](https://openegiz-contest.github.io/) as the low bar: a Submission that does not go beyond it gets low levels in the Rubric. AI agents read [AGENTS.md](AGENTS.md).
+Все объекты рудника — двойники в Eclipse Ditto (182 двойника: 160 объектов рудника и 22 служебных — модули, сценарии, прогнозы, журнал); данные идут через платформу OpenEgiz (MQTT → Ditto → Telegraf → InfluxDB), страница рудника получает их из платформы.
 
-## Running
+Описание решения, модулей, сценариев и допущений — в [SUBMISSION.md](SUBMISSION.md). Документация платформы — в [OPENEGIZ.md](OPENEGIZ.md).
 
-Requirements (Docker, `make`, Windows/WSL2 setup) are in [OPENEGIZ.md](OPENEGIZ.md) / [OPENEGIZ.ru.md](OPENEGIZ.ru.md).
+## Запуск с нуля
+
+Нужны Ubuntu 24.04 (amd64) с Docker Engine и Docker Compose v2, 8 ядер, 16 ГБ памяти, доступ в интернет. Команды выполняются из корня репозитория:
 
 ```bash
-sudo apt install -y make   # if make is missing (clean Ubuntu)
-make up            # the OpenEgiz platform
-make example-mine  # the Example Mine: twins, simulator, dashboard
+sudo apt-get update && sudo apt-get install -y make curl
+make mine
 ```
 
-Replace these commands with the commands of your Submission. The Submission must start by following these instructions without manual intervention (Rules, clause 6.4); downloading datasets and models and building are also listed here.
+`make mine` поднимает платформу OpenEgiz и сервисы рудника, ждёт готовности (двойники, телеметрия, история, страница) и в конце печатает:
 
-## What to open
+```
+Aktogay mine slice is running: http://localhost:8088
+```
 
-- Grafana: the address and login are printed by `make up`.
-- <where to see the mine visualization, which dashboards>
+Первый запуск скачивает около 6 ГБ образов и занимает 7–15 минут, в зависимости от сети. Повторный запуск при скачанных образах — около полутора минут (83 с). Если платформа не стартовала с первого раза (например, из-за таймаута Docker Hub), `make mine` сам повторяет попытку.
 
-## Repository contents
+## Что открыть
 
-| Path | Contents |
+| Адрес | Что там |
 |---|---|
-| `team/` | Directory for the Team's code. Using it is optional: any part may be changed, including the platform core |
-| `SUBMISSION.md` | Description of the Submission: **required** |
-| `presentation.pdf` | Presentation: **required**, in the repository root |
-| `AGENTS.md`, `CLAUDE.md` | Instructions for your AI agents (Codex, Claude Code and others read them automatically) |
-| `examples/mine/` | The Example Mine: shows how a digital mine is built on OpenEgiz. It is not a basis for the Submission |
-| `OPENEGIZ.md`, `OPENEGIZ.ru.md` | Documentation of the OpenEgiz platform v1.0.4 |
+| http://localhost:8088 | Страница рудника: план и 3D-вид карьера и фабрики, объекты, сценарии «что если», модули, прогноз на 12 ч, советник, журнал событий, панель «О модели» |
+| http://localhost:3000/d/aktogay-history | История в Grafana («Актогай — история»), открывается без входа, только просмотр. Приложение OpenEgiz (двойники, иерархия) — после входа: логин `admin`, пароль: `grep GRAFANA_ADMIN_PASSWORD deploy/compose/.env` |
+| http://localhost:8080/api/2/things | REST API Eclipse Ditto. Логин `ditto`, пароль: `grep '^DITTO_PASSWORD' deploy/compose/.env` |
 
-The Submission is the `main` branch at the moment of the Freeze; other branches are not evaluated.
+Как пользоваться страницей, объясняют кнопки «Справка» и «О модели» в правом верхнем углу.
 
-## License
+## Проверка и остановка
 
-The Submission is distributed under the MIT license, see [LICENSE](LICENSE). Copyright belongs to the Team: add the line `Copyright (c) 2026 <Team members>` to `LICENSE`.
+| Команда | Что делает |
+|---|---|
+| `make mine-check` | Полная проверка стенда: двойники, телеметрия, история, шлюз страницы, все сценарии, модули, ресурсы смены, прогноз и советник (около 3 минут) |
+| `make mine-test` | 194 теста симулятора и модулей (балансы массы и меди, детерминизм, сценарии, ресурсы смены, эффект модулей, советник), около 11 минут |
+| `make mine-logs` | Журналы сервисов рудника |
+| `make mine-down` | Останавливает рудник и платформу, данные сохраняются |
+| `make clean` | Удаляет всё, включая данные и сгенерированные пароли |
 
----
+## Состав репозитория
 
-Platform: [aleka07/openegiz](https://github.com/aleka07/openegiz). If the platform was useful to you, support the project with a star on GitHub.
+| Путь | Содержимое |
+|---|---|
+| `mine/` | Решение: модель рудника (`model/`), симулятор (`sim/`), модули (`modules/`), страница (`ui/`), тесты (`tests/`), compose-надстройка (`compose.yml`) |
+| `docs/mine/parameters.md` | Все параметры модели с источниками и пометкой «источник / расчёт / допущение» |
+| `SUBMISSION.md` | Описание решения для конкурса |
+| `presentation.pdf` | Презентация |
+| `deploy/`, `scripts/`, `vendor/`, `examples/` | Платформа OpenEgiz. Изменены: сборка extended API (`deploy/compose/extended-api/`, загрузка исходников архивом с повторами вместо `git fetch`) и цели `mine*` в `Makefile` |
+
+## Лицензия
+
+Код решения — MIT. Код OpenEgiz и сторонние компоненты — по их собственным лицензиям (`LICENSE`, `LICENSES/`, `NOTICE`). Источники данных и параметров перечислены в `docs/mine/parameters.md`.

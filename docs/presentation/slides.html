@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Актогай — цифровой двойник участка карьера и сульфидной линии №1 на OpenEgiz</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Source of presentation.pdf. Build: node docs/presentation/build.mjs
+     The Concept slide is filled from SUBMISSION.md at build time (<!-\-CONCEPT:key-\-> markers).
+     Screenshots in img/ are captures of the running stand at 1440x810 in headless Chrome
+     (day lighting through ?time=HH:MM, the night shot at the simulated night). -->
+
+<!-- 1. Title -->
+<section class="slide title">
+  <div class="left">
+    <div class="kicker">Цифровой рудник на OpenEgiz</div>
+    <h1>Актогай: цифровой двойник участка карьера и&nbsp;сульфидной линии&nbsp;№1</h1>
+    <p class="sub">Масштабированный участок реального медного рудника KAZ Minerals — от взрывного блока до медного концентрата. Двойники в Eclipse Ditto, симулятор, рудник в 3D на весь экран, сценарии «что если», модули управления, прогноз на 12 часов и советник, который взвешивает ресурсы смены против запаса руды.</p>
+    <div class="facts">
+      <div><div class="v">182</div><div class="l">двойника: 160 объектов рудника, 22 служебных</div></div>
+      <div><div class="v">30,9 млн т</div><div class="l">руды в год — как линия №1 в 2025 году</div></div>
+      <div><div class="v">6 + 5</div><div class="l">сценариев «что если» и модулей</div></div>
+      <div><div class="v">347</div><div class="l">параметров, у каждого источник и статус</div></div>
+    </div>
+    <div class="meta">Команда: alinaraevali18 · Платформа OpenEgiz v1.0.4<br>Запуск: <code>make mine</code> → http://localhost:8088</div>
+  </div>
+  <div class="right">
+    <div class="crop" style="--s:0.87; --x:120; --y:128; --w:820; --h:620"><img src="img/overview-day.jpg" alt=""></div>
+  </div>
+</section>
+
+<!-- 2. Concept (the team's words, from SUBMISSION.md) -->
+<section class="slide">
+  <div class="tag">Замысел</div><div class="num">2</div>
+  <h1>Замысел</h1>
+  <p class="lead">Своими словами команды — раздел Concept в SUBMISSION.md.</p>
+  <div class="concept">
+    <div class="q"><h3>Предприятие</h3><!--CONCEPT:enterprise--></div>
+    <div class="q"><h3>Кто пользуется</h3><!--CONCEPT:users--></div>
+    <div class="q"><h3>Какое решение помогает принять</h3><!--CONCEPT:decision--></div>
+    <div class="q"><h3>Реальный или вымышленный объект</h3><!--CONCEPT:real--></div>
+    <div class="q wide"><h3>Почему такой выбор</h3><!--CONCEPT:why--></div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> кнопка «О модели» в верхней строке страницы — для кого модель, на какие реальные цифры она настроена и что в ней допущено.</div>
+</section>
+
+<!-- 3. The problem -->
+<section class="slide">
+  <div class="tag">Задача начальника смены</div><div class="num">3</div>
+  <h1>Сбой в карьере — медь, которую фабрика недополучит через часы</h1>
+  <p class="lead">Мельница — узкое место линии, склад дроблёной руды — буфер между карьером и фабрикой. Что бы ни случилось в карьере, вопрос один: хватит ли руды мельнице до конца смены и что сделать, чтобы потерять меньше меди.</p>
+  <div class="chain" style="margin-bottom:14px">
+    <div class="node"><b>Забои</b>5 экскаваторов, 48 блоков</div><div class="arr">→</div>
+    <div class="node"><b>Откатка</b>32 самосвала Cat 785C</div><div class="arr">→</div>
+    <div class="node"><b>Дробилка</b>4 690 т/ч</div><div class="arr">→</div>
+    <div class="node"><b>Конвейер</b>4 880 т/ч</div><div class="arr">→</div>
+    <div class="node key"><b>Склад руды</b>46 020 т: 12 ч на 3 835 т/ч</div><div class="arr">→</div>
+    <div class="node key"><b>Мельницы</b>72 МВт, 3 835 т/ч</div><div class="arr">→</div>
+    <div class="node"><b>Флотация</b>87,2 %, 13,7 т Cu/ч</div>
+  </div>
+  <div class="body">
+    <div class="col grow">
+      <ul class="points">
+        <li><b>Час простоя мельницы</b> — около 13,7 т меди в концентрате, это около 85 млн ₸ выручки (цена меди сентября 2026 г.).</li>
+        <li><b>Сбои, с которыми работает смена</b>, и сколько они длятся: остановка дробилки (механическая неисправность 8 ч, заклинивание 3 ч), отказ экскаватора 8 ч, закрытая дорога 6 ч, ливень с мокрым снегом 3 ч и 30 мин просыхания, зона крепкой руды 12 ч, внеплановый взрыв.</li>
+        <li><b>Что нужно начальнику смены:</b> увидеть, как сбой идёт по цепочке; узнать, хватит ли склада до конца ремонта; решить, стоит ли тратить ресурсы смены — вторую бригаду, дорожную бригаду, грейдер, — сравнив варианты в тоннах меди и тенге до распоряжения.</li>
+        <li>Двойник отвечает на это тремя средствами: <b>сценарий</b> на живой модели, <b>прогноз</b> на 12 ч на её копии и <b>советник</b>, который проверяет варианты прогнозом.</li>
+      </ul>
+    </div>
+    <div class="col" style="width:316px">
+      <div class="crop" style="--s:0.88; --x:1066; --y:245; --w:356; --h:353"><img src="img/crusher-card.jpg" alt=""></div>
+      <div class="cap"><b>Остановка дробилки, механическая неисправность, 33 мин модели:</b> склад 5,2 → 4,9 ч; ремонт кончится через 7,5 ч — склада не хватит на 2,5 ч, если ремонт не ускорить.</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> правая стопка → «Сценарии «что если»» → строка «Остановка дробилки» → выбрать причину → «Запустить». Отмена — «Отменить» в той же карточке.</div>
+</section>
+
+<!-- 4. The mine as twins -->
+<section class="slide">
+  <div class="tag">Модель рудника</div><div class="num">4</div>
+  <h1>182 двойника: каждый объект участка — вещь в Eclipse Ditto</h1>
+  <p class="lead">Двойник имеет тип, родителя, постоянные связи и признаки с единицами; связи, которые меняются (куда едет самосвал, что копает экскаватор), — тоже признаки.</p>
+  <div class="body">
+    <div class="col" style="width:350px">
+      <table class="t compact">
+        <tr><th>Группа</th><th>Типы и число</th></tr>
+        <tr><td>Карьер</td><td>карьер 1, уступы 17, блоки 48, буровые станки 3, экскаваторы 5</td></tr>
+        <tr><td>Дороги</td><td>узлы 17, участки 20</td></tr>
+        <tr><td>Транспорт</td><td>самосвалы 32, заправка 1, мастерская 1</td></tr>
+        <tr><td>Фабрика</td><td>дробилка, конвейер, склад руды, контур измельчения, МПСИ, шаровые мельницы, флотация, концентрат, хвосты</td></tr>
+        <tr><td>Площадка</td><td>рудные склады 2, отвал 1, подстанция 1, погода 1, рудник 1</td></tr>
+        <tr class="sep"><td>Служебные</td><td>модули 5, сценарии 6, слоты прогноза 10, журнал 1</td></tr>
+      </table>
+      <div class="cap">Определение каждого двойника — <code>mine/model/build_twins.py</code>; геометрия и состояние — <code>world.yaml</code>; числа — <code>params.yaml</code>.</div>
+    </div>
+    <div class="col grow">
+      <ul class="points small">
+        <li><b><code>_parents</code></b> — иерархия: рудник → карьер → уступ → блок; станки и экскаваторы → карьер; МПСИ и шаровые → контур измельчения.</li>
+        <li><b><code>links</code></b> — цепочка <code>crusher → conveyor → stockpile → mill-sag → mill-ball → flotation → concentrate, tailings</code>; дорожный граф; подстанция питает экскаваторы и фабрику; погода действует на все 20 участков.</li>
+        <li><b>Связи-признаки</b> — <code>truck.assigned_loader</code>, <code>assigned_dump</code>, <code>segment</code>, <code>route</code>; <code>loader.block</code>; <code>drill-rig.block</code>; <code>scenario.affected</code>.</li>
+        <li><b>Кто задал рычаг</b> — <code>…_source</code>: правило, модуль или оператор.</li>
+      </ul>
+      <pre class="code"><span class="c">// GET /api/2/things/kz.aktogay:truck-05 (фрагмент)</span>
+"_parents": "kz.aktogay:mine",
+"links": {"home_loader": "…:loader-01",
+          "workshop": "…:workshop"},
+"assigned_loader": {"properties":
+    {"value": "kz.aktogay:loader-03"}},
+"assignment_source": {"properties":
+    {"value": "dispatch"}},
+"payload_t": {"properties":
+    {"value": 135.9, "unit": "t"}}</pre>
+    </div>
+    <div class="col" style="width:280px">
+      <div class="crop" style="--s:0.76; --x:16; --y:136; --w:348; --h:560"><img src="img/truck-card-day.jpg" alt=""></div>
+      <div class="cap"><b>Карточка самосвала:</b> признаки с графиками из InfluxDB; связи — ссылки на другие двойники.</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> щелчок по самосвалу на сцене, поиск «Самосвал №5» или кнопка «Объекты» в верхней строке; адрес <code>http://localhost:8088/#/twin/truck-05</code>; JSON — <code>/ditto/api/2/things/kz.aktogay:truck-05</code>.</div>
+</section>
+
+<!-- 5. Fidelity -->
+<section class="slide">
+  <div class="tag">Достоверность</div><div class="num">5</div>
+  <h1>Модель настроена на открытые цифры Актогая и сходится с ними</h1>
+  <p class="lead">Калибровка — без модулей: 7 суток модели (<code>mine/tests/test_soak.py</code>), пересчёт на год, против отчёта KAZ Minerals за 2025 год. С четырьмя модулями — готовность 93,3 %, переработка на 8 % выше линии, 114,5 тыс. т меди в год. Скорость и расход самосвала следуют из мощности, массы и уклона.</p>
+  <div class="body">
+    <div class="col" style="width:600px">
+      <table class="t">
+        <tr><th>Показатель</th><th class="n">Модель без модулей</th><th class="n">Актогай</th><th>Источник</th></tr>
+        <tr><td>Руда линии №1 за год</td><td class="n">30,91 млн т</td><td class="n">30,909 млн т</td><td>KAZ 2025, с. 3</td></tr>
+        <tr><td>Медь в концентрате линии за год</td><td class="n">111,8 тыс. т</td><td class="n">109,7 тыс. т</td><td>KAZ 2025, доля линии</td></tr>
+        <tr><td>Содержание меди в питании</td><td class="n">0,42 %</td><td class="n">0,41 %</td><td>KAZ 2025</td></tr>
+        <tr><td>Извлечение</td><td class="n">87,0 %</td><td class="n">87,2 %</td><td>KAZ 2025</td></tr>
+        <tr><td>Коэффициент вскрыши</td><td class="n">0,35 т/т</td><td class="n">0,363 т/т</td><td>KAZ 2024, расчёт</td></tr>
+        <tr><td>Расход дизеля самосвала</td><td class="n">121 л/ч</td><td class="n">89–127 л/ч</td><td>паспорт 785C, статья</td></tr>
+        <tr><td>Готовность самосвалов</td><td class="n">87,2 %</td><td class="n">85 %</td><td>расчёт парка; лучшие 92–94 %</td></tr>
+        <tr><td>Баланс горной массы и меди</td><td class="n">0,0000 т</td><td class="n">—</td><td>замыкается за 7 суток</td></tr>
+      </table>
+      <div class="kpi">
+        <div><div class="v">59 / 16</div><div class="l">параметров из прочитанных источников / по выдержке</div></div>
+        <div><div class="v">41</div><div class="l">расчёт из других строк</div></div>
+        <div><div class="v">231</div><div class="l">допущение с обоснованием</div></div>
+      </div>
+    </div>
+    <div class="col grow">
+      <div class="crop" style="--s:1.2; --x:1066; --y:215; --w:356; --h:170"><img src="img/hardore-card.jpg" alt=""></div>
+      <div class="cap"><b>Закон Бонда на стенде, «Зона крепкой руды», 37 мин:</b> индекс 14 → 16,1 кВт·ч/т — предел мельницы по мощности 72 МВт 4 381 → 3 821 т/ч, удельная энергия 16,4 → 18,8 кВт·ч/т, медь 15,5 → 13,6 т/ч; модуль фабрики снижает уставку.</div>
+      <ul class="points small">
+        <li>Гружёный 785C на съезде 10 %: 1 005 кВт × 0,8 / (238 т × g × 12,5 %) = 9,9 км/ч.</li>
+        <li>Склад: Δзапас = дробилка − мельница; медь = питание × содержание × извлечение.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> «О модели» — таблица реальных цифр с источниками; «Сценарии «что если»» → «Зона крепкой руды» → «Запустить», точка обзора «Фабрика»; все 347 чисел — <code>docs/mine/parameters.md</code>.</div>
+</section>
+
+<!-- 6. Visualization: the page -->
+<section class="slide">
+  <div class="tag">Визуализация</div><div class="num">6</div>
+  <h1>Рудник на весь экран: всё, что видно, приходит из двойников</h1>
+  <p class="lead">Геометрия — из атрибутов <code>geo</code> и <code>spec</code>, состояние — из признаков, связи — из <code>links</code>. Страница открывается на общем виде карьера и фабрики в 3D.</p>
+  <div class="body" style="gap:20px">
+    <div class="col" style="width:808px">
+      <div class="crop" style="--s:0.56; --x:0; --y:0; --w:1440; --h:810"><img src="img/overview-page.jpg" alt=""></div>
+      <div class="cap"><b>Общий вид при дневном освещении (<code>?time=11:30</code>; часы показывают модельное время):</b> карьер уступами в настоящем масштабе высот, съезды, отвал, рудные склады, конвейер, фабрика; техника там, где она сейчас.</div>
+    </div>
+    <div class="col grow">
+      <ul class="points small">
+        <li><b>Верхняя строка</b> — поиск, «Объекты», модельное время со сменой и погодой, скорость ×1…×60, «О модели», «Справка».</li>
+        <li><b>Шесть плиток</b> — подача на мельницу, запас склада в часах (запас ÷ нынешняя уставка), медь, самосвалы в работе, маржа, CO₂; щелчок — цепочка от забоя до флотации в цифрах и медь, руда, переработка за смену (с 08:00 или 20:00).</li>
+        <li><b>Справа</b> — «Советник», «Сценарии «что если»», «Модули управления»: строка раскрывается в карточку.</li>
+        <li><b>Слева</b> — список «Объекты» и карточка выбранного объекта.</li>
+        <li><b>Внизу</b> — «3D» / «План», точки обзора «Обзор», «Забои», «Съезды», «Фабрика», масштаб, «Слои и знаки», строка журнала.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> http://localhost:8088 — 3D сразу; <code>?view=plan</code> — план; <code>#/twin/&lt;имя&gt;</code> — объект; мышь поворачивает, колесо приближает; видеокарта не нужна.</div>
+</section>
+
+<!-- 7. Visualization: the scene -->
+<section class="slide">
+  <div class="tag">Визуализация</div><div class="num">7</div>
+  <h1>Сцена живёт по модели: техника, фабрика, день и ночь, план</h1>
+  <p class="lead">Caterpillar 785C, Hitachi EX3600 и Sandvik D55SP в своих размерах; солнце стоит там, где оно над Актогаем в модельное время.</p>
+  <div class="body" style="gap:18px">
+    <div class="col" style="width:752px; display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; align-content:start">
+      <div><div class="crop" style="--s:0.34; --x:0; --y:130; --w:1060; --h:620"><img src="img/faces-day.jpg" alt=""></div><div class="cap"><b>«Забои», день:</b> экскаватор №1 грузит самосвал.</div></div>
+      <div><div class="crop" style="--s:0.34; --x:0; --y:130; --w:1060; --h:620"><img src="img/plant-day.jpg" alt=""></div><div class="cap"><b>«Фабрика»:</b> склад руды, мельницы, флотация.</div></div>
+      <div><div class="crop" style="--s:0.34; --x:0; --y:130; --w:1060; --h:620"><img src="img/overview-night.jpg" alt=""></div><div class="cap"><b>Ночь, 22:16 модели:</b> фары, прожекторы, огни.</div></div>
+      <div><div class="crop" style="--s:0.34; --x:0; --y:130; --w:1060; --h:620"><img src="img/plan-faces-grade.jpg" alt=""></div><div class="cap"><b>«План», «Содержание Cu»:</b> % Cu в блоках.</div></div>
+    </div>
+    <div class="col grow">
+      <ul class="points small">
+        <li>Экскаватор поворачивается от забоя к самосвалу, самосвал поднимает кузов на разгрузке, станок поднимает мачту, когда бурит; за самосвалом на сухой дороге — пыль.</li>
+        <li>Круг под машиной — её состояние; неисправная — красный круг с маячком; жёлтая метка с числом — очередь.</li>
+        <li>Дождь и снег идут, когда так говорит двойник погоды; закрытая дорога перегорожена, опасная зона взрыва — красный купол с отсчётом; затронутое сценарием подсвечено янтарным.</li>
+        <li>«Слои и знаки» окрашивают блоки по состоянию, содержанию меди, крепости или назначению — на сцене и на плане.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> нижняя строка → «Обзор», «Забои», «Съезды», «Фабрика»; «План»; «Слои и знаки» → «Содержание Cu»; <code>?time=12:00</code> в адресе — освещение полудня.</div>
+</section>
+
+<!-- 8. Scenarios -->
+<section class="slide">
+  <div class="tag">Сценарии «что если»</div><div class="num">8</div>
+  <h1>Шесть сценариев: последствия идут по связанным двойникам</h1>
+  <p class="lead">Сценарий меняет только свою подсистему, дальше всё следует из модели. Карточка показывает четыре звена цепочки «до → сейчас» за равные окна и помечает изменения в пределах обычных колебаний.</p>
+  <div class="body">
+    <div class="col grow">
+      <table class="t sc">
+        <tr><th>Сценарий</th><th class="n">Ожидается</th><th>Цепочка, которую показывает карточка</th></tr>
+        <tr><td>Закрытие дороги</td><td class="n">6 ч</td><td class="ch">путь с грузом <i>→</i> время рейса <i>→</i> руда в дробилку <i>→</i> запас склада, ч</td></tr>
+        <tr><td>Отказ экскаватора</td><td class="n">8 ч</td><td class="ch">выемка <i>→</i> очередь на рейс <i>→</i> руда в дробилку <i>→</i> содержание меди в питании</td></tr>
+        <tr><td>Остановка дробилки</td><td class="n">8 или 3 ч</td><td class="ch">дробилка <i>→</i> руда на рудные склады <i>→</i> запас склада, ч <i>→</i> питание мельницы</td></tr>
+        <tr><td>Сильный дождь</td><td class="n">3 ч + 30 мин</td><td class="ch">ограничения скорости <i>→</i> рейс без ожидания <i>→</i> дизель на тонну <i>→</i> руда в дробилку</td></tr>
+        <tr><td>Взрыв блока</td><td class="n">20 + 15 мин</td><td class="ch">оцепление, закрытые дороги <i>→</i> выемка <i>→</i> время рейса <i>→</i> взорванная масса</td></tr>
+        <tr><td>Зона крепкой руды</td><td class="n">12 ч</td><td class="ch">индекс Бонда <i>→</i> предел мельницы по мощности <i>→</i> удельная энергия <i>→</i> медь</td></tr>
+      </table>
+      <ul class="points small" style="margin-top:4px">
+        <li>У каждого сбоя — ожидаемая длительность с обоснованием (у дробилки — по причине: механическая неисправность или заклинивание). На стенде сценарий идёт, пока его не отменят; прогнозы считают, что он кончится в ожидаемое время.</li>
+        <li>Затронутые двойники подсвечены на сцене янтарным; их список — признак <code>affected</code>. «До» — чистое окно без других сценариев.</li>
+        <li>Запуск и отмена — живые сообщения Ditto <code>activate</code> / <code>cancel</code> двойнику сценария.</li>
+      </ul>
+    </div>
+    <div class="col" style="width:540px">
+      <div class="crop" style="--s:0.6; --x:100; --y:166; --w:900; --h:540"><img src="img/blast-scene.jpg" alt=""></div>
+      <div class="cap"><b>«Взрыв блока», оцепление:</b> над блоком 120-05 купол опасной зоны 200 м и отсчёт «Взрыв через 16 мин», две дороги закрыты, экскаватор №5 выводится, под плитками — «Взрывные работы: оцепление».</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> «Сценарии «что если»» → строка сценария → выбрать объект (недопустимые — под «Сейчас нельзя» с причиной) → «Запустить»; «Отменить» возвращает рудник к обычной работе.</div>
+</section>
+
+<!-- 9. Two scenarios step by step -->
+<section class="slide">
+  <div class="tag">Сценарии «что если»</div><div class="num">9</div>
+  <h1>От причины до фабрики: закрытый съезд и ливень в карточках</h1>
+  <p class="lead">Оба сценария сняты на стенде 16 октября при скорости ×20; рядом со сценой — карточка с цепочкой «до → сейчас». Над цепочкой карточка пишет ожидаемое окончание сбоя и его обоснование.</p>
+  <div class="body" style="gap:24px">
+    <div class="col" style="width:576px">
+      <div class="crop" style="--s:0.56; --x:396; --y:245; --w:1026; --h:560"><img src="img/road-card.jpg" alt=""></div>
+      <div class="cap"><b>Закрыт «Главный съезд: выезд — горизонт 300 м», 23 мин, ожидаемое окончание через 5 ч 37 мин:</b> въезд перегорожен; пока рейсы по новым маршрутам не закончены, «сейчас» — прогноз со знаком ≈: путь с грузом, среднее по рейсам 2,95 → 7,58 км (+157 %), рейс 25,2 → 46,5 мин, руда в дробилку 4 325 → 2 658 т/ч (−39 %); склад пока в пределах колебаний.</div>
+    </div>
+    <div class="col" style="width:576px">
+      <div class="crop" style="--s:0.56; --x:396; --y:215; --w:1026; --h:560"><img src="img/rain-card.jpg" alt=""></div>
+      <div class="cap"><b>Сильный дождь, 4 мм/ч, 32 мин, ожидаемое окончание через 2 ч 28 мин:</b> на съездах идёт дождь, знак «Ограничение 27 км/ч», западный съезд закрыт; среднее ограничение скорости 35,5 → 27,7 км/ч (−22 %), рейс без ожидания 22,7 → 25,2 мин (+11 %), руда в дробилку 4 343 → 3 595 т/ч — пока в пределах колебаний.</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> «Закрытие дороги» или «Сильный дождь» → «Запустить»; итог на фабрике сразу — «Прогноз на 12 ч» в карточке или «×60» в верхней строке.</div>
+</section>
+
+<!-- 10. Forecast -->
+<section class="slide">
+  <div class="tag">Прогноз</div><div class="num">10</div>
+  <h1>Две ветки будущего: 12 часов дважды за 11–12 секунд</h1>
+  <p class="lead">Симулятор копирует свою модель в текущем состоянии вместе с ядрами включённых модулей и прогоняет копию в двух вариантах. Происшествие в ветке кончается в своё ожидаемое время. Настоящий рудник при этом не меняется.</p>
+  <div class="body" style="gap:20px">
+    <div class="col grow">
+      <ul class="points small">
+        <li><b>Ветка А</b> — всё как сейчас; <b>ветка Б</b> — с одним изменением: сценарий запущен или отменён, модуль включён или выключен, вариант советника применён.</li>
+        <li><b>Итог с поправкой</b> — первая строка: переменная маржа плюс руда, которую горизонт оставляет, по одной цене везде — медь сверх средней руды (0,41 %) плюс работа парка 897 ₸/т, минус перевалка с рудного склада 208 ₸/т; минус ресурсы смены. Перекладывание руды из кучи в кучу итог не меняет.</li>
+        <li><b>Откуда медь:</b> переработано руды, содержание в питании, извлечение; руда со склада, с рудных складов и из забоев.</li>
+        <li><b>Общие случайные числа:</b> у каждой машины, блока и дня свой поток; парный разброс — 8 млн ₸ и 0,7 т меди за 12 ч, разница меньше двух стандартных ошибок помечена «в пределах разброса».</li>
+        <li>Тот же движок: советник (слоты 2–5, по 3 парных повтора), модули (слоты 6–9), проверка стенда (слот 10).</li>
+      </ul>
+    </div>
+    <div class="col" style="width:304px">
+      <div class="crop" style="--s:0.85; --x:1066; --y:58; --w:356; --h:338"><img src="img/forecast-crusher.jpg" alt=""></div>
+      <div class="crop" style="--s:0.85; --x:310; --y:355; --w:200; --h:34"><img src="img/forecast-crusher.jpg" alt=""></div>
+      <div class="cap"><b>На сцене у склада</b> — его заполнение через 12 ч в обеих ветках.</div>
+    </div>
+    <div class="col" style="width:304px">
+      <div class="crop" style="--s:0.85; --x:1066; --y:400; --w:356; --h:346"><img src="img/forecast-crusher.jpg" alt=""></div>
+      <div class="cap"><b>«Остановка дробилки», механическая неисправность 8 ч, склад 48 %:</b> подача снижается примерно до 2 300 т/ч, медь 187,4 → 124,0 т (−63,4 т), итог с поправкой −338,6 млн ₸ (маржа −377 млн ₸), склад к концу 6,1 → 1,2 ч.</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> раскрыть строку сценария → «Прогноз на 12 ч» (или «Что даёт модуль?» в карточке модуля); панель появится в карточке, подпись «Склад через 12 ч» — на сцене.</div>
+</section>
+
+<!-- 11. Advisor -->
+<section class="slide">
+  <div class="tag">Советник</div><div class="num">11</div>
+  <h1>Одно происшествие — два ответа: хватит ли склада до конца ремонта</h1>
+  <p class="lead">Советник знает, сколько продлится сбой и на сколько хватит склада дроблёной руды. Он строит варианты из ресурсов смены и рычагов модулей, проигрывает каждый на 12 часов в трёх парных повторах и пишет, почему вариант окупается или нет. Решает начальник смены.</p>
+  <div class="body" style="gap:18px">
+    <div class="col grow">
+      <ul class="points small">
+        <li><b>Заклинивание дробилки на 3 ч:</b> при складе на 6,4 ч мельница сбоя не заметит — вторая бригада за 1,2 млн ₸ даёт −0,2 ± 4,6 млн ₸, рекомендовано «Ничего не менять». При складе на 2,6 ч та же бригада приносит +76,0 ± 8,7 млн ₸ и 14,1 т меди.</li>
+        <li><b>Ресурсы смены и их цена:</b> вторая бригада с подрядчиком (ремонт × 0,6, 1,2–1,3 млн ₸), бригада мастерской в забой (× 0,75, без денег, бокс простаивает), аварийная дорожная бригада (полоса через 2 ч, 0,72 млн ₸), грейдер с подсыпкой (5,4 млн ₸).</li>
+        <li><b>Рекомендация</b> — если выигрыш не меньше 2 стандартных ошибок (≥ 9,2 млн ₸) и 3 млн ₸, медь теряется не больше 1 т и выигрыш не держится на запасах. Ранжирование — за 16–19 с.</li>
+      </ul>
+      <table class="t compact">
+        <tr><th>Стенд, 16.10.2026</th><th class="n">Склад</th><th>Рекомендация</th><th class="n">За 12 ч</th></tr>
+        <tr><td>Дробилка, 8 ч</td><td class="n">56 / 15 %</td><td>вторая бригада</td><td class="n good">+229 / +231 млн ₸</td></tr>
+        <tr><td>Главный съезд, 6 ч</td><td class="n">60 %</td><td>«Ничего не менять»</td><td class="n">+4,9 ± 4,6</td></tr>
+        <tr><td></td><td class="n">10 %</td><td>аварийная дорожная бригада</td><td class="n good">+63,9 ± 5,6 млн ₸</td></tr>
+        <tr><td>Ливень, экскаватор</td><td class="n">оба уровня</td><td>«Ничего не менять»</td><td class="n">грейдер −5,4</td></tr>
+      </table>
+    </div>
+    <div class="col" style="width:300px">
+      <div class="pair-label">Склад 59 % (6,4 ч): «Ничего не менять»</div>
+      <div class="cardshot" style="width:300px"><img src="img/advisor-jam-high.jpg" alt=""></div>
+    </div>
+    <div class="col" style="width:300px">
+      <div class="pair-label good">Склад 19 % (2,6 ч): вторая бригада</div>
+      <div class="cardshot" style="width:300px"><img src="img/advisor-jam-low.jpg" alt=""></div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> «Остановка дробилки» → причина «Заклинивание негабаритом, ≈3 ч» → «Запустить» → через 16–19 с вверху правой стопки «Советник: что делать» → «Применить» у варианта → запись в журнале.</div>
+</section>
+
+<!-- 12. Modules -->
+<section class="slide">
+  <div class="tag">Модули</div><div class="num">12</div>
+  <h1>Четыре модуля управления меняют работу рудника, эффект измерен</h1>
+  <p class="lead">Модуль — отдельный сервис: видит рудник через события двойников, действует живыми сообщениями Ditto, пишет свой двойник. Эффект — 7 суток модели без модуля и с ним (<code>mine/tests/test_modules.py</code>) и прогноз «с модулем / без» на стенде каждые 3 часа модели.</p>
+  <div class="body">
+    <div class="col grow">
+      <table class="t compact">
+        <tr><th>Модуль</th><th>Рычаг</th><th>Мера эффекта за 7 суток: без → с модулем</th><th>Цена и оговорки</th></tr>
+        <tr><td>Диспетчеризация</td><td><code>assign</code> самосвалу</td><td class="good">вскрыша 324 → 357 тыс. т (+10,2 %); ожидание на рейс 2,95 → 2,87 мин; очередь у дробилки при полном складе 390 → 30 самосвало-мин</td><td class="cost">ожидание у экскаваторов 1,01 → 2,45 мин</td></tr>
+        <tr><td>Качество руды</td><td><code>set-destination</code>, <code>set-reclaim</code></td><td class="good">содержание в полосе 0,38–0,44 %: 47,3 → 100 % времени</td><td class="cost">медь −3,1 %: питание беднее, богатая руда на складе (+64 т Cu)</td></tr>
+        <tr><td>Фабрика</td><td><code>set-feed-rate</code> мельнице</td><td class="good">медь 2 330 → 2 505 т (+7,5 %), переработка +9,1 %, остановок 0</td><td class="cost">извлечение 87,00 → 86,04 % при питании выше рабочего</td></tr>
+        <tr><td>Техобслуживание</td><td><code>schedule-service</code></td><td class="good">готовность самосвалов 87,2 → 93,3 %, отказов 180 → 19</td><td class="cost">заявок в мастерскую 4 → 190; 10 % дефектов внезапные</td></tr>
+        <tr class="sep"><td>Все четыре</td><td></td><td class="good">медь 2 330 → 2 387 т (+2,5 %), готовность 87,2 → 93,3 %, отказов 180 → 20</td><td class="cost">часть меди фабрики уходит на склад богатой руды</td></tr>
+      </table>
+      <table class="t compact">
+        <tr><th>На стенде, 16.10.2026: медь и итог с поправкой за 12 ч «с модулем / без»</th><th class="n">Проверка стенда</th><th class="n">Среднее прогнозов</th></tr>
+        <tr><td>Фабрика</td><td class="n good">+18,7 т, +107,9 млн ₸</td><td class="n good">+14,3 т, +84,1 млн ₸</td></tr>
+        <tr><td>Техобслуживание</td><td class="n">+1,2 т, +1,0 млн ₸</td><td class="n">+0,1 т, −2,0 млн ₸</td></tr>
+        <tr><td>Диспетчеризация</td><td class="n">−0,8 т, +3,4 млн ₸</td><td class="n">−1,0 т, −3,1 млн ₸</td></tr>
+        <tr><td>Качество руды</td><td class="n">−4,3 т, −0,5 млн ₸</td><td class="n cost">−5,9 т, −4,1 млн ₸</td></tr>
+      </table>
+      <div class="cap">У диспетчеризации и качества руды меди меньше, потому что питание беднее: богатая руда остаётся на складах, итог с поправкой это учитывает. Пятый модуль — советник (слайд 11).</div>
+    </div>
+    <div class="col" style="width:290px">
+      <div class="crop" style="--s:0.76; --x:1066; --y:305; --w:356; --h:441"><img src="img/module-plant.jpg" alt=""></div>
+      <div class="cap"><b>«Управление фабрикой»:</b> уставка 4 240 т/ч на потолке модуля 4 249 — 97 % предела мельницы по мощности 4 380 т/ч; эффект — +15,6 т меди, итог +91,8 млн ₸, среднее 3 прогнозов.</div>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> «Модули управления» → переключатель «Включён» / «Выключен»; щелчок по строке — карточка с решениями и эффектом; «Что даёт модуль?» — прогноз на 12 ч с ним и без него.</div>
+</section>
+
+<!-- 13. Built on OpenEgiz -->
+<section class="slide">
+  <div class="tag">Построено на OpenEgiz</div><div class="num">13</div>
+  <h1>Все данные идут через платформу: MQTT → Ditto → Telegraf → InfluxDB</h1>
+  <p class="lead">Ни один компонент рудника не читает состояние другого в обход Ditto: симулятор получает команды живыми сообщениями, модули видят рудник через двойники, страница — через шлюз к Ditto и InfluxDB.</p>
+  <div class="body">
+    <div class="flow" style="width:720px; height:380px">
+      <div class="box mine" style="left:0; top:10px; width:190px"><b>mine-sim</b>симулятор и прогноз; единственный писатель физических двойников</div>
+      <div class="box plat" style="left:262px; top:10px; width:190px"><b>Mosquitto</b><code>telemetry/&lt;имя&gt;</code><br><code>opentwins/twin/events/…</code></div>
+      <div class="box plat" style="left:524px; top:10px; width:196px"><b>Eclipse Ditto</b>182 вещи, поиск, поток событий, живые сообщения</div>
+      <div class="box plat" style="left:262px; top:150px; width:190px"><b>Telegraf → InfluxDB</b>bucket <code>default</code>, <code>mqtt_consumer</code>, тег <code>thingId</code></div>
+      <div class="box mine" style="left:0; top:150px; width:190px"><b>5 модулей</b>события двойников по MQTT; решения — HTTP <code>…/inbox/messages/…</code></div>
+      <div class="box ui" style="left:524px; top:150px; width:196px"><b>mine-ui (nginx)</b>страница :8088; шлюз только для чтения и разрешённых сообщений</div>
+      <div class="box plat" style="left:262px; top:268px; width:190px"><b>Grafana</b>«Актогай — история», без входа</div>
+      <div class="box ui" style="left:524px; top:268px; width:196px"><b>Браузер</b>3D-сцена, план, плитки, карточки</div>
+      <svg width="720" height="330" style="position:absolute; left:0; top:0; pointer-events:none" viewBox="0 0 720 330">
+        <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7c8791"/></marker></defs>
+        <g stroke="#7c8791" stroke-width="1.6" fill="none" marker-end="url(#a)">
+          <line x1="192" y1="34" x2="258" y2="34"/>
+          <line x1="258" y1="54" x2="194" y2="54"/>
+          <line x1="454" y1="34" x2="520" y2="34"/>
+          <line x1="520" y1="54" x2="456" y2="54"/>
+          <line x1="357" y1="76" x2="357" y2="146"/>
+          <line x1="300" y1="76" x2="196" y2="150"/>
+          <line x1="150" y1="146" x2="560" y2="80" stroke-dasharray="4 3"/>
+          <line x1="610" y1="80" x2="610" y2="146"/>
+          <line x1="640" y1="146" x2="640" y2="80"/>
+          <line x1="456" y1="200" x2="520" y2="200"/>
+          <line x1="357" y1="226" x2="357" y2="264"/>
+          <line x1="622" y1="236" x2="622" y2="264"/>
+        </g>
+      </svg>
+      <div class="legend-row" style="position:absolute; left:0; top:350px"><span class="m">сервисы рудника</span><span class="p">платформа OpenEgiz</span><span class="u">страница</span><span class="note">стрелки — куда идут данные; пунктир — решения модулей</span></div>
+    </div>
+    <div class="col grow">
+      <pre class="code"><span class="c"># двойник через шлюз страницы, без пароля</span>
+curl localhost:8088/ditto/api/2/things/kz.aktogay:truck-05
+
+<span class="c"># телеметрия и события в MQTT (localhost:1883)</span>
+mosquitto_sub -t 'telemetry/truck-05'
+mosquitto_sub -t 'opentwins/twin/events/kz.aktogay/truck-05'
+
+<span class="c"># история в InfluxDB: поле value_&lt;признак&gt;_properties_value</span>
+curl 'localhost:8088/influx/query?thing=kz.aktogay:truck-05&amp;range=5m'</pre>
+      <ul class="points small">
+        <li>Сообщение телеметрии — команда протокола Ditto <code>things/twin/commands/modify</code> с полным набором признаков.</li>
+        <li>Модуль выключен или упал — его решения истекают через 30 мин модели, рудник возвращается к базовым правилам.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="see"><b>Как увидеть на стенде:</b> команды справа на машине со стендом; приложение OpenEgiz в Grafana платформы — http://localhost:3000, вход по README.</div>
+</section>
+
+<!-- 14. How to run, see, and the limits -->
+<section class="slide">
+  <div class="tag">Запуск, проверка, ограничения</div><div class="num">14</div>
+  <h1>Две команды — и рудник работает; пять минут — и видно всё</h1>
+  <p class="lead">Ubuntu 24.04 с Docker Engine и Compose v2. Первый запуск скачивает около 6 ГБ образов и занимает 7–15 минут; повторный при скачанных образах — 83 с.</p>
+  <div class="body" style="align-items:flex-start">
+    <div class="col" style="width:600px">
+      <pre class="code">sudo apt-get update &amp;&amp; sudo apt-get install -y make curl
+make mine
+<span class="c"># … Aktogay mine slice is running: http://localhost:8088</span></pre>
+      <table class="t compact">
+        <tr><th>Адрес или команда</th><th>Что там</th></tr>
+        <tr><td>http://localhost:8088</td><td>рудник в 3D, плитки, объекты, сценарии, модули, советник, журнал</td></tr>
+        <tr><td><code>?view=plan</code> · <code>?time=12:00</code></td><td>сразу план · освещение полудня</td></tr>
+        <tr><td>http://localhost:3000/d/aktogay-history</td><td>Grafana «Актогай — история», без входа</td></tr>
+        <tr><td><code>make mine-check</code></td><td>сквозная проверка стенда, около 3 мин</td></tr>
+        <tr><td><code>make mine-test</code></td><td>194 теста модели, модулей, ресурсов смены, прогноза и советника (11 мин)</td></tr>
+      </table>
+      <ul class="points small">
+        <li><b>0:00</b> общий вид и плитки; щелчок по самосвалу — карточка и маршрут</li>
+        <li><b>0:30</b> «Забои», «Фабрика»; «План» → «Слои и знаки» → «Содержание Cu»</li>
+        <li><b>1:30</b> «Остановка дробилки» → причина → «Запустить» → «Советник: что делать» → «Применить»</li>
+        <li><b>3:00</b> «Прогноз на 12 ч»; «Что даёт модуль?»; «Отменить»; журнал → «История в Grafana ↗»</li>
+      </ul>
+    </div>
+    <div class="col grow card">
+      <h3>Ограничения</h3>
+      <ul class="points small">
+        <li>Участок: одна сульфидная линия и её забои; вторая линия, окисленная руда (SX-EW), молибден, вода и сгущение не моделируются.</li>
+        <li>Геометрия карьера, расстановка объектов и длины дорог условны — KAZ Minerals их не публикует; оборудование — проект 2014 года.</li>
+        <li>231 из 347 параметров — допущения с обоснованием: бортовое содержание, индекс Бонда, вместимость склада, отказы, длительности ремонтов, цены ресурсов смены.</li>
+        <li>Людей, вентиляции, водоотлива и геотехники бортов нет; опасная зона взрыва — по российским правилам. Маржа переменная, цены — октябрь 2026 г.</li>
+        <li>Эффект на фабрике виден через часы модели; выводы о разнице меньше двух стандартных ошибок прогноза не делаются.</li>
+      </ul>
+      <h3 style="margin-top:8px">Что дальше</h3>
+      <ul class="points small">
+        <li>Вторая линия и общие забои; сгущение, вода и хвостовое хозяйство как двойники; персонал и допуски в зоны.</li>
+        <li>Калибровка по данным диспетчерской системы, если оператор их предоставит; советник с несколькими действиями и горизонтом в две смены.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="see"><b>Подробно:</b> «Справка» и «О модели» на странице; SUBMISSION.md, <code>docs/mine/parameters.md</code> (все числа с источниками), <code>docs/mine/ARCHITECTURE.md</code> (устройство и контракты сообщений).</div>
+</section>
+
+</body>
+</html>

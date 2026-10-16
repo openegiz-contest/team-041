@@ -264,18 +264,10 @@ services:
   # ------------------------------------------------- OpenTwins extended API
   # Upstream sources carry no license file, so OpenEgiz never publishes an
   # image of it: every install builds it locally from the pinned commit
-  # (same commit and Dockerfile as rebuild/extended-api/).
+  # (deploy/compose/extended-api/Dockerfile; same commit as rebuild/extended-api/).
   extended-api:
     build:
-      context: https://github.com/ertis-research/extended-api-for-eclipse-ditto.git#b49663dea326854a2323423eaeab7e7f54d325a7
-      dockerfile_inline: |
-        FROM node:20-slim
-        WORKDIR /usr/src/app
-        COPY package*.json yarn.lock ./
-        RUN yarn install --frozen-lockfile
-        COPY . .
-        EXPOSE 8080
-        CMD ["yarn", "start"]
+      context: ./extended-api
     image: openegiz/ditto-extended-api:local-b49663d
     restart: unless-stopped
     mem_limit: 512m

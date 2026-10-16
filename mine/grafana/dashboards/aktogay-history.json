@@ -1,0 +1,1057 @@
+{
+  "uid": "aktogay-history",
+  "title": "Актогай — история",
+  "description": "История модели рудника Актогай (участок карьера и сульфидная фабрика №1) из двойников платформы OpenEgiz: цепочка руды, склад, медь, деньги, выбросы, самосвалы и сценарии.",
+  "tags": [
+    "aktogay",
+    "mine"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "schemaVersion": 39,
+  "version": 2,
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "influxdb",
+          "uid": "opentwins-influxdb"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#ff6ac1",
+        "name": "Сценарии по журналу",
+        "target": {
+          "refId": "Anno",
+          "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:journal\")\n  |> filter(fn: (r) => r._field == \"value_text_properties_value\" or r._field == \"value_severity_properties_value\")\n  |> keep(columns: [\"_time\", \"_value\", \"_field\"])\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.value_text_properties_value and r.value_severity_properties_value != \"warning\" and r.value_text_properties_value =~ /\\(сценарий «|сценарий «[^»]*» отменён|по сценарию/)\n  |> map(fn: (r) => ({_time: r._time, text: r.value_text_properties_value}))"
+        },
+        "mappings": {
+          "time": {
+            "source": "field",
+            "value": "_time"
+          },
+          "text": {
+            "source": "field",
+            "value": "text"
+          }
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Актогай — история** модели участка карьера и сульфидной фабрики №1 из её двойников на платформе OpenEgiz (InfluxDB). Модель построена по открытым данным и не связана с KAZ Minerals. Время по оси — настоящее, модель идёт быстрее: при ×20 час на графике — около 20 часов работы рудника. Розовые метки — запуск и отмена сценариев по журналу событий. Значения усреднены по шагу графика, не короче минуты."
+      },
+      "transparent": true
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Руда по цепочке, т/ч",
+      "description": "Подача на мельницу, производительность дробилки и грузопоток конвейера.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:mill\" and r._field == \"value_feed_tph_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "B",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:crusher\" and r._field == \"value_throughput_tph_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "C",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:conveyor\" and r._field == \"value_load_tph_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Мельница: подача"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f2a65a"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Дробилка"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5ad1ff"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Конвейер"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9aa6b1"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Склад дроблёной руды, %",
+      "description": "Заполнение склада дроблёной руды между конвейером и мельницей.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:stockpile\" and r._field == \"value_level_pct_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          },
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Склад руды"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c9772f"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Медь в концентрате, т/ч",
+      "description": "Выпуск меди флотацией.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:flotation\" and r._field == \"value_cu_tph_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Медь"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#1baf7a"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Переменная маржа, млн ₸/ч",
+      "description": "Выручка за оплачиваемую медь минус дизельное топливо и электроэнергия; постоянные затраты не учтены.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 10,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:mine\" and r._field == \"value_margin_kzt_h_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value) / 1000000.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "min": null,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Маржа"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f2a65a"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Выбросы CO₂, т/ч",
+      "description": "Дизельное топливо техники и электроэнергия из сети.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:mine\" and r._field == \"value_co2_t_h_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "CO₂"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9aa6b1"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Дизель, л на тонну горной массы",
+      "description": "Расход дизельного топлива самосвалами и экскаваторами на тонну вывезенной горной массы.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 10,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "every = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r.thingId == \"${ns}:mine\" and r._field == \"value_diesel_l_per_t_properties_value\")\n  |> map(fn: (r) => ({r with _value: float(v: r._value)}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: every, fn: mean, createEmpty: false)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": 120000,
+            "showPoints": "never",
+            "gradientMode": "opacity",
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Дизель"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#fab219"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "state-timeline",
+      "title": "Сценарии «что если»",
+      "description": "Когда какой сценарий шёл: по состоянию двойников сценариев.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and strings.hasPrefix(v: r.thingId, prefix: \"${ns}:scenario-\") and r._field == \"value_status_properties_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: if r.thingId == \"${ns}:scenario-road-closure\" then \"Закрытие дороги\" else if r.thingId == \"${ns}:scenario-shovel-failure\" then \"Отказ экскаватора\" else if r.thingId == \"${ns}:scenario-crusher-stop\" then \"Остановка дробилки\" else if r.thingId == \"${ns}:scenario-heavy-rain\" then \"Сильный дождь с мокрым снегом\" else if r.thingId == \"${ns}:scenario-blast\" then \"Взрыв блока\" else if r.thingId == \"${ns}:scenario-hard-ore\" then \"Крепкая руда\" else strings.trimPrefix(v: r.thingId, prefix: \"${ns}:\")}))\n  |> group(columns: [\"name\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: r.name}))\n  |> group(columns: [\"name\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.name}",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "transparent"
+          },
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "active": {
+                  "text": "идёт",
+                  "color": "#ff6ac1",
+                  "index": 0
+                },
+                "cancelling": {
+                  "text": "отменяется",
+                  "color": "#9d4f80",
+                  "index": 1
+                },
+                "inactive": {
+                  "text": "не активен",
+                  "color": "transparent",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "rowHeight": 0.85,
+        "mergeValues": true,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Самосвалы по состояниям, машин",
+      "description": "Сколько самосвалов чем заняты: очереди растут, когда встаёт дробилка или экскаватор.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "import \"strings\"\nevery = if int(v: v.windowPeriod) > 60000000000 then v.windowPeriod else 1m\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and strings.hasPrefix(v: r.thingId, prefix: \"${ns}:truck-\") and r._field == \"value_state_properties_value\")\n  |> aggregateWindow(every: every, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, state: if r._value == \"hauling\" then \"везёт груз\" else if r._value == \"returning\" then \"едет порожним\" else if r._value == \"approach\" then \"подъезд под погрузку\" else if r._value == \"loading\" then \"погрузка\" else if r._value == \"dumping\" then \"разгрузка\" else if r._value == \"queue_load\" then \"очередь на погрузку\" else if r._value == \"queue_dump\" then \"очередь на разгрузку\" else if r._value == \"to_fuel\" then \"едет на заправку\" else if r._value == \"refuel\" then \"заправка\" else if r._value == \"to_service\" then \"едет на ТО\" else if r._value == \"service\" then \"обслуживание\" else if r._value == \"down\" then \"неисправен\" else if r._value == \"standby\" then \"простой\" else r._value, _value: 1}))\n  |> group(columns: [\"state\", \"_time\"])\n  |> sum()\n  |> group(columns: [\"state\"])\n  |> sort(columns: [\"_time\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.state}",
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 70,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "stepAfter"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "везёт груз"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "едет порожним"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8ab8f0"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "подъезд под погрузку"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5f9fe8"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "погрузка"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#1baf7a"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "разгрузка"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#4fd1a1"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "очередь на погрузку"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#fab219"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "очередь на разгрузку"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d98c00"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "едет на заправку"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#b3aaf0"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "заправка"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "едет на ТО"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#97a1aa"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "обслуживание"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#6f7a84"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "неисправен"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e5484d"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "простой"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3d454c"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "state-timeline",
+      "title": "Самосвалы: чем занят каждый",
+      "description": "Состояние каждого самосвала по времени.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "opentwins-influxdb"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "opentwins-influxdb"
+          },
+          "refId": "A",
+          "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and strings.hasPrefix(v: r.thingId, prefix: \"${ns}:truck-\") and r._field == \"value_state_properties_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, truck: \"№\" + strings.trimPrefix(v: r.thingId, prefix: \"${ns}:truck-\")}))\n  |> group(columns: [\"truck\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, truck: r.truck}))\n  |> group(columns: [\"truck\"])\n  |> sort(columns: [\"_time\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.truck}",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "transparent"
+          },
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "hauling": {
+                  "text": "везёт груз",
+                  "color": "#3987e5",
+                  "index": 0
+                },
+                "returning": {
+                  "text": "едет порожним",
+                  "color": "#8ab8f0",
+                  "index": 1
+                },
+                "approach": {
+                  "text": "подъезд под погрузку",
+                  "color": "#5f9fe8",
+                  "index": 2
+                },
+                "loading": {
+                  "text": "погрузка",
+                  "color": "#1baf7a",
+                  "index": 3
+                },
+                "dumping": {
+                  "text": "разгрузка",
+                  "color": "#4fd1a1",
+                  "index": 4
+                },
+                "queue_load": {
+                  "text": "очередь на погрузку",
+                  "color": "#fab219",
+                  "index": 5
+                },
+                "queue_dump": {
+                  "text": "очередь на разгрузку",
+                  "color": "#d98c00",
+                  "index": 6
+                },
+                "to_fuel": {
+                  "text": "едет на заправку",
+                  "color": "#b3aaf0",
+                  "index": 7
+                },
+                "refuel": {
+                  "text": "заправка",
+                  "color": "#9085e9",
+                  "index": 8
+                },
+                "to_service": {
+                  "text": "едет на ТО",
+                  "color": "#97a1aa",
+                  "index": 9
+                },
+                "service": {
+                  "text": "обслуживание",
+                  "color": "#6f7a84",
+                  "index": 10
+                },
+                "down": {
+                  "text": "неисправен",
+                  "color": "#e5484d",
+                  "index": 11
+                },
+                "standby": {
+                  "text": "простой",
+                  "color": "#3d454c",
+                  "index": 12
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "rowHeight": 0.9,
+        "mergeValues": true,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ns",
+        "label": "Пространство имён двойников",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "opentwins-influxdb"
+        },
+        "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and r._field == \"value_margin_kzt_h_properties_value\" and strings.hasSuffix(v: r.thingId, suffix: \":mine\"))\n  |> group(columns: [\"thingId\"])\n  |> last()\n  |> group()\n  |> sort(columns: [\"_time\"], desc: true)\n  |> map(fn: (r) => ({_value: strings.trimSuffix(v: r.thingId, suffix: \":mine\")}))\n  |> keep(columns: [\"_value\"])",
+        "definition": "",
+        "refresh": 1,
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "sort": 0,
+        "current": {},
+        "options": []
+      }
+    ]
+  }
+}

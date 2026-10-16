@@ -144,3 +144,57 @@ lint:
 	@bash scripts/compose-env.sh
 	docker compose -f deploy/compose/docker-compose.yml config -q
 	@echo "lint: ok"
+
+# ---------------------------------------------------------------------------
+# Aktogay mine slice (mine/): twins, simulator and web page on the platform
+# ---------------------------------------------------------------------------
+.PHONY: mine mine-check mine-down mine-logs mine-test mine-params
+
+MINE_STACK := $(COMPOSE_BASE) -f mine/compose.yml
+# The platform is started from the base file alone, so the Example Mine is not
+# started with it even where `make example-mine` was run before: its marker is
+# pointed at a file that never exists.
+MINE_PLATFORM_UP := $(MAKE) --no-print-directory up MINE_MARKER=deploy/compose/.not-used
+# The mine image is built without a provenance record: a rebuild from cache
+# then yields the very same image, so repeating `make mine` leaves the running
+# simulator alone instead of recreating it. (`up --build` would also rebuild
+# the platform's own image, which `up` has just built.)
+MINE_BUILD := docker build -q --provenance=false -t aktogay/mine:local mine
+MINE_UP := { $(MINE_BUILD) && $(MINE_STACK) up -d --wait --wait-timeout 300; }
+
+## Start the platform and the Aktogay mine slice, check that the stand is ready, print its address.
+## Safe to repeat; a failed start of either part is retried once. The readiness
+## check waits generously and fails only if twins, telemetry, history or the page
+## are missing; the functional round trips are checked by `make mine-check`.
+mine:
+	@command -v curl >/dev/null || { echo "ERROR: curl is required: sudo apt-get install -y curl"; exit 1; }
+	@$(MINE_PLATFORM_UP) || { \
+	  echo "The platform did not start; trying once more in 20 s ..."; sleep 20; $(MINE_PLATFORM_UP); }
+	@$(MINE_UP) || { echo "The mine services did not start; trying once more in 10 s ..."; sleep 10; $(MINE_UP); }
+	@bash mine/tests/wait_ready.sh
+	@bash mine/tests/ready_check.sh
+	@bash -c 'set -a; . deploy/compose/.env; echo; echo "Aktogay mine slice is running: http://$${OPENEGIZ_PUBLIC_HOST:-localhost}:$${MINE_UI_PORT:-8088}"'
+
+## End-to-end check of the running mine stand: twins, history, page, and the round trips of
+## the modules, the scenarios, the forecast and the advisor
+mine-check:
+	@bash mine/tests/stand_check.sh
+
+## Stop the mine and the platform, keep data (`make clean` deletes everything)
+mine-down:
+	$(MINE_STACK) down
+
+## Follow logs of the mine services (one service: make mine-logs S=mine-sim)
+mine-logs:
+	$(MINE_STACK) logs -f --tail=100 $(or $(S),mine-twins mine-sim mine-dispatch mine-grade mine-plant mine-maint mine-advisor mine-ui)
+
+## Unit tests of the twin generator, the simulator, the scenarios, the modules, the forecasts and the advisor, with 7-day runs (needs Docker only).
+## docs/mine is mounted because the tests compare docs/mine/parameters.md with params.yaml.
+mine-test:
+	$(MINE_BUILD)
+	docker run --rm -v "$(CURDIR)/docs/mine:/app/docs/mine:ro" aktogay/mine:local python -m unittest discover -s mine/tests -t .
+
+## Regenerate docs/mine/parameters.md from mine/model/params.yaml
+mine-params:
+	$(MINE_BUILD)
+	docker run --rm --user "$$(id -u):$$(id -g)" -v "$(CURDIR)/docs/mine:/app/docs/mine" aktogay/mine:local python -m mine.model.build_params_doc --write

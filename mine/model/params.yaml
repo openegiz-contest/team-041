@@ -1,0 +1,806 @@
+# Equipment and process parameters of the Aktogay mine slice (part of the
+# pit and sulphide concentrator line No. 1): the single source of every
+# numeric constant of the model. docs/mine/parameters.md is generated from
+# this file by build_params_doc.py; do not edit that document by hand.
+#
+# Every entry has:
+#   value, unit
+#   title   what the number is (Russian, shown in the document)
+#   source  title of the source;  url  its address
+#   status  sourced     the number was read in the source itself
+#           snippet     the number comes from a search summary of the source; the source was not opened
+#           derived     computed from other entries or from published figures; the arithmetic is in `note`
+#           assumption  chosen by the project; the reasoning is in `note`
+#   note    remarks (Russian)
+#
+# `_sources` holds the source records shared by several entries; an entry
+# pulls one in with `<<: *name`.
+
+_sources:
+  kz25: &kz25
+    source: "KAZ Minerals, Production report for the fourth quarter and full year 2025 (таблица AKTOGAY, с. 3)"
+    url: "https://www.kazminerals.com/?attachment_id=6823"
+  kaz: &kaz
+    source: "KAZ Minerals, Production and Sales Report for the twelve months and fourth quarter ended 31 December 2024 (таблица AKTOGAY, с. 3)"
+    url: "https://www.kazminerals.com/media/23240/q4-2024-production-report_final.pdf"
+  kzwaste: &kzwaste
+    source: "KAZ Minerals, Sustainability: Waste — таблица «Waste rock by asset (Mt)», Актогай 2024 год"
+    url: "https://www.kazminerals.com/sustainability/environment/waste"
+  kz2014: &kz2014
+    source: "KAZ Minerals, Projects Update, 11 декабря 2014 года (раздел Бозшаколя, с. 9–30; с. 36: инженерные решения Актогая идентичны)"
+    url: "https://www.kazminerals.com/media/2828/projects_update_111214.pdf"
+  noaa: &noaa
+    source: "Нормы ВМО 1991–2020, станция Актогай (Aqtogay-36619), NOAA; таблица климата статьи Википедии «Aktogay, East Kazakhstan Region» (вторичный источник)"
+    url: "https://en.wikipedia.org/wiki/Aktogay,_East_Kazakhstan_Region"
+  cat785: &cat785
+    source: "Construction Equipment Guide, Caterpillar 785C Specifications (таблица характеристик)"
+    url: "https://www.constructionequipmentguide.com/charts/off-highway-trucks/caterpillar/785c/30412946"
+  hitachi: &hitachi
+    source: "Hitachi, EX3600-6 Mining Excavator, sales brochure (технические данные EX3600-6 и EX3600E-6, с. 14 и 17)"
+    url: "https://www.doggett.com/images/doggett-hitachi/Brochures/Mining-EX3600-6.pdf"
+  sandvik: &sandvik
+    source: "Sandvik D55SP Rotary blasthole drill rig, страница изготовителя (по поисковой выдержке) и карточка Geotechpedia"
+    url: "https://geotechpedia.com/Equipment/Show/703/D55SP-Rotary-blasthole-rigs"
+  thesis: &thesis
+    source: "Толеуханова Ж., дипломная работа, Satbayev University (аннотация, с. 5) — студенческая работа, не данные компании"
+    url: "https://official.satbayev.university/download/document/10227/%D0%A2%D0%BE%D0%BB%D0%B5%D1%83%D1%85%D0%B0%D0%BD%D0%BE%D0%B2%D0%B0%20%D0%96%D0%B0%D0%B7%D0%B8%D1%80%D0%B0.pdf"
+  turija: &turija
+    source: "Jamaković, Mašić (2021). Fuel consumption of the BelAZ dump trucks on an example of the open pit Turija. Mining & Metallurgy Engineering Bor 3-4/2021, DOI 10.5937/mmeb2104029J"
+    url: "https://scindeks-clanci.ceon.rs/data/pdf/2334-8836/2021/2334-88362103029J.pdf"
+  dyno: &dyno
+    source: "Dyno Nobel, Explosives Engineers' Guide (Quick Reference Guide), 2010"
+    url: "https://www.leg.mn.gov/docs/2015/other/150681/PFEISref_1/Dyno%20Nobel%202010.pdf"
+  order605: &order605
+    source: "Приказ Ростехнадзора № 605 от 16.12.2013 «Правила безопасности при взрывных работах»"
+    url: "https://ngc.organizations.mchs.gov.ru/uploads/document/2020-09-28/564b26de50f86ad0f82376dd22f488bd.pdf"
+  rpm: &rpm
+    source: "RPMGlobal, Haul Route Analysis (справка по программе моделирования откатки)"
+    url: "https://help.rpmglobal.com/simulation/fpsim/latest/en/Content/Haul%20Route%20Analysis/HaulRoute.htm"
+  michelin: &michelin
+    source: "Michelin Earthmover Databook"
+    url: "https://www.bigtyres.co.uk/media/landingpages/documents/Michelin_Earthmover_Databook.pdf"
+  thompson: &thompson
+    source: "Australian Mining Review, статья о дорогах карьеров со ссылкой на Р. Томпсона (правило: +1 % сопротивления качению)"
+    url: "https://australianminingreview.com.au/?p=14140"
+  ifactory: &ifactory
+    source: "iFactory, Mineral processing energy monitoring (пример баланса энергии фабрики 40 тыс. т/сут)"
+    url: "https://ifactoryapp.com/article/mineral-processing-energy-monitoring"
+  hvi_metrics: &hvi_metrics
+    source: "Heavy Vehicle Inspection, Mining equipment availability and utilization metrics"
+    url: "https://heavyvehicleinspection.com/industries/mining/mining-equipment-availability-utilization-metrics"
+  hvi_uptime: &hvi_uptime
+    source: "Heavy Vehicle Inspection, Mining uptime benchmark"
+    url: "https://heavyvehicleinspection.com/fleet-management/uptime/mining-uptime-benchmark"
+  hvi_pm: &hvi_pm
+    source: "Heavy Vehicle Inspection, CAT 793/797 mining truck preventive maintenance"
+    url: "https://heavyvehicleinspection.com/blog/post/cat-793-797-mining-truck-preventive-maintenance"
+  pitviper: &pitviper
+    source: "Atlas Copco, история заказчика «Full marks for Pit Viper 311»"
+    url: "https://www.atlascopco.com/nb-no/mrba/customer-stories/stories---ads/full-marks-for-pit-viper-311"
+  nflg: &nflg
+    source: "NFLG, гирационная дробилка VG60113HD (страница изделия)"
+    url: "https://en.nflg.com/product/4298.htm"
+  ksm: &ksm
+    source: "KSM Prefeasibility Study 2012, Process Design Criteria: mass balance"
+    url: "https://aeic-iaac.gc.ca/050/documents_staticpost/49262/89282/Chapter_4_Appendices/Appendix_4-C_2012_KSM_Prefeasibility_Study/Appendices_of_Appendix_4-C/Appendix_D/D1-PDC_Mass_Balance.pdf"
+  kuzram: &kuzram
+    source: "Cunningham, The Kuz-Ram fragmentation model – 20 years on (формула Кузнецова)"
+    url: "https://link.springer.com/article/10.1007/s00603-016-1131-9"
+  assumed: &assumed
+    source: "Допущение проекта"
+    url: ""
+  derived: &derived
+    source: "Расчёт по значениям этого файла"
+    url: ""
+
+# Heading and opening sentence of each group in docs/mine/parameters.md.
+
+_groups:
+  rock: {title: "Горная порода"}
+  pit: {title: "Карьер",
+    intro: "Геометрию карьера Актогай KAZ Minerals не публикует: ни глубины, ни углов бортов, ни трасс съездов. Модель строит карьер по этим параметрам (`mine/model/layout.py`): уступы по 15 м с откосом и бермой, рабочие площадки разносок, съезды с постоянным уклоном вдоль бортов. Глубина рабочего дна 255 м — допущение; конечная глубина 340 м и длина 2,5 км известны только из студенческой дипломной работы."}
+  geology: {title: "Геология и блочная модель",
+    intro: "Содержание меди и крепость блоков задаются гладкими случайными полями (`mine/model/geology.py`). Доли классов по тоннажу взяты из отчётов KAZ Minerals: вскрыша — по коэффициенту вскрыши 2024 года, бедная руда — по избытку добытой сульфидной руды над переработанной в 2025 году (она идёт на склад бедной руды), среднее содержание руды — содержание в питании фабрик за 2025 год."}
+  truck: {title: "Самосвал Caterpillar 785C",
+    intro: "Модель самосвала — из проектного парка Актогая и Бозшаколя (обзор проектов KAZ Minerals 2014 года: 18 самосвалов Caterpillar 785C грузоподъёмностью до 140 т). Скорость и расход топлива не задаются, а получаются из массы, мощности, уклона и сопротивления качению (`mine/common/physics.py`)."}
+  loader: {title: "Экскаватор Hitachi EX3600E-6",
+    intro: "В проекте 2014 года — четыре электрических экскаватора Hitachi с ковшом 21 м3; EX3600E-6 — электрическое исполнение прямой лопаты Hitachi с ковшом 21 м3. Экскаваторы питаются от подстанции рудника."}
+  drill: {title: "Бурение (Sandvik D55SP)", intro: "В проекте 2014 года — четыре станка вращательного бурения Sandvik D55. Сетка скважин и высота уступа согласованы между собой по правилам справочника Dyno Nobel."}
+  blast: {title: "Взрывные работы"}
+  road: {title: "Дороги"}
+  plan: {title: "Расчёт парка по фабрике",
+    intro: "Парк рассчитан по фабрике: линия №1 должна получать руду со скоростью, с которой её перерабатывает мельница, а вместе с рудой надо вынимать бедную руду и вскрышу в доле, которую дают отчёты KAZ Minerals. Время рейса берётся из самой модели на исходных забоях (`mine/sim/design_basis.py`); тест проверяет, что числа этой группы и расстановка самосвалов в `world.yaml` совпадают с расчётом."}
+  crusher: {title: "Первичная дробилка"}
+  dump: {title: "Отвал и рудные склады"}
+  conveyor: {title: "Конвейер"}
+  stockpile: {title: "Склад дроблёной руды"}
+  rom: {title: "Рудные склады и подача с них"}
+  mill: {title: "Мельницы",
+    intro: "Измельчение линии №1 по обзору проектов KAZ Minerals 2014 года: одна мельница полусамоизмельчения 40 × 26 футов (28 МВт) и две шаровые мельницы 28 × 44 фута (по 22 МВт), все с безредукторным приводом. Питатель подаёт руду со склада по уставке; пропускная способность цикла ограничена установленной мощностью 72 МВт, мощность делится между МПСИ и шаровыми мельницами в отношении их установленных мощностей."}
+  flotation: {title: "Флотация"}
+  concentrate: {title: "Концентрат и хвосты", intro: "Концентрат после сгущения и фильтрации копится на складе и отгружается партиями; хвосты флотации идут в хвостохранилище. Масса концентрата = медь в концентрате / содержание меди в нём; хвосты = переработанная руда − концентрат."}
+  plant: {title: "Прочие потребители фабрики"}
+  fuel_station: {title: "Заправочная станция"}
+  workshop: {title: "Мастерская"}
+  reliability: {title: "Надёжность и обслуживание",
+    intro: "Дефект появляется случайно, развивается и заканчивается отказом; пока он развивается, его видно по показателям состояния машины (`mine/sim/reliability.py`)."}
+  weather: {title: "Погода",
+    intro: "Погода следует климатическим нормам станции Актогай (ВМО 1991–2020) на дату модели: средние температуры месяцев отнесены к их серединам и интерполируются по дням, суточный ход — между средними максимумом и минимумом. Осадки выпадают случайно: вероятность дня с осадками и их количество — по нормам месяца (`mine/sim/weather.py`)."}
+  sim: {title: "Настройки модели"}
+  dispatch: {title: "Модуль диспетчеризации",
+    intro: "Настройки сервиса `mine-dispatch` (`mine/modules/dispatch`): время пути, очереди и погрузки модуль считает сам по состоянию двойников, эти числа задают только пределы его решений."}
+  grade_control: {title: "Модуль управления качеством руды", intro: "Настройки сервиса `mine-grade` (`mine/modules/grade`)."}
+  plant_control: {title: "Модуль управления фабрикой", intro: "Настройки сервиса `mine-plant` (`mine/modules/plant`)."}
+  maintenance: {title: "Модуль техобслуживания",
+    intro: "Настройки сервиса `mine-maint` (`mine/modules/maint`): пороги, по которым модуль отличает развивающийся дефект от обычного износа."}
+  scenario: {title: "Сценарии «что если»"}
+  economics: {title: "Деньги и выбросы CO₂",
+    intro: "Переменная маржа рудника: выручка за оплачиваемую медь в концентрате минус дизельное топливо самосвалов и электроэнергия рудника и фабрики. Труд, ремонт, взрывчатка, реагенты, амортизация и прочие постоянные затраты не учитываются. Цены и курс на октябрь 2026 года."}
+  forecast: {title: "Прогноз «два будущих»", intro: "Настройки прогноза: симулятор копирует свою модель и прогоняет копию вперёд вместе с ядрами модулей (`mine/sim/forecast.py`). Маржа ветви — та же переменная маржа, что у рудника: выручка за медь минус дизель и электроэнергия за горизонт. Отдельно считается поправка на то, что горизонт оставляет следующей смене: вся руда между забоем и флотацией — взорванная в карьере, в кузовах, в бункере дробилки, на конвейере, на складе дроблёной руды, на рудных складах, в мельнице — оценивается одинаково (группа «Деньги и выбросы CO₂», `economics.stock_kzt_t`). Советник и страница сравнивают варианты по сумме маржи и поправки — итогу с поправкой."}
+  response: {title: "Ресурсы смены на инциденты",
+    intro: "Рычаги начальника смены при инциденте, кроме тех, что уже ведут модули: вторая ремонтная бригада со специалистами подрядчика, бригада мастерской в забое, грейдер с подсыпкой на мокрый съезд, аварийная дорожная бригада, сверхурочная смена мастерской. Каждый рычаг — живое сообщение двойнику, на который он действует (`mine/sim/response.py`); его цена входит в итог прогноза отдельной частью «ресурсы смены»."}
+  advisor: {title: "Модуль-советник", intro: "Настройки сервиса `mine-advisor` (`mine/modules/advisor`): с каких значений состояние рудника считается инцидентом и на какой срок даются указания по его вариантам."}
+  reference: {title: "Показатели рудника без модулей (для справки)",
+    intro: "Измерены тестом `mine/tests/test_modules.py`: 7 суток модели без модулей, зерно из `sim.seed`; тест проверяет, что числа совпадают с прогоном. На стенде модули с этими числами не сравниваются: эффект модуля измеряется прогнозом «с модулем / без модуля» от одного и того же состояния рудника (группа «Прогноз»)."}
+
+rock:
+  insitu_density_t_m3: {<<: *dyno, value: 2.56, unit: t/m3, status: sourced, title: "Плотность породы в массиве",
+    note: "С. 10, таблица свойств пород, строка «порфир». Плотность руды Актогая не опубликована."}
+  loose_density_t_m3: {<<: *hitachi, value: 1.8, unit: t/m3, status: sourced, title: "Насыпная плотность взорванной породы",
+    note: "С. 17: ковш 21 м3 рассчитан на материал плотностью не более 1800 кг/м3. Коэффициент разрыхления 2,56 / 1,8 = 1,42."}
+
+pit:
+  face_angle_deg: {<<: *assumed, value: 65, unit: deg, status: assumption, title: "Угол откоса уступа",
+    note: "Углы бортов карьера Актогай не опубликованы. 65° — обычный угол откоса уступа высотой 15 м в крепких скальных породах."}
+  berm_m: {<<: *assumed, value: 10, unit: m, status: assumption, title: "Ширина бермы на конечном борту",
+    note: "Ширина бермы не опубликована. С откосом 65° (заложение 15 / tg 65° = 7,0 м) уступ занимает 17,0 м по горизонтали: угол конечного борта atan(15 / 17,0) = 41°, внутри обычных для порфировых карьеров 35–45°."}
+  depth_m: {<<: *assumed, value: 255, unit: m, status: assumption, title: "Глубина рабочего дна участка от бровки",
+    note: "Текущая глубина карьера не опубликована. Конечная глубина 340 м известна только из студенческой работы (`world.yaml`: бровка +375 м, дно +120 м, 17 уступов); после девяти лет отработки сульфидной зоны принято около 3/4 конечной глубины."}
+  final_depth_m: {<<: *thesis, value: 340, unit: m, status: sourced, title: "Конечная глубина карьера (для сравнения)",
+    note: "Аннотация: карьер на конец отработки длиной 2545 м, шириной 370 м, глубиной 340 м. Студенческая работа, не данные KAZ Minerals; ширина 370 м с такой глубиной несовместима с углами бортов, поэтому модель берёт только порядок глубины и длины."}
+  final_length_m: {<<: *thesis, value: 2545, unit: m, status: sourced, title: "Конечная длина карьера (для сравнения)",
+    note: "Там же. Бровка модели — эллипс 2300 × 1400 м (`world.yaml`)."}
+  rim_elevation_m: {value: 374, unit: m, status: snippet, title: "Отметка поверхности у рудника",
+    source: "Open-Meteo, Elevation API (цифровая модель рельефа) в точке 46,95° с. ш., 79,87° в. д.",
+    url: "https://api.open-meteo.com/v1/elevation?latitude=46.95&longitude=79.8667",
+    note: "Значение цифровой модели рельефа, не съёмки; бровка карьера в модели +375 м."}
+
+geology:
+  mean_head_grade_pct: {<<: *kz25, value: 0.41, unit: "% Cu", status: sourced, title: "Среднее содержание меди в руде, идущей на фабрику",
+    note: "Среднее содержание в сульфидной руде, переработанной Актогаем за 2025 год (обе линии). Для сравнения: 0,43 % в 2024 году, 0,50 % в 2023 году (KAZ, с. 3)."}
+  cutoff_grade_pct: {<<: *assumed, value: 0.20, unit: "% Cu", status: assumption, title: "Бортовое содержание",
+    note: "Не опубликовано. Около половины содержания в питании: блоки ниже борта идут в отвал."}
+  low_grade_below_pct: {<<: *assumed, value: 0.28, unit: "% Cu", status: assumption, title: "Верхняя граница бедной руды",
+    note: "Не опубликована. Руда от бортового содержания до этой границы идёт на склад бедной сульфидной руды (на плане рудника 2014 года: «low-grade sulphide ore stockpile»); граница выбрана так, чтобы руда выше неё в среднем содержала 0,41 % при разбросе ниже."}
+  strip_ratio: {<<: *kzwaste, value: 0.363, unit: t/t, status: derived, title: "Коэффициент вскрыши",
+    note: "Вскрыша Актогая 26,7 млн т (2024 год, KZ-WASTE) / добытая сульфидная руда 73,486 млн т (2024 год, отчёт KAZ за 2024 год, с. 3) = 0,363 т/т. Отношение ко всей добытой руде, с окисленной, — 0,31. Доля вскрыши в горной массе 0,363 / 1,363 = 26,6 %."}
+  low_grade_share: {<<: *kz25, value: 0.216, unit: t/t, status: derived, title: "Бедная руда на тонну руды, идущей на фабрику",
+    note: "Добыто сульфидной руды 75,512 млн т, переработано 62,095 млн т (2025 год): 75,512 / 62,095 − 1 = 0,216. Избыток идёт на склад бедной руды; доля бедной руды в горной массе 0,734 × 0,216 / 1,216 = 13,0 %, руды для фабрики — 60,4 %."}
+  ore_grade_log_sigma: {<<: *assumed, value: 0.6, unit: "-", status: assumption, title: "Разброс содержания в руде (сигма логнормального распределения)",
+    note: "Превышение содержания над границей бедной руды распределено логнормально; при сигме 0,6 рудные блоки лежат примерно от 0,31 до 0,65 % Cu."}
+  waste_grade_min_share: {<<: *assumed, value: 0.15, unit: "-", status: assumption, title: "Содержание в самой бедной вскрыше, доля бортового",
+    note: "Вскрышные блоки получают содержание от этой доли бортового до верхней доли."}
+  waste_grade_max_share: {<<: *assumed, value: 0.95, unit: "-", status: assumption, title: "Содержание в самой богатой вскрыше, доля бортового",
+    note: "Чуть ниже борта, чтобы класс блока не зависел от округления."}
+  correlation_length_m: {<<: *assumed, value: 250, unit: m, status: assumption, title: "Радиус корреляции содержания и крепости",
+    note: "Соседние блоки (115 × 50 м) получают близкие значения; через несколько сотен метров связь пропадает."}
+  wavelength_min_factor: {<<: *assumed, value: 2, unit: "-", status: assumption, title: "Самая короткая волна поля, в радиусах корреляции",
+    note: "Поле складывается из плоских волн случайного направления с длиной от 2 до 6 радиусов корреляции (500–1500 м)."}
+  wavelength_max_factor: {<<: *assumed, value: 6, unit: "-", status: assumption, title: "Самая длинная волна поля, в радиусах корреляции",
+    note: "См. предыдущую строку."}
+  bwi_mean_kwh_t: {<<: *assumed, value: 14.0, unit: kWh/t, status: assumption, title: "Средний индекс работы Бонда",
+    note: "Для Актогая не опубликован. Порфировые руды в обзоре: 5,7–20,2 кВт·ч/т (Сарчешме), около 13 (два месторождения SAGDesign); взята середина."}
+  bwi_sd_kwh_t: {<<: *assumed, value: 1.2, unit: kWh/t, status: assumption, title: "Стандартное отклонение индекса Бонда между блоками",
+    note: "Даёт блоки примерно от 11,5 до 16,5 кВт·ч/т, внутри диапазона порфировых руд."}
+  bwi_min_kwh_t: {<<: *assumed, value: 10.5, unit: kWh/t, status: assumption, title: "Нижняя граница индекса Бонда", note: "Ограничение хвоста распределения."}
+  bwi_max_kwh_t: {<<: *assumed, value: 18.0, unit: kWh/t, status: assumption, title: "Верхняя граница индекса Бонда", note: "Ограничение хвоста распределения."}
+
+truck:
+  payload_t: {<<: *cat785, value: 136, unit: t, status: sourced, title: "Номинальная грузоподъёмность",
+    note: "Rated / nominal payload 300 000 фунтов (136,1 т). В обзоре KAZ 2014 года (с. 11) — до 140 т."}
+  empty_mass_t: {<<: *cat785, value: 102.1, unit: t, status: sourced, title: "Масса без груза",
+    note: "Empty weight с плоским кузовом 225 200 фунтов (102,1 т). Полная масса 102,1 + 136 = 238,1 т при наибольшей допустимой 249,5 т."}
+  engine_kw: {<<: *cat785, value: 1005, unit: kW, status: sourced, title: "Мощность двигателя (нетто)",
+    note: "Cat 3512B-EUI: 1348 л. с. (1005 кВт) нетто по SAE J1349 / ISO 9249, брутто 1081 кВт."}
+  max_speed_kmh: {<<: *cat785, value: 54.7, unit: km/h, status: sourced, title: "Наибольшая скорость с грузом", note: "Шестая передача, 34 мили/ч."}
+  bsfc_g_kwh: {<<: *assumed, value: 210, unit: g/kWh, status: assumption, title: "Удельный расход топлива двигателя",
+    note: "Для Cat 3512B в найденных источниках не указан; обычный уровень для крупных быстроходных дизелей этого класса. Расход в час = использованная мощность × 210 г/кВт·ч ÷ плотность топлива; на полной мощности 1005 × 0,210 / 0,8318 = 253,7 л/ч."}
+  diesel_density_kg_l: {<<: *turija, value: 0.8318, unit: kg/l, status: sourced, title: "Плотность дизельного топлива",
+    note: "Раздел 2, значение, которым рудник Турия пересчитывает массу топлива в объём."}
+  idle_load_factor: {<<: *assumed, value: 0.10, unit: "-", status: assumption, title: "Загрузка двигателя на холостом ходу",
+    note: "Источник не найден. 10 % мощности на вспомогательные агрегаты: 253,7 × 0,10 = 25,4 л/ч при стоянке с работающим двигателем."}
+  cycle_load_factor_min: {<<: *turija, value: 0.35, unit: "-", status: sourced, title: "Средняя загрузка двигателя за рейс, нижняя граница",
+    note: "Раздел 2: 0,35 для средних условий. Соответствует 253,7 × 0,35 = 89 л/ч. Модель не задаёт этот коэффициент, а проверяется по нему."}
+  cycle_load_factor_max: {<<: *turija, value: 0.50, unit: "-", status: sourced, title: "Средняя загрузка двигателя за рейс, верхняя граница",
+    note: "Разделы 2–3: 0,50 для тяжёлых условий, 0,45–0,50 измерено на самосвалах рудника Турия. Соответствует 127 л/ч."}
+  drivetrain_efficiency: {<<: *assumed, value: 0.80, unit: "-", status: assumption, title: "Доля мощности двигателя на колёсах",
+    note: "Кривые тяги 785C не найдены. Потери механической трансмиссии с гидротрансформатором и привод вспомогательных агрегатов. На подъёме 10 % с грузом даёт 9,7 км/ч, на 8 % — 11,6 км/ч (вторая и третья передачи 785C — 16,4 и 22,2 км/ч наибольшей скорости)."}
+  accel_max_ms2: {<<: *assumed, value: 0.5, unit: m/s2, status: assumption, title: "Наибольшее ускорение", note: "Ограничение по плавности разгона; на подъёме разгон ограничен мощностью."}
+  brake_ms2: {<<: *assumed, value: 1.0, unit: m/s2, status: assumption, title: "Рабочее замедление", note: "Спокойное служебное торможение."}
+  downhill_threshold_pct: {<<: *assumed, value: 4.0, unit: "%", status: assumption, title: "Уклон, с которого спуск идёт на замедлителе", note: "На более крутом спуске скорость ограничена замедлителем."}
+  downhill_loaded_kmh: {<<: *assumed, value: 20, unit: km/h, status: assumption, title: "Скорость гружёного самосвала на спуске",
+    note: "Кривые замедлителя не найдены. Спуск с грузом в модели редок (объезды при закрытых участках)."}
+  downhill_empty_kmh: {<<: *assumed, value: 30, unit: km/h, status: assumption, title: "Скорость порожнего самосвала на спуске", note: "Равна ограничению скорости на съездах."}
+  pace_min: {<<: *assumed, value: 0.92, unit: "-", status: assumption, title: "Разброс манеры вождения",
+    note: "Каждый участок самосвал проходит со скоростью от 92 до 100 % допустимой."}
+  overload_limit: {<<: *cat785, value: 1.08, unit: "-", status: derived, title: "Допустимая перегрузка",
+    note: "Наибольшая полная масса 249,5 т − масса без груза 102,1 т = 147,4 т = 1,08 × 136 т. Погрузка прекращается, когда следующий ковш увёл бы груз дальше от номинала."}
+  tank_l: {<<: *cat785, value: 1892, unit: l, status: sourced, title: "Объём топливного бака", note: "Fuel tank 500 галлонов (1892,5 л)."}
+  refuel_below_pct: {<<: *assumed, value: 15, unit: "%", status: assumption, title: "Остаток топлива, при котором самосвал едет на заправку", note: "Около двух часов работы в запасе."}
+  local_speed_kmh: {<<: *assumed, value: 15, unit: km/h, status: assumption, title: "Скорость по рабочей площадке, от узла дороги до экскаватора", note: "Движение по рабочей площадке уступа."}
+  queue_spacing_m: {<<: *assumed, value: 25, unit: m, status: assumption, title: "Шаг машин в очереди", note: "Длина самосвала (11,1 м) с промежутком."}
+  changeover_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Длительность пересменки экипажа",
+    note: "После первой разгрузки в новой смене самосвал стоит на передаче смены и ежесменном осмотре. Источник не найден; на карьерах с 12-часовыми сменами передача с осмотром обычно занимает 20–45 минут."}
+  meal_break_min: {<<: *assumed, value: 40, unit: min, status: assumption, title: "Перерыв экипажа на приём пищи за смену",
+    note: "Источник не найден. Вместе с пересменкой и заправкой самосвал в смену работает около 10,5 из 12 часов: так время работы исправного самосвала приближается к коэффициенту использования 0,80, по которому рассчитан парк (`plan.use_of_availability`)."}
+  break_from_h: {<<: *assumed, value: 4, unit: h, status: assumption, title: "Начало окна перерывов экипажей от начала смены",
+    note: "Перерывы разнесены по времени, чтобы экскаваторы не простаивали: у каждого самосвала свой момент между 4 и 8 часами смены."}
+  break_to_h: {<<: *assumed, value: 8, unit: h, status: assumption, title: "Конец окна перерывов экипажей от начала смены", note: "См. предыдущую строку."}
+  engine_temp_thermostat_c: {<<: *assumed, value: 85, unit: "°C", status: assumption, title: "Температура охлаждающей жидкости без нагрузки",
+    note: "Пороговые значения двигателя не найдены; взят обычный уровень термостата дизеля."}
+  engine_temp_full_load_c: {<<: *assumed, value: 96, unit: "°C", status: assumption, title: "Температура охлаждающей жидкости на полной мощности",
+    note: "При опорной температуре воздуха; между холостым ходом и полной мощностью температура растёт вместе с загрузкой двигателя."}
+  engine_temp_ambient_ref_c: {<<: *assumed, value: 20, unit: "°C", status: assumption, title: "Опорная температура воздуха для температуры двигателя", note: "Точка, к которой отнесены два значения выше."}
+  engine_temp_ambient_gain: {<<: *assumed, value: 0.15, unit: "°C/°C", status: assumption, title: "Влияние температуры воздуха на температуру двигателя", note: "Система охлаждения гасит большую часть колебаний воздуха."}
+  engine_temp_lag_min: {<<: *assumed, value: 5, unit: min, status: assumption, title: "Постоянная времени температуры двигателя", note: "Тепловая инерция системы охлаждения."}
+  engine_cooldown_lag_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Постоянная времени остывания заглушенного двигателя", note: "В ремонте и на заправке двигатель остывает к температуре воздуха."}
+  tyres: {<<: *cat785, value: 6, unit: "-", status: sourced, title: "Число шин", note: "Шины 33.00-R51: две передние и четыре задние (сдвоенные)."}
+  tyre_tkph_ref_ambient_c: {<<: *michelin, value: 38, unit: "°C", status: sourced, title: "Температура воздуха, к которой отнесён показатель TKPH шины",
+    note: "Определение TKPH и поправка K2 (с. 171): TKPH = средняя нагрузка на шину, т × средняя скорость, км/ч."}
+  tyre_tkph_rating: {<<: *assumed, value: 750, unit: t·km/h, status: assumption, title: "Показатель TKPH шины",
+    note: "Каталожное значение для шин 33.00-R51 модели не найдено. Рабочая точка модели: средняя нагрузка (238,1 + 102,1) / 2 / 6 = 28,4 т на шину × около 20 км/ч = 570; шина выбрана с запасом около 30 %."}
+  tyre_temp_rise_at_rating_c: {<<: *assumed, value: 55, unit: "°C", status: assumption, title: "Нагрев шины над воздухом при работе на паспортном TKPH",
+    note: "Предельная температура шины в справочнике не дана. Нагрев пропорционален произведению нагрузки на скорость, как в определении TKPH."}
+  tyre_temp_limit_c: {<<: *derived, value: 93, unit: "°C", status: derived, title: "Расчётный предел температуры шины",
+    note: "38 + 55 = 93 °C: температура, до которой шина нагревается на паспортном TKPH при опорной температуре воздуха."}
+  tyre_temp_lag_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Постоянная времени температуры шины", note: "Крупногабаритная шина прогревается и остывает около часа."}
+
+loader:
+  bucket_m3: {<<: *hitachi, value: 21, unit: m3, status: sourced, title: "Вместимость ковша",
+    note: "С. 17: прямая лопата с ковшом 21 м3 (SAE, с шапкой 2:1); в обзоре KAZ 2014 года (с. 10) — экскаваторы Hitachi 21 м3."}
+  fill_factor: {<<: *derived, value: 0.90, unit: "-", status: derived, title: "Коэффициент наполнения ковша",
+    note: "136 т за 4 ковша = 34 т на ковш; 34 / (21 м3 × 1,8 т/м3) = 0,90: верхняя граница полосы «средние условия» 75–90 % статьи Caterpillar о наполнении ковша, ковш рассчитан на плотность до 1,8 т/м3."}
+  fill_factor_sd: {<<: *assumed, value: 0.04, unit: "-", status: assumption, title: "Разброс наполнения от ковша к ковшу", note: "Даёт груз самосвала около 136 ± 6 т."}
+  fill_factor_min: {<<: *assumed, value: 0.65, unit: "-", status: assumption, title: "Наименьшее наполнение ковша", note: "Нижняя граница для крупнокусковой взорванной массы."}
+  fill_factor_max: {<<: *assumed, value: 1.0, unit: "-", status: assumption, title: "Наибольшее наполнение ковша", note: "Ковш с шапкой на хорошо взорванной породе."}
+  fill_frag_slope: {<<: *assumed, value: 0.25, unit: "-", status: assumption, title: "Падение наполнения ковша с ростом крупности",
+    note: "Наполнение = 0,90 × (1 − 0,25 × (P80 − P80оп) / P80оп). Направление связи описано в ISEE 2005 «Characteristics of the blasted muck and the loader's productivity»; численного значения в источниках нет."}
+  pass_s: {<<: *assumed, value: 30, unit: s, status: assumption, title: "Длительность одного цикла черпания",
+    note: "Не опубликована. По паспорту поворот 3,2 об/мин: поворот на 90° к самосвалу и обратно около 9 с, черпание и разгрузка ковша около 20 с; 4 ковша = 2 минуты на самосвал."}
+  pass_spread: {<<: *assumed, value: 0.15, unit: "-", status: assumption, title: "Разброс длительности цикла черпания", note: "Равномерно ± 15 %."}
+  spot_s: {<<: *assumed, value: 45, unit: s, status: assumption, title: "Время установки самосвала под погрузку", note: "Источник не найден."}
+  power_rated_kw: {<<: *hitachi, value: 1200, unit: kW, status: sourced, title: "Мощность электропривода экскаватора",
+    note: "С. 14: EX3600E-6, асинхронный двигатель 6 кВ, номинальная длительная мощность 1200 кВт."}
+  load_factor_digging: {<<: *assumed, value: 0.75, unit: "-", status: assumption, title: "Загрузка привода при черпании", note: "Источник не найден."}
+  load_factor_idle: {<<: *assumed, value: 0.08, unit: "-", status: assumption, title: "Загрузка привода в ожидании", note: "Насосы и вспомогательные системы."}
+  load_factor_travel: {<<: *assumed, value: 0.40, unit: "-", status: assumption, title: "Загрузка привода при переезде", note: "Источник не найден."}
+  travel_kmh: {<<: *hitachi, value: 2.2, unit: km/h, status: sourced, title: "Скорость передвижения экскаватора", note: "С. 17: наибольшая скорость хода 2,2 км/ч."}
+  relocate_setup_min: {<<: *assumed, value: 15, unit: min, status: assumption, title: "Подготовка забоя после переезда", note: "Перенос кабеля и планировка площадки."}
+  face_offset_m: {<<: *assumed, value: 15, unit: m, status: assumption, title: "Расстояние от экскаватора до кромки блока", note: "Экскаватор стоит на рабочей площадке перед блоком; около радиуса черпания."}
+  fallback_wait_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Простой экскаватора, после которого его самосвалы уходят к другому",
+    note: "Правило мастера смены: если экскаватор неисправен, выведен из зоны взрыва или переезжает дольше этого времени, его самосвалы временно грузятся у других."}
+  ore_faces: {<<: *derived, value: 4, unit: "-", status: derived, title: "Экскаваторов на руде по плану",
+    note: "5 экскаваторов × доля руды (с бедной) в горной массе 0,734 = 3,7 ≈ 4; пятый работает на вскрыше."}
+
+drill:
+  bench_height_m: {<<: *dyno, value: 15, unit: m, status: derived, title: "Высота уступа",
+    note: "С. 4: высота уступа, м ≥ диаметр скважины, мм / 15. Для скважин 216 мм: 216 / 15 = 14,4 м ≤ 15 м."}
+  hole_diameter_mm: {<<: *assumed, value: 216, unit: mm, status: assumption, title: "Диаметр взрывных скважин",
+    note: "Долото 8½ дюйма, внутри диапазона станка Sandvik D55SP (172–254 мм, бурение за один проход до 17 м — больше глубины скважины 16,7 м): наибольший распространённый диаметр, совместимый с уступом 15 м по правилу Dyno Nobel."}
+  burden_m: {<<: *dyno, value: 6.0, unit: m, status: derived, title: "Линия наименьшего сопротивления",
+    note: "С. 4: (25–40) × диаметр = 5,4–8,6 м; взято 6,0 м (27,8 диаметра). Отношение высоты уступа к ЛНС 15 / 6 = 2,5, в полосе хорошего дробления 2–3,5."}
+  spacing_m: {<<: *dyno, value: 7.0, unit: m, status: derived, title: "Расстояние между скважинами в ряду", note: "С. 4: 1,15 × ЛНС = 6,9 м, округлено до 7,0 м."}
+  subdrill_m: {<<: *dyno, value: 1.7, unit: m, status: derived, title: "Перебур", note: "С. 4: (3–15) × диаметр; взято 8 × 0,216 = 1,7 м."}
+  hole_depth_m: {<<: *derived, value: 16.7, unit: m, status: derived, title: "Глубина скважины", note: "Высота уступа 15 м + перебур 1,7 м."}
+  gross_rate_m_h: {<<: *pitviper, value: 30.4, unit: m/h, status: snippet, title: "Сменная производительность бурового станка",
+    note: "Для D55SP не найдена. Станок того же класса (Atlas Copco Pit Viper) — 365 м за 12-часовую смену на медном карьере, уступы 15 м: 365 / 12 = 30,4 м/ч, включая переезды между скважинами."}
+  move_min_per_hole: {<<: *assumed, value: 8, unit: min, status: assumption, title: "Переезд и установка на скважину", note: "Источник не найден."}
+  penetration_m_h: {<<: *derived, value: 40, unit: m/h, status: derived, title: "Чистая скорость бурения при средней крепости",
+    note: "Скважина 16,7 м: 16,7 / 40 × 60 = 25 мин бурения + 8 мин переезда = 33 мин; 16,7 / 33 × 60 = 30,4 м/ч, что совпадает со сменной производительностью. В более крепкой породе скорость ниже обратно пропорционально индексу Бонда."}
+  tram_kmh: {<<: *assumed, value: 1.5, unit: km/h, status: assumption, title: "Скорость перегона станка между блоками", note: "Источник не найден."}
+  drill_ahead_blocks: {<<: *assumed, value: 17, unit: "-", status: assumption, title: "Запас подготовленных блоков, при котором бурение приостанавливается",
+    note: "Станок не начинает новый блок, пока перед экскаваторами столько блоков взорвано, заряжено, обурено или бурится. На старте модели их 16 (6 взорванных, 3 заряженных, 4 обуренных и 3 в бурении, `world.yaml`), так что станки бурят с первого часа и дальше начинают новый блок, как только экскаватор переходит на очередной взорванный блок: бурение идёт в темпе выемки. Взорванной горной массы перед экскаваторами при этом около 2,0–2,2 млн т, 11–12 суток выемки. Три станка без остановок дают 15,3 км бурения в неделю, выемка стенда требует 13–14 км (около 1,3 млн т горной массы в неделю: скважина 16,7 м на 6 × 7 × 15 м × 2,56 т/м3 = 1613 т); тест `test_modules` проверяет, что за неделю пробурено не меньше, чем нужно на вынутую горную массу, а станки стоят меньше 30 % времени."}
+
+blast:
+  powder_factor_min_kg_m3: {<<: *dyno, value: 0.7, unit: kg/m3, status: sourced, title: "Удельный расход ВВ, нижняя граница", note: "С. 4: массовые взрывы в крепких породах, 0,7–0,8 кг/м3."}
+  powder_factor_max_kg_m3: {<<: *dyno, value: 0.8, unit: kg/m3, status: sourced, title: "Удельный расход ВВ, верхняя граница", note: "Там же. Каждый взрыв получает значение из этого диапазона."}
+  charge_per_hole_kg: {<<: *derived, value: 472.5, unit: kg, status: derived, title: "Заряд одной скважины",
+    note: "0,75 кг/м3 × 6,0 м × 7,0 м × 15 м = 472,5 кг. Колонка заряда 12,2 м в скважине 216 мм при плотности 1,15 т/м3 вмещает около 514 кг."}
+  exclusion_radius_m: {<<: *order605, value: 200, unit: m, status: sourced, title: "Радиус опасной зоны для людей",
+    note: "Приложение 20, п. 1.5: скважинные заряды, не менее 200 м. Использован российский документ: текст казахстанских правил (приказ № 343 от 30.12.2014) получить не удалось."}
+  reentry_min: {<<: *order605, value: 15, unit: min, status: sourced, title: "Время до допуска в зону после взрыва", note: "П. 441: осмотр взорванных блоков не ранее чем через 15 минут после массового взрыва."}
+  equipment_withdrawal_m: {<<: *assumed, value: 150, unit: m, status: assumption, title: "Расстояние отвода техники от взрываемого блока",
+    note: "Норматив для техники не найден: безопасное расстояние для машин задаёт проект взрыва. Экскаваторы и станки ближе этого расстояния отводятся и останавливаются."}
+  clearance_lead_min: {<<: *assumed, value: 20, unit: min, status: assumption, title: "Оцепление зоны до взрыва", note: "За это время машины покидают зону, въезд в неё закрыт."}
+  charging_holes_per_h: {<<: *assumed, value: 20, unit: 1/h, status: assumption, title: "Скорость заряжания скважин", note: "Три минуты на скважину смесительно-зарядной машиной; блок 115 × 50 м из 137 скважин заряжается около 7 часов."}
+  extra_window_below_h: {<<: *assumed, value: 24, unit: h, status: assumption, title: "Запас взорванной горной массы, ниже которого используется второе окно взрыва",
+    note: "Правило рудника: массовые взрывы только в светлое время суток и не больше одного в сутки (окно 13:00, `world.yaml`, `clock.blast_times`). Второе дневное окно (16:30, `clock.extra_blast_times`) используется, только если взорванной горной массы в забоях меньше, чем на 24 часа выемки при требуемой выемке участка 6356 т/ч (`plan.rock_tph`, около 153 тыс. т), то есть темп выемки требует второго взрыва. Блок около 210 тыс. т — это около 33 часов выемки всего участка."}
+  p80_ref_mm: {<<: *assumed, value: 350, unit: mm, status: assumption, title: "Крупность взорванной массы P80 в опорных условиях",
+    note: "При удельном расходе 0,75 кг/м3 и индексе Бонда 14 кВт·ч/т. Источник не найден; значение задаёт уровень, от которого считаются отклонения."}
+  p80_powder_exponent: {<<: *kuzram, value: -0.8, unit: "-", status: snippet, title: "Показатель степени при удельном расходе ВВ",
+    note: "Формула Кузнецова в модели Куз-Рам: средний кусок пропорционален удельному расходу в степени −0,8. P80 = 350 × (ВВ / 0,75)^−0,8 × (индекс Бонда / 14)^1,0."}
+  p80_hardness_exponent: {<<: *assumed, value: 1.0, unit: "-", status: assumption, title: "Показатель степени при крепости породы", note: "Коэффициент породы в формуле Кузнецова принят пропорциональным индексу Бонда."}
+  p80_min_mm: {<<: *assumed, value: 200, unit: mm, status: assumption, title: "Наименьшая крупность P80", note: "Ограничение формулы."}
+  p80_max_mm: {<<: *assumed, value: 600, unit: mm, status: assumption, title: "Наибольшая крупность P80", note: "Ограничение формулы."}
+
+road:
+  speed_limit_surface_kmh: {<<: *assumed, value: 40, unit: km/h, status: assumption, title: "Ограничение скорости на технологических дорогах", note: "Общего норматива не найдено; встречается в правилах отдельных рудников."}
+  speed_limit_ramp_kmh: {<<: *assumed, value: 30, unit: km/h, status: assumption, title: "Ограничение скорости на съездах", note: "Источник не найден."}
+  speed_limit_bench_kmh: {<<: *assumed, value: 25, unit: km/h, status: assumption, title: "Ограничение скорости на дорогах уступов", note: "Источник не найден."}
+  rr_surface_pct: {<<: *rpm, value: 2.0, unit: "%", status: sourced, title: "Сопротивление качению на технологической дороге", note: "Таблица сопротивлений качению: Main Haul Road."}
+  rr_ramp_pct: {<<: *rpm, value: 2.5, unit: "%", status: sourced, title: "Сопротивление качению на съезде", note: "Та же таблица: Pit Ramp."}
+  rr_bench_pct: {<<: *rpm, value: 2.5, unit: "%", status: sourced, title: "Сопротивление качению на уступе", note: "Та же таблица: Bench Floor."}
+  ramp_grade_max_pct: {<<: *rpm, value: 10, unit: "%", status: sourced, title: "Наибольший уклон съезда",
+    note: "Раздел Grade: обычные уклоны съездов 6–12 %. Главный съезд модели построен с уклоном 8 %, западный — 10 % (`world.yaml`, `ramps`)."}
+  wet_rr_added_pct: {<<: *assumed, value: 1.0, unit: "%", status: assumption, title: "Прибавка сопротивления качению на мокрой дороге",
+    note: "Оценка: измеренных значений для карьерных дорог не найдено."}
+  wet_speed_factor_ramp: {<<: *thompson, value: 0.90, unit: "-", status: snippet, title: "Снижение ограничения скорости на мокром съезде",
+    note: "Оценка по правилу Томпсона: +1 % сопротивления качению снижает скорость на съезде на 10 %."}
+  wet_speed_factor_flat: {<<: *thompson, value: 0.74, unit: "-", status: snippet, title: "Снижение ограничения скорости на мокрой горизонтальной дороге",
+    note: "Оценка по правилу Томпсона: +1 % сопротивления качению снижает скорость на горизонтальной дороге на 26 %."}
+  wet_closed_grade_pct: {<<: *assumed, value: 9.5, unit: "%", status: assumption, title: "Средний уклон съезда, при котором его закрывают в сильный дождь",
+    note: "Правило рудника: на мокром покрытии гружёный самосвал не удерживается на самом крутом съезде. По геометрии модели под правило попадает западный съезд (10 %); главный съезд (8 %) остаётся открытым."}
+  drying_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Время просыхания дорог после осадков",
+    note: "После осадков ограничения скорости и закрытие крутого съезда действуют ещё это время. Источник не найден; в сухом ветреном климате Актогая дороги сохнут быстро."}
+  width_m: {<<: *assumed, value: 25, unit: m, status: assumption, title: "Ширина проезжей части", note: "Двухполосная дорога, около 3,5 ширины самосвала."}
+  closure_expected_h: {<<: *assumed, value: 6, unit: h, status: assumption, title: "Ожидаемая длительность закрытия участка дороги (сценарий)",
+    note: "Причина в сценарии «Закрытие дороги»: осыпь с откоса уступа на проезжую часть или размыв обочины. Дорожная бригада рудника (бульдозер и погрузчик) убирает горную массу, восстанавливает предохранительный вал и проверяет откос. Опубликованных длительностей не найдено; 6 ч — допущение: половина смены."}
+
+plan:
+  plant_availability: {<<: *assumed, value: 0.92, unit: "-", status: assumption, title: "Доля времени года, когда линия №1 работает",
+    note: "Не опубликована. Обычно 91–94 % для фабрик с МПСИ: плановые остановки на замену футеровки и ремонты. В модели фабрика не останавливается на плановые ремонты, поэтому производительность за год = часовая × 8760 ч × 0,92."}
+  mill_rate_tph: {<<: *kz25, value: 3835, unit: t/h, status: derived, title: "Производительность линии №1 во время работы",
+    note: "Sulphide 1 переработала за 2025 год 30,909 млн т: 30 909 000 / (8760 ч × 0,92) = 3835 т/ч. Это на 12 % выше проектных 3425 т/ч мельницы 2014 года: KAZ Minerals сообщает, что обе фабрики работают выше проектной мощности."}
+  ore_share: {<<: *derived, value: 0.734, unit: "-", status: derived, title: "Доля руды (с бедной) в горной массе", note: "1 / (1 + коэффициент вскрыши 0,363) = 0,734."}
+  rock_tph: {<<: *derived, value: 6356, unit: t/h, status: derived, title: "Горная масса, которую должен вынимать парк участка",
+    note: "Руда для мельницы 3835 т/ч × (1 + бедная руда 0,216) × (1 + вскрыша 0,363) = 3835 × 1,216 × 1,363 = 6356 т/ч: руда 3835, бедная руда 828, вскрыша 1693 т/ч. За год (8760 ч × 0,92) это 51,2 млн т горной массы."}
+  fleet_reserve: {<<: *assumed, value: 0.10, unit: "-", status: assumption, title: "Запас провозной способности парка над потребностью",
+    note: "Парк рассчитан на 10 % больше, чем берёт мельница: склад дроблёной руды восстанавливается после остановок экскаваторов и дробилки, очереди не съедают план."}
+  availability: {<<: *hvi_uptime, value: 0.85, unit: "-", status: snippet, title: "Коэффициент технической готовности самосвалов",
+    note: "Среднее по отрасли 72–82 %, лучшие рудники 92–94 %; для расчёта парка взято 85 %."}
+  use_of_availability: {<<: *hvi_metrics, value: 0.80, unit: "-", status: snippet, title: "Коэффициент использования исправного парка",
+    note: "Диапазон 70–85 %: очереди, заправка, пересменка, остановки на время взрывов."}
+  cycle_min: {<<: *derived, value: 25.0, unit: min, status: derived, title: "Расчётный рейс самосвала без очередей, среднее по парку",
+    note: "Считает mine/sim/design_basis.py по модели на исходных забоях: путь с грузом и обратно по кратчайшим маршрутам с модельными скоростями, проезд по рабочей площадке, установка 45 с, 4 ковша по 30 с, установка и разгрузка; среднее по самосвалам, взвешенное по их расстановке. Забои: дно карьера 120 м — откатка руды 4,3 км, рейс 32,5 мин; уступ 150 м — 3,5 км, 27,4 мин; уступ 195 м (бедная руда на склад) — 3,4 км, 24,7 мин; уступ 240 м — 2,5 км, 21,0 мин; вскрыша с уступа 300 м на отвал — 2,3 км, 15,6 мин. Тест сверяет значение с моделью."}
+  trucks: {<<: *derived, value: 32, unit: "-", status: derived, title: "Число самосвалов участка",
+    note: "Сумма по забоям: самосвалов на забой = темп забоя × 1,10 × рейс забоя / 60 / (136 т × 0,85 × 0,80), округление вверх. Руда и бедная руда делятся поровну между четырьмя рудными забоями (по 1166 т/ч), вскрыша 1693 т/ч — на один забой: 8 + 7 + 6 + 5 + 6 = 32 самосвала (world.yaml, `fleet.allocation`). В проекте 2014 года — 18 на фабрику при рейсе около 20 минут; в карьере глубиной 255 м рейс длиннее и рейсов в год у самосвала 14 300 вместо 18 000."}
+  shovel_rate_mtpa: {<<: *kz2014, value: 11, unit: Mt/yr, status: sourced, title: "Годовая выработка экскаватора по проекту",
+    note: "С. 10: каждый из четырёх экскаваторов Hitachi 21 м3 вынимает 11 млн т горной массы в год."}
+  shovels: {<<: *derived, value: 5, unit: "-", status: derived, title: "Число экскаваторов участка",
+    note: "51,2 млн т горной массы в год / 11 млн т = 4,7, округлено вверх до 5."}
+  drill_utilization: {<<: *assumed, value: 0.70, unit: "-", status: assumption, title: "Доля календарного времени, когда станок бурит",
+    note: "Переезды между блоками, обслуживание, простои у взрывов; источник не найден."}
+  drills: {<<: *derived, value: 3, unit: "-", status: derived, title: "Число буровых станков участка",
+    note: "51,2 млн т / 2,56 т/м3 = 20,0 млн м3 в год; на скважину 6 × 7 × 15 = 630 м3 и 16,7 м бурения: 31 800 скважин, 530 км в год. Станок даёт 30,4 м/ч × 8760 ч × 0,70 = 186 км в год: 530 / 186 = 2,85, округлено вверх до 3."}
+  trucks_2014: {<<: *kz2014, value: 18, unit: "-", status: sourced, title: "Самосвалов на одну фабрику в проекте 2014 года (для сравнения)",
+    note: "С. 11: 18 самосвалов Caterpillar 785C, каждый в среднем 18 000 рейсов в год за первые десять лет (Бозшаколь; с. 36: решения Актогая идентичны)."}
+  journeys_2014: {<<: *kz2014, value: 18000, unit: 1/yr, status: sourced, title: "Рейсов самосвала в год в проекте 2014 года (для сравнения)",
+    note: "С. 11. 18 000 × 140 т = 2,52 млн т в год на самосвал; при готовности и использовании 0,68 это рейс около 20 минут — неглубокий карьер первых лет."}
+
+crusher:
+  design_tph: {<<: *kz2014, value: 4186, unit: t/h, status: sourced, title: "Проектная производительность дробилки",
+    note: "С. 12: гирационная дробилка Fuller-Traylor / FLSmidth 60 × 113 дюймов, 4186 т/ч, 750 кВт. По базе Mining Data Online — 63 × 114 дюймов; расхождение не разрешено."}
+  rated_tph: {<<: *derived, value: 4690, unit: t/h, status: derived, title: "Производительность дробилки в модели",
+    note: "Проектные 4186 т/ч × (3835 / 3425): линия работает на 12 % выше проекта 2014 года, дробилка принята пропорционально (её щель перенастраивается; гирационные дробилки класса 60 × 113 дают 3810–8200 т/ч, NFLG)."}
+  motor_kw: {<<: *kz2014, value: 750, unit: kW, status: sourced, title: "Мощность привода дробилки", note: "С. 12."}
+  idle_load_factor: {<<: *assumed, value: 0.15, unit: "-", status: assumption, title: "Загрузка привода дробилки вхолостую", note: "Источник не найден."}
+  hopper_t: {<<: *assumed, value: 450, unit: t, status: assumption, title: "Вместимость приёмного бункера",
+    note: "Около 3,3 груза самосвала 136 т: самосвал разгружается, только если груз помещается в бункер. Источник не найден."}
+  spot_s: {<<: *assumed, value: 30, unit: s, status: assumption, title: "Время установки самосвала на разгрузку у дробилки", note: "Источник не найден."}
+  dump_s: {<<: *assumed, value: 45, unit: s, status: assumption, title: "Время разгрузки кузова",
+    note: "Подъём кузова 785C — 15,2 с, опускание 15,9 с (таблица характеристик 785C); с выходом груза около 45 с."}
+  dump_spread: {<<: *assumed, value: 0.15, unit: "-", status: assumption, title: "Разброс времени разгрузки", note: "Равномерно ± 15 %."}
+  product_p80_mm: {<<: *nflg, value: 150, unit: mm, status: snippet, title: "Крупность дроблёной руды", note: "Разгрузочная щель дробилок этого класса 152–254 мм; принята работа на щели 152 мм."}
+  size_slope: {<<: *assumed, value: 0.3, unit: "-", status: assumption, title: "Падение производительности дробилки с ростом крупности питания",
+    note: "Производительность = номинальная × (1 − 0,3 × (P80 − P80оп) / P80оп), не выше номинальной. Численной зависимости в источниках нет."}
+  size_factor_min: {<<: *assumed, value: 0.6, unit: "-", status: assumption, title: "Нижняя граница поправки на крупность", note: "Ограничение формулы."}
+  divert_queue_len: {<<: *assumed, value: 3, unit: "-", status: assumption, title: "Очередь у дробилки, при которой руду везут на склад",
+    note: "Правило смены: если у дробилки уже ждут столько самосвалов, следующий разгружается на складе богатой руды."}
+  divert_note_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Пауза между записями в журнале о разгрузке на склад",
+    note: "Настройка журнала: записывается начало периода, когда руда идёт на склад, а не каждый самосвал."}
+  stop_wait_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Ожидание у остановленной дробилки до ухода на рудный склад",
+    note: "Правило смены: первые самосвалы ждут пуска дробилки; если остановка длится дольше, очередь уходит на склад богатой руды, а следующие гружёные самосвалы едут туда сразу."}
+  repair_mechanical_h: {<<: *assumed, value: 8, unit: h, status: assumption, title: "Ожидаемая длительность ремонта дробилки при механической неисправности (сценарий)",
+    note: "Причина по умолчанию в сценарии «Остановка дробилки»: неисправность гидросистемы регулировки конуса, системы смазки или привода, которую устраняют заменой узла из склада запчастей одной сменой ремонтников. Опубликованных длительностей таких ремонтов не найдено; 8 ч — допущение: меньше смены, больше заклинивания. Для сравнения: плановая замена брони конуса (мантии) крупной конусной дробилки — около 60 ч (Metso, кейс рудника La Caridad, дробилки Superior 60-89), это плановый ремонт, а не решение начальника смены."}
+  repair_jam_h: {<<: *assumed, value: 3, unit: h, status: assumption, title: "Ожидаемая длительность остановки дробилки при заклинивании (сценарий)",
+    note: "Забутовка камеры негабаритом или куском металла: глыбу дробят гидромолотом над камерой или вынимают краном, затем осматривают броню. Поставщики называют заклинивания главной причиной внеплановых остановок первичных дробилок, длительность не публикуют; 3 ч — допущение."}
+
+dump:
+  spot_s: {<<: *assumed, value: 25, unit: s, status: assumption, title: "Время установки на разгрузку на отвале и складе", note: "Источник не найден."}
+  dump_s: {<<: *assumed, value: 40, unit: s, status: assumption, title: "Время разгрузки на отвале и складе", note: "Источник не найден."}
+
+conveyor:
+  belt_speed_ms: {<<: *kz2014, value: 5.0, unit: m/s, status: sourced, title: "Скорость ленты",
+    note: "С. 13: конвейер дроблёной руды до фабрики FLSmidth, 3,8 км, лента 1,6 м, 4880 т/ч, 5 м/с (по базе Mining Data Online — 3 + 1,5 км). Задержка транспорта = длина / скорость."}
+  design_tph: {<<: *kz2014, value: 4880, unit: t/h, status: sourced, title: "Проектная производительность конвейера", note: "С. 13."}
+  installed_kw: {<<: *kz2014, value: 3640, unit: kW, status: sourced, title: "Установленная мощность приводов конвейера", note: "С. 13. Модель проверяет, что расчётная мощность на проектном потоке ниже установленной."}
+  empty_kw: {<<: *assumed, value: 400, unit: kW, status: assumption, title: "Мощность холостого хода конвейера", note: "Около 11 % установленной мощности; источник не найден."}
+  friction_coefficient: {<<: *assumed, value: 0.03, unit: "-", status: assumption, title: "Коэффициент сопротивления движению ленты",
+    note: "Мощность = холостой ход + поток × g × (подъём + 0,03 × длина) / КПД привода."}
+  drive_efficiency: {<<: *assumed, value: 0.90, unit: "-", status: assumption, title: "КПД привода конвейера", note: "Источник не найден."}
+
+stockpile:
+  live_hours: {<<: *ksm, value: 12, unit: h, status: assumption, title: "Активный запас склада дроблёной руды в часах питания мельницы",
+    note: "Вместимость склада Актогая не опубликована. Принято 12 часов. В проектах медных фабрик встречается от 3 до 41 часа; ближайшие примеры: KSM 10 часов (30 000 т при 3000 т/ч), проект из отчёта Wheaton 9–14 часов."}
+  capacity_t: {<<: *derived, value: 46020, unit: t, status: derived, title: "Активная вместимость склада дроблёной руды", note: "12 часов × 3835 т/ч = 46 020 т."}
+  restart_hours: {<<: *assumed, value: 0.5, unit: h, status: assumption, title: "Запас руды, при котором остановленная мельница запускается снова", note: "Чтобы мельница не включалась и не выключалась на каждом самосвале."}
+
+rom:
+  reclaim_tph: {<<: *assumed, value: 1000, unit: t/h, status: assumption, title: "Подача руды со склада в дробилку погрузчиком",
+    note: "Один фронтальный погрузчик класса Caterpillar 994 (в списке техники Актогая по базе Mining Data Online — 994K); источник производительности не найден."}
+  reclaim_below_pct: {<<: *assumed, value: 25, unit: "%", status: assumption, title: "Уровень склада дроблёной руды, ниже которого начинают подачу со склада богатой руды", note: "Правило смены."}
+  reclaim_stop_pct: {<<: *assumed, value: 40, unit: "%", status: assumption, title: "Уровень склада дроблёной руды, при котором подачу со склада прекращают", note: "Правило смены."}
+  rehandle_diesel_l_t: {<<: *assumed, value: 0.25, unit: l/t, status: assumption, title: "Расход дизельного топлива погрузчика на перевалку",
+    note: "Источник не найден. Фронтальный погрузчик класса 994 при подаче 1000 т/ч расходует около 250 л/ч: 0,25 л на тонну, поданную со склада в дробилку. Учитывается в стоимости перевалки и в выбросах CO₂."}
+  rehandle_other_kzt_t: {<<: *assumed, value: 120, unit: KZT/t, status: assumption, title: "Прочие затраты перевалки руды через склад",
+    note: "Источник не найден. Машинист, шины, ремонт погрузчика и планировка склада, около 0,27 USD/t. Вместе с топливом перевалка стоит 0,25 × 352 + 120 = 208 тг/т (около 0,46 USD/t), в обычном для перевалки со склада диапазоне 0,3–1 USD/t."}
+  rehandle_kzt_t: {<<: *derived, value: 208, unit: KZT/t, status: derived, title: "Стоимость перевалки тонны руды через склад",
+    note: "Топливо погрузчика 0,25 л/т × 352 тг/л = 88 тг/т плюс прочие затраты 120 тг/т = 208 тг/т. Начисляется на каждую тонну, поданную погрузчиком со склада в дробилку; руда, оставшаяся на складах к концу прогноза, оценивается за вычетом этой стоимости."}
+
+mill:
+  design_tph: {<<: *derived, value: 3835, unit: t/h, status: derived, title: "Уставка питания мельницы без модуля (рабочая производительность линии)",
+    note: "Равна производительности линии во время работы `plan.mill_rate_tph`: 30,909 млн т (Sulphide 1, 2025 год) / (8760 ч × 0,92)."}
+  sag_design_tph: {<<: *kz2014, value: 3425, unit: t/h, status: sourced, title: "Проектная производительность МПСИ (для сравнения)",
+    note: "С. 16: FLSmidth 40 × 26 футов, 28 000 кВт при 9,31 об/мин, 3425 т/ч, безредукторный привод ABB/Alstom."}
+  sag_installed_mw: {<<: *kz2014, value: 28, unit: MW, status: sourced, title: "Установленная мощность МПСИ", note: "С. 16; Mining Technology и Mining Data Online — также 28 МВт."}
+  ball_mills: {<<: *kz2014, value: 2, unit: "-", status: sourced, title: "Число шаровых мельниц",
+    note: "С. 17: две FLSmidth 28 × 44 фута по 22 000 кВт при 10,99 об/мин, по 1706 т/ч."}
+  ball_installed_mw: {<<: *kz2014, value: 44, unit: MW, status: sourced, title: "Установленная мощность шаровых мельниц, всего", note: "С. 17: 2 × 22 МВт."}
+  installed_mw: {<<: *derived, value: 72, unit: MW, status: derived, title: "Установленная мощность мельниц",
+    note: "МПСИ 28 + шаровые 2 × 22 = 72 МВт. Наибольшее питание = 72 000 кВт / удельная энергия для текущей крепости руды."}
+  drive_load: {<<: *assumed, value: 0.875, unit: "-", status: assumption, title: "Загрузка приводов мельниц на рабочей производительности при опорной крепости",
+    note: "Не опубликована. Приводы мельниц обычно работают на 85–90 % установленной мощности; запас до предела по мощности 1 / 0,875 = 14 %."}
+  specific_energy_kwh_t: {<<: *derived, value: 16.43, unit: kWh/t, status: derived, title: "Удельный расход энергии на измельчение при опорной крепости",
+    note: "72 000 кВт × 0,875 / 3835 т/ч = 16,43 кВт·ч/т. Для сравнения: проект 2014 года допускает до 28 000 / 3425 + 44 000 / 3412 = 8,2 + 12,9 кВт·ч/т на пределе мощности; Huckleberry — 18,3 кВт·ч/т."}
+  bwi_ref_kwh_t: {<<: *derived, value: 14.0, unit: kWh/t, status: derived, title: "Опорный индекс работы Бонда",
+    note: "Равен среднему индексу месторождения. По закону Бонда удельная энергия пропорциональна индексу: энергия = 16,43 × индекс / 14."}
+  sag_kwh_t: {<<: *derived, value: 6.39, unit: kWh/t, status: derived, title: "Удельный расход энергии МПСИ при опорной крепости",
+    note: "Доля МПСИ в установленной мощности 28 / 72: 16,43 × 28 / 72 = 6,39 кВт·ч/т; обе ступени загружены одинаково (по 87,5 %)."}
+  ball_kwh_t: {<<: *derived, value: 10.04, unit: kWh/t, status: derived, title: "Удельный расход энергии шаровых мельниц при опорной крепости",
+    note: "16,43 × 44 / 72 = 10,04 кВт·ч/т; 6,39 + 10,04 = 16,43."}
+  charge_idle_pct: {<<: *assumed, value: 25, unit: "%", status: assumption, title: "Заполнение барабана МПСИ после домола",
+    note: "Объёмная доля барабана, занятая шарами и рудой. Обычный рабочий диапазон МПСИ 25–35 % объёма; нижняя граница — мельница, измельчившая всё, что в ней было."}
+  charge_full_pct: {<<: *assumed, value: 30, unit: "%", status: assumption, title: "Заполнение барабана МПСИ при работе на пределе мощности",
+    note: "Середина диапазона 25–35 %: заполнение растёт с питанием от 25 % (пустой цикл) до 30 % (питание, равное пределу по мощности)."}
+  charge_trip_pct: {<<: *assumed, value: 35, unit: "%", status: assumption, title: "Заполнение барабана МПСИ при отключении питания по перегрузу",
+    note: "Верхняя граница диапазона 25–35 %: руда, поданная сверх того, что цикл успевает измельчить, поднимает заполнение от 30 до 35 %; при 35 % (перегруз 650 т) питание отключается."}
+  setpoint_max_factor: {<<: *assumed, value: 1.15, unit: "-", status: assumption, title: "Наибольшая уставка питания, доля рабочей производительности", note: "Уставки выше отклоняются; фактическое питание ограничено ещё и мощностью."}
+  min_feed_factor: {<<: *assumed, value: 0.6, unit: "-", status: assumption, title: "Наименьшее устойчивое питание мельницы, доля рабочей производительности",
+    note: "Ниже этого питания мельницу полусамоизмельчения не ведут: шары бьют по футеровке. Модуль управления фабрикой не снижает уставку ниже 0,6 × 3835 = 2301 т/ч."}
+  overload_t: {<<: *assumed, value: 650, unit: t, status: assumption, title: "Перегруз мельницы, при котором питание отключается",
+    note: "Если уставка питания выше того, что мельница успевает измельчить на установленной мощности, избыток копится в барабане. При таком избытке питание отключается, пока мельница не измельчит накопленное. Источник не найден; порядок величины рудной загрузки МПСИ 40 футов."}
+  restart_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Пуск мельницы после остановки",
+    note: "После остановки из-за пустого склада мельница принимает руду не раньше чем через это время. Источник не найден."}
+
+flotation:
+  recovery_ref_pct: {<<: *kz25, value: 87.2, unit: "%", status: sourced, title: "Извлечение меди при опорных условиях",
+    note: "Извлечение Актогая за 2025 год при содержании 0,41 %; модель относит его к содержанию 0,41 % и индексу Бонда 14. Для сравнения: 87,9 % в 2024 году (0,43 %), 87,7 % в 2023 году (0,50 %)."}
+  grade_gain_pct: {<<: *kz25, value: 3.2, unit: "%", status: derived, title: "Рост извлечения с содержанием",
+    note: "Извлечение = 87,2 + 3,2 × ln(содержание / 0,41) − 20 × (индекс Бонда / 14 − 1). Коэффициент подобран методом наименьших квадратов по опубликованным точкам Актогая, проходящим через 2025 год (0,41 %; 87,2 %): 2024 год (0,43; 87,9), 2023 год (0,50; 87,7), I квартал 2025 (0,42; 86,8), IV квартал 2025 (0,40; 86,6): Σx(y − 87,2) / Σx² = 0,138 / 0,0429 = 3,2. Связь слабая: на изменение содержания 0,40 → 0,50 % извлечение отвечает на 0,7 пункта."}
+  hardness_loss_pct: {<<: *assumed, value: 20, unit: "%", status: assumption, title: "Потеря извлечения на более крепкой руде",
+    note: "Руда крепче опорной на 10 % теряет 2 пункта извлечения: при той же мощности мельниц помол грубее. Численной зависимости в источниках нет."}
+  recovery_min_pct: {<<: *assumed, value: 70, unit: "%", status: assumption, title: "Нижняя граница извлечения", note: "Ограничение формулы."}
+  recovery_max_pct: {<<: *assumed, value: 92, unit: "%", status: assumption, title: "Верхняя граница извлечения", note: "Ограничение формулы."}
+  overfeed_loss_pct: {<<: *assumed, value: 10, unit: "%", status: assumption, title: "Потеря извлечения при питании выше рабочей производительности",
+    note: "Время флотации сокращается обратно пропорционально потоку: питание на 10 % выше 3835 т/ч снимает 1 пункт извлечения. Численной зависимости в источниках нет."}
+  conc_grade_pct: {<<: *assumed, value: 28, unit: "% Cu", status: assumption, title: "Содержание меди в концентрате",
+    note: "KAZ Minerals содержание в концентрате не публикует. Внутри диапазона 26–31 % из испытаний порфировой руды (Valeriano) и рядом с 30 % на действующей фабрике."}
+  energy_kwh_t: {<<: *ifactory, value: 2.6, unit: kWh/t, status: snippet, title: "Расход энергии на флотацию", note: "Из того же баланса: флотация 2,6 кВт·ч/т."}
+
+concentrate:
+  store_capacity_t: {<<: *assumed, value: 10000, unit: t, status: assumption, title: "Вместимость склада концентрата",
+    note: "Источник не найден. Около 9 суток выпуска при 47 т/ч концентрата."}
+  shipment_t: {<<: *assumed, value: 1400, unit: t, status: assumption, title: "Партия отгрузки концентрата",
+    note: "Источник не найден. Состав из 20 вагонов по 70 т (концентрат отгружается по железной дороге, KAZ Minerals); при выпуске около 47 т/ч партия набирается примерно за 30 часов."}
+  tails_density_t_m3: {<<: *assumed, value: 1.45, unit: t/m3, status: assumption, title: "Плотность уложенных хвостов",
+    note: "Источник не найден. Сухая плотность намытых хвостов медной фабрики порядка 1,3–1,6 т/м3; нужна для объёма, который занимают хвосты."}
+
+plant:
+  aux_energy_kwh_t: {<<: *ifactory, value: 4.0, unit: kWh/t, status: derived, title: "Прочие потребители фабрики",
+    note: "Всего 25,0 кВт·ч/т − мельницы 17,5 − флотация 2,6 − дробление и транспорт 0,9 = 4,0 кВт·ч/т: насосы, сгущение, хвосты."}
+  aux_base_share: {<<: *assumed, value: 0.5, unit: "-", status: assumption, title: "Доля прочих потребителей, не зависящая от питания", note: "Половина нагрузки остаётся при остановленной мельнице."}
+
+fuel_station:
+  pumps: {<<: *assumed, value: 2, unit: "-", status: assumption, title: "Число постов заправки", note: "Источник не найден."}
+  flow_l_min: {<<: *assumed, value: 400, unit: l/min, status: assumption, title: "Подача топлива", note: "Скоростная заправка карьерной техники; бак 1900 л заполняется за 4–5 минут."}
+  position_min: {<<: *assumed, value: 3, unit: min, status: assumption, title: "Постановка на пост и подключение", note: "Источник не найден."}
+
+workshop:
+  bays: {<<: *assumed, value: 4, unit: "-", status: assumption, title: "Число ремонтных боксов",
+    note: "Не опубликовано. На 32 самосвала: плановое ТО занимает 32 × 4 ч / 250 ч = 0,5 бокса, ремонт крупных отказов 32 × 12 ч / 512 ч = 0,75 бокса; с запасом на очередь — 4 бокса."}
+
+reliability:
+  truck_mtbf_h: {<<: *hvi_metrics, value: 500, unit: h, status: snippet, title: "Наработка самосвала на крупный отказ", note: "Среднее по отрасли 400–600 часов, лучшие парки более 1000."}
+  truck_mttr_h: {<<: *hvi_metrics, value: 12, unit: h, status: snippet, title: "Среднее время ремонта крупного отказа", note: "Обычно 12–18 часов. Ремонт идёт в боксе мастерской."}
+  truck_minor_mtbf_h: {<<: *assumed, value: 30, unit: h, status: assumption, title: "Наработка самосвала на мелкую неисправность",
+    note: "Крупные отказы дают готовность 500 / 512 = 97,7 %, а отрасль сообщает 72–94 %: разницу составляют короткие остановки. Значение подобрано так, чтобы готовность парка была около 85 %: 1 − 12 / 512 − 4 / 34 = 0,86. Порядок величины тот же, что в исследовании бразильского парка (29 часов между остановками, 4 часа ремонта)."}
+  truck_minor_mttr_h: {<<: *assumed, value: 4, unit: h, status: assumption, title: "Среднее время устранения мелкой неисправности",
+    note: "Ремонт на месте выездной бригадой вместе с её ожиданием, бокс не нужен. Лучшие парки укладываются в 6 часов (тот же обзор)."}
+  fix_minor_h: {<<: *assumed, value: 1.0, unit: h, status: assumption, title: "Устранение мелкой неисправности в боксе по заявке",
+    note: "Дефект, найденный до отказа, устраняют в мастерской с готовыми запчастями: без ожидания выездной бригады и поиска причины. Источник не найден."}
+  inspect_h: {<<: *assumed, value: 0.5, unit: h, status: assumption, title: "Осмотр в боксе, если дефект не подтвердился", note: "Цена ложной заявки на обслуживание."}
+  pm_min_share: {<<: *assumed, value: 0.8, unit: "-", status: assumption, title: "Доля межсервисного интервала, после которой заявка выполняется как полное ТО",
+    note: "Машина, попавшая в бокс после 0,8 × 250 = 200 моточасов, проходит плановое обслуживание целиком; до этого устраняется только найденный дефект."}
+  pm_interval_h: {<<: *hvi_pm, value: 250, unit: h, status: snippet, title: "Периодичность планового обслуживания", note: "ТО-1 каждые 250 моточасов."}
+  pm_duration_h: {<<: *hvi_pm, value: 4, unit: h, status: snippet, title: "Длительность планового обслуживания", note: "4–6 часов в мастерской."}
+  overdue_hazard_slope: {<<: *assumed, value: 1.0, unit: "-", status: assumption, title: "Рост частоты отказов при просроченном обслуживании",
+    note: "После 250 часов без обслуживания частота отказов растёт линейно и удваивается к 500 часам. Источник не найден."}
+  pf_interval_major_h: {<<: *assumed, value: 24, unit: h, status: assumption, title: "Время развития крупного отказа",
+    note: "От появления дефекта до отказа: всё это время растут температура двигателя или шин и падает показатель состояния, так что отказ можно предупредить обслуживанием."}
+  pf_interval_minor_h: {<<: *assumed, value: 4, unit: h, status: assumption, title: "Время развития мелкой неисправности", note: "То же для коротких остановок."}
+  sudden_share_pct: {<<: *assumed, value: 10, unit: "%", status: assumption, title: "Доля дефектов, которые не видны заранее",
+    note: "Порванный рукав, пробитая шина, электрика: такой дефект сразу кончается отказом, и никакой контроль состояния не успевает поставить машину в бокс. Источник доли не найден. Без этой доли модуль техобслуживания успевал бы предупредить все отказы и готовность парка с модулями выходила бы за 95 %, выше лучших рудников (92–94 %, `plan.availability`). С долей 10 % готовность за неделю со всеми модулями — 93,3 %, без модулей — 87,2 % (зерно `sim.seed`, тест `test_modules`; на других зёрнах со всеми модулями — 92–93 %)."}
+  repair_log_sigma: {<<: *assumed, value: 0.5, unit: "-", status: assumption, title: "Разброс длительности ремонта", note: "Логнормальное распределение со средним, равным среднему времени ремонта."}
+  wear_pct_per_pm_interval: {<<: *assumed, value: 15, unit: "%", status: assumption, title: "Износ за межсервисный интервал", note: "Показатель состояния падает на 15 пунктов за 250 часов и восстанавливается обслуживанием."}
+  health_drop_major_pct: {<<: *assumed, value: 30, unit: "%", status: assumption, title: "Падение показателя состояния перед крупным отказом", note: "Нарастает за время развития отказа."}
+  health_drop_minor_pct: {<<: *assumed, value: 10, unit: "%", status: assumption, title: "Падение показателя состояния перед мелкой неисправностью", note: "Нарастает за время развития неисправности."}
+  engine_fault_rise_c: {<<: *assumed, value: 10, unit: "°C", status: assumption, title: "Рост температуры двигателя при дефекте системы охлаждения", note: "К моменту отказа; пороги изготовителя двигателя не найдены."}
+  tyre_fault_rise_c: {<<: *assumed, value: 15, unit: "°C", status: assumption, title: "Рост температуры шин при дефекте ходовой части", note: "К моменту отказа."}
+  loader_mtbf_h: {<<: *hvi_uptime, value: 500, unit: h, status: snippet, title: "Наработка экскаватора на отказ", note: "Экскаваторы и погрузчики: среднее по отрасли 400–600 часов."}
+  loader_mttr_h: {<<: *assumed, value: 8, unit: h, status: assumption, title: "Среднее время ремонта экскаватора", note: "Источник не найден. Ремонт идёт в забое."}
+
+weather:
+  oct_mean_c: {<<: *noaa, value: 7.6, unit: "°C", status: sourced, title: "Средняя суточная температура октября", note: "Строка Daily mean. Отнесена к 15 октября."}
+  oct_max_c: {<<: *noaa, value: 15.4, unit: "°C", status: sourced, title: "Средний максимум октября", note: "Строка Mean daily maximum."}
+  oct_min_c: {<<: *noaa, value: 1.3, unit: "°C", status: sourced, title: "Средний минимум октября", note: "Строка Mean daily minimum."}
+  oct_precip_mm: {<<: *noaa, value: 20.0, unit: mm, status: sourced, title: "Осадки за октябрь", note: "Строка Average precipitation."}
+  oct_wet_days: {<<: *noaa, value: 4.4, unit: "-", status: sourced, title: "Дней с осадками не меньше 1 мм в октябре", note: "Строка Average precipitation days (≥ 1,0 мм)."}
+  nov_mean_c: {<<: *noaa, value: -2.0, unit: "°C", status: sourced, title: "Средняя суточная температура ноября", note: "Отнесена к 15 ноября. 26 октября, в день начала модели: 7,6 + (−2,0 − 7,6) × 11 / 31 = 4,2 °C."}
+  nov_max_c: {<<: *noaa, value: 3.9, unit: "°C", status: sourced, title: "Средний максимум ноября", note: "Строка Mean daily maximum."}
+  nov_min_c: {<<: *noaa, value: -6.5, unit: "°C", status: sourced, title: "Средний минимум ноября", note: "Строка Mean daily minimum."}
+  nov_precip_mm: {<<: *noaa, value: 26.9, unit: mm, status: sourced, title: "Осадки за ноябрь", note: "Строка Average precipitation."}
+  nov_wet_days: {<<: *noaa, value: 5.8, unit: "-", status: sourced, title: "Дней с осадками не меньше 1 мм в ноябре", note: "Строка Average precipitation days."}
+  annual_precip_mm: {<<: *noaa, value: 195.6, unit: mm, status: sourced, title: "Осадки за год (для сравнения)", note: "Строка Year: полупустынный климат, сильные осадки редки."}
+  warmest_hour: {<<: *assumed, value: 15, unit: h, status: assumption, title: "Самый тёплый час суток",
+    note: "Температура меняется по синусоиде между средними минимумом и максимумом дня: максимум около 15 часов, минимум в 3 часа ночи."}
+  wet_event_h: {<<: *assumed, value: 4, unit: h, status: assumption, title: "Длительность обычных осадков",
+    note: "Нормы дают число дней с осадками и их количество, но не длительность. Осадки дня выпадают за 4 часа: в конце октября 20,0 / 4,4 = 4,5 мм за день, около 1,1 мм/ч — слабый дождь или мокрый снег."}
+  snow_below_c: {<<: *assumed, value: 1.0, unit: "°C", status: assumption, title: "Температура воздуха, ниже которой осадки выпадают снегом", note: "Обычная граница дождя и снега у поверхности."}
+  visibility_dry_m: {<<: *assumed, value: 10000, unit: m, status: assumption, title: "Видимость в сухую погоду", note: "Источник не найден."}
+  visibility_light_m: {<<: *assumed, value: 4000, unit: m, status: assumption, title: "Видимость при слабых осадках", note: "Источник не найден."}
+  visibility_rain_m: {<<: *assumed, value: 1000, unit: m, status: assumption, title: "Видимость в сильный дождь с мокрым снегом", note: "Источник не найден."}
+  rain_heavy_mm_h: {<<: *assumed, value: 4, unit: mm/h, status: assumption, title: "Интенсивность сильного дождя с мокрым снегом (сценарий)",
+    note: "Для полупустыни с 20 мм осадков за октябрь сильное событие — 10–15 мм за несколько часов, то есть около 4 мм/ч: столько выпадает за 3–4 часа, сколько за три обычных дня с осадками. Ливни 15 мм/ч и выше для Актогая в конце октября неправдоподобны."}
+  rain_heavy_max_mm_h: {<<: *assumed, value: 15, unit: mm/h, status: assumption, title: "Наибольшая интенсивность, которую принимает сценарий", note: "Запросы сценария с большей интенсивностью отклоняются."}
+  heavy_event_h: {<<: *derived, value: 3, unit: h, status: derived, title: "Ожидаемая длительность сильных осадков (сценарий)",
+    note: "Сильное событие для Актогая в конце октября — 10–15 мм (`weather.rain_heavy_mm_h`): 12 мм / 4 мм/ч = 3 ч. После осадков дороги сохнут ещё `road.drying_min`, так что крутой съезд закрыт около 3,5 ч."}
+
+sim:
+  seed: {<<: *assumed, value: 20261026, unit: "-", status: assumption, title: "Зерно генератора случайных чисел", note: "Настройка проекта, не физическая величина: одинаковое зерно даёт одинаковый ход модели."}
+  default_speedup: {<<: *assumed, value: 20, unit: "x", status: assumption, title: "Ускорение времени по умолчанию", note: "Настройка проекта: 20 секунд модели за секунду стенда; смена в 12 часов модели проходит за 36 минут, так что на стенде видно и отдельные рейсы, и последствия инцидента для фабрики. Допустимые значения 1, 10, 20 и 60 (сообщение `set-speed`)."}
+  kpi_window_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Окно усреднения показателей", note: "Настройка проекта: показатели рудника считаются за последний час модели."}
+  availability_window_h: {<<: *assumed, value: 24, unit: h, status: assumption, title: "Окно усреднения готовности парка самосвалов",
+    note: "Настройка проекта: готовность — показатель за длинный срок, за один час она скачет от того, сколько машин именно сейчас в боксах. На двойнике рудника она считается за последние сутки модели (в первые сутки — с запуска)."}
+  history_from_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "С какой минуты разгона модель ведёт историю для сравнения сценариев",
+    note: "Модель начинает с самосвалов, стоящих в узлах дорог, и первые полчаса разгона (`world.yaml`, `clock.warm_start_min` = 120 мин) показатели выходят на обычный уровень. Эти минуты в историю не пишутся: после перезапуска симулятора окна «до» сценария строятся по 90 минутам установившейся работы."}
+  rate_window_min: {<<: *assumed, value: 15, unit: min, status: assumption, title: "Окно усреднения производительности машин", note: "Настройка проекта: производительность экскаваторов и дробилки считается за последние 15 минут модели."}
+  decision_timeout_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Срок действия решения модуля без подтверждения",
+    note: "Настройка проекта. Модули повторяют свои решения не реже раза в 10 минут модели; решение, не подтверждённое за 30 минут, симулятор снимает и возвращается к базовому правилу, так что остановленный сервис модуля не оставляет после себя устаревших уставок."}
+
+dispatch:
+  proportion_window_h: {<<: *assumed, value: 6, unit: h, status: assumption, title: "Окно учёта соотношения руды и вскрыши",
+    note: "Доля руды в погруженной горной массе считается за последние 6 часов и сравнивается с плановой (`plan.ore_share`)."}
+  proportion_gain_min: {<<: *assumed, value: 300, unit: min, status: assumption, title: "Цена отклонения от планового соотношения",
+    note: "Отклонение доли руды на 1 пункт равноценно 3 минутам лишнего времени рейса: при выборе экскаватора модуль прибавляет эту цену к времени пути, очереди и погрузки."}
+  stockpile_full_pct: {<<: *assumed, value: 95, unit: "%", status: assumption, title: "Уровень склада дроблёной руды, выше которого руда не требуется",
+    note: "Когда склад заполнен и дробилка пропускает только то, что берёт мельница, отставание по руде не засчитывается: свободные самосвалы уходят на вскрышу, а не в очередь у дробилки."}
+  stockpile_low_pct: {<<: *assumed, value: 60, unit: "%", status: assumption, title: "Уровень склада дроблёной руды, ниже которого руда нужна в полной плановой доле",
+    note: "Между 60 и 95 % потребность в руде растёт линейно от полной до нулевой: так поток руды подстраивается под то, что берёт мельница, а склад держится в этом диапазоне."}
+  divert_wait_min: {<<: *assumed, value: 5, unit: min, status: assumption, title: "Цена разгрузки на рудный склад вместо дробилки",
+    note: "Лишний путь до склада и обратно (около 1,5 мин) и последующая перевалка погрузчиком. Если ожидание у дробилки дольше, рейс уходит на рудный склад; при выборе экскаватора ожидание у дробилки учитывается не выше этой цены."}
+  pad_max_pct: {<<: *assumed, value: 60, unit: "%", status: assumption, title: "Заполнение рудного склада, выше которого модуль на него не возит",
+    note: "Склад остаётся буфером на время остановок экскаваторов и дробилки и не заполняется до отказа."}
+  requeue_gain_min: {<<: *assumed, value: 4, unit: min, status: assumption, title: "Выигрыш, ради которого самосвал уводят из очереди к другому экскаватору", note: "Защита от частых переназначений."}
+  replan_min: {<<: *assumed, value: 5, unit: min, status: assumption, title: "Период пересмотра очередей", note: "Настройка проекта."}
+
+grade_control:
+  target_pct: {<<: *derived, value: 0.41, unit: "% Cu", status: derived, title: "Плановое содержание меди в питании мельницы",
+    note: "Равно среднему содержанию руды, идущей на фабрику (`geology.mean_head_grade_pct`, Актогай 2025 год)."}
+  band_pct: {<<: *assumed, value: 0.03, unit: "% Cu", status: assumption, title: "Полуширина допустимой полосы содержания",
+    note: "Полоса 0,38–0,44 % Cu: ±7 % от плана. Источник не найден; реагентный режим флотации настраивают под диапазон содержания в питании."}
+  control_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Период пересчёта шихты", note: "Настройка проекта."}
+  horizon_h: {<<: *assumed, value: 2, unit: h, status: assumption, title: "Горизонт прогноза содержания на складе",
+    note: "Содержание на складе через 2 часа = текущее + (содержание потока − текущее) × доля склада, которую поток заменит за это время."}
+  hold_share: {<<: *assumed, value: 0.9, unit: "-", status: assumption, title: "Доля полосы, в которой модуль не вмешивается",
+    note: "Пока прогноз остаётся в пределах план ± 0,9 × 0,03 = 0,393–0,447 % Cu, руда идёт прямо в дробилку; модуль меняет шихту, когда прогноз выходит за эти пределы."}
+  full_feed_below_pct: {<<: *assumed, value: 50, unit: "%", status: assumption, title: "Уровень склада дроблёной руды, ниже которого руду с дробилки не снимают",
+    note: "При низком складе важнее объём: модуль отправляет руду на рудные склады, только когда поток на дробилку остаётся не меньше питания мельницы."}
+  rehandle_cost: {<<: *assumed, value: 0.15, unit: "-", status: assumption, title: "Цена перевалки через рудный склад",
+    note: "Доля допустимой полосы содержания, которой равноценна перевалка всего потока руды через склад; удерживает модуль от лишней перевалки."}
+
+plant_control:
+  control_min: {<<: *assumed, value: 5, unit: min, status: assumption, title: "Период пересчёта уставки питания", note: "Настройка проекта."}
+  power_margin: {<<: *assumed, value: 0.97, unit: "-", status: assumption, title: "Доля предельного по мощности питания, которую использует модуль",
+    note: "Запас 3 % от перегруза мельницы при колебаниях крепости руды."}
+  reserve_pct: {<<: *assumed, value: 15, unit: "%", status: assumption, title: "Неснижаемый запас склада дроблёной руды",
+    note: "15 % × 46 020 т = 6903 т, около 1,8 часа питания мельницы."}
+  horizon_h: {<<: *assumed, value: 4, unit: h, status: assumption, title: "Горизонт, на котором склад не должен опуститься до неснижаемого запаса",
+    note: "Уставка не выше, чем приход руды + (запас сверх неснижаемого) / 4 ч: при падении склада питание снижается заранее и плавно."}
+  trend_window_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Окно оценки прихода руды на склад", note: "Настройка проекта."}
+
+maintenance:
+  deficit_alarm_pct: {<<: *assumed, value: 1.5, unit: "%", status: assumption, title: "Отставание показателя состояния от износа, с которого дефект считается обнаруженным",
+    note: "Показатель состояния машины без дефекта следует износу: 100 − 15 × моточасы / 250. Отставание от этой линии больше 1,5 пункта при устойчивом росте означает развивающийся дефект."}
+  slope_alarm_pct_h: {<<: *assumed, value: 0.5, unit: "%/h", status: assumption, title: "Скорость падения показателя состояния, с которой дефект считается развивающимся", note: "Отсекает шум округления показателя."}
+  fast_slope_pct_h: {<<: *assumed, value: 1.9, unit: "%/h", status: assumption, title: "Скорость падения, отличающая быстрый дефект от медленного",
+    note: "Мелкая неисправность: 10 пунктов за 4 ч = 2,5 пункта в час; крупный отказ: 30 пунктов за 24 ч = 1,25. Граница посередине."}
+  urgent_h: {<<: *assumed, value: 2, unit: h, status: assumption, title: "Прогноз времени до отказа, при котором машину отправляют в бокс немедленно", note: "Остальные заявки ждут свободного бокса и своей очереди."}
+  engine_residual_c: {<<: *assumed, value: 2.5, unit: "°C", status: assumption, title: "Превышение температуры двигателя над парком, указывающее на систему охлаждения",
+    note: "Сравниваются средние за час температуры машины и медиана по парку."}
+  tyre_residual_c: {<<: *assumed, value: 3.0, unit: "°C", status: assumption, title: "Превышение температуры шин над парком, указывающее на ходовую часть", note: "То же сравнение."}
+  pm_lead_h: {<<: *assumed, value: 10, unit: h, status: assumption, title: "За сколько моточасов до срока модуль начинает искать окно для планового ТО",
+    note: "С 240 моточасов машина ставится на ТО, как только в ремонте и обслуживании нет других машин; после 270 моточасов ставится в первый свободный бокс."}
+  pm_overdue_h: {<<: *assumed, value: 20, unit: h, status: assumption, title: "Просрочка планового ТО, после которой окно больше не выбирают", note: "См. предыдущую строку."}
+  planned_out_max: {<<: *assumed, value: 3, unit: "-", status: assumption, title: "Сколько машин одновременно выводится по несрочным заявкам",
+    note: "Из четырёх боксов один остаётся свободным для аварийного ремонта."}
+
+scenario:
+  hard_ore_bwi: {<<: *assumed, value: 17.5, unit: kWh/t, status: assumption, title: "Индекс Бонда зоны крепкой руды",
+    note: "Верхняя часть диапазона порфировых руд (5,7–20,2 кВт·ч/т), на 25 % выше среднего по месторождению."}
+  hard_ore_ramp_min: {<<: *assumed, value: 30, unit: min, status: assumption, title: "Время, за которое крепкая руда вытесняет обычную в питании мельницы",
+    note: "Зона приходит и уходит постепенно; после отмены сценария крепость возвращается за то же время."}
+  kpi_window_max_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Наибольшее окно сравнения показателей сценария",
+    note: "Показатели цепочки сценария считаются по двум окнам равной длины: «до» кончается в момент запуска, «сейчас» — в текущий момент; длина окна равна времени с запуска, но не больше 60 минут и не меньше 5 минут."}
+  kpi_recovery_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Сколько минут после другого сценария окно «до» ещё не считается обычной работой",
+    note: "После отмены сценария очереди, склады и рейсы приходят в обычное состояние не сразу: после остановки дробилки разбирается очередь и стоят мокрые дороги, после закрытия участка самосвалы возвращаются на свои маршруты. Окно «до», задетое другим сценарием или часом после него, не берётся: показатель сравнивается с последним чистым окном той же длины, а если такого нет, карточка пишет «база недоступна»."}
+  route_trips_min: {<<: *assumed, value: 16, unit: "-", status: assumption, title: "Сколько рейсов после закрытия дороги нужно, чтобы показатели рейса считались по ним",
+    note: "Рейс, начатый до закрытия, ещё прошёл по старому маршруту, а первыми после закрытия заканчиваются короткие рейсы; руда, разгруженная в дробилку за первые минуты, — это грузы, уже бывшие в пути. Пока не закончилось 16 рейсов, начатых после закрытия (половина парка), «сейчас» для пути с грузом, времени рейса и руды, разгруженной в дробилку, — прогноз по открытым маршрутам: значение «до», умноженное на отношение длины маршрута, времени рейса или провозной способности парка сейчас к ним же до закрытия; карточка помечает его как прогноз."}
+  kpi_history_h: {<<: *assumed, value: 6, unit: h, status: assumption, title: "Глубина истории для оценки колебаний показателей",
+    note: "Колебание показателя — среднеквадратичная разница между соседними окнами той же длины за последние часы перед запуском."}
+  kpi_noise_k: {<<: *assumed, value: 2, unit: "-", status: assumption, title: "Во сколько раз изменение должно превышать обычное колебание",
+    note: "Изменение показателя считается значимым, если оно больше двух среднеквадратичных разниц соседних окон; иначе текст пишет «в пределах колебаний»."}
+  kpi_large_change_pct: {<<: *assumed, value: 30, unit: "%", status: assumption, title: "Изменение показателя, значимое без оценки колебаний",
+    note: "Изменение на 30 % и больше от значения до запуска считается значимым, даже если короткие окна шумные; темп, упавший до нуля (дробилка встала), значим всегда. Так остановка дробилки или выемка, упавшая вдвое, не называется «в пределах колебаний»."}
+  hard_ore_expected_h: {<<: *assumed, value: 12, unit: h, status: assumption, title: "Ожидаемая длительность зоны крепкой руды (сценарий)",
+    note: "Крепкая руда приходит из забоя, вскрывшего зону: блок модели — около 200 тыс. т, мельница перерабатывает 3,8–4,2 тыс. т/ч смеси из четырёх рудных забоев. Сколько руды зоны в блоке, неизвестно; 12 ч — допущение, одна смена: в прогнозе на смену зона не кончается."}
+  overrun_extend_share: {<<: *assumed, value: 0.5, unit: "-", status: assumption, title: "На какую долю ожидаемой длительности продлевается оценка, если инцидент её превысил",
+    note: "На стенде сценарий идёт, пока его не отменят. Если ожидаемое окончание прошло, а сценарий ещё идёт, ремонт затянулся: новая оценка — сейчас плюс половина первоначальной длительности, и прогнозы считают уже от неё. Так начальник смены переспрашивает ремонтников о сроке."}
+  kpi_large_min_window_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Наименьшее окно, на котором крупное изменение считается значимым само по себе",
+    note: "В окне 5 минут рейсов и самосвалов мало, и показатель по рейсам может случайно измениться на треть; с 10 минут правило крупного изменения действует."}
+
+economics:
+  copper_usd_t: {value: 14474, unit: USD/t, status: sourced, title: "Цена меди (LME, среднее за сентябрь 2026 года)",
+    source: "World Bank, Commodity Price Data (Pink Sheet), CMO Historical Data Monthly, лист Monthly Prices, столбец Copper, строка 2026M09 (выпуск 2 октября 2026 года)",
+    url: "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx",
+    note: "Номинальная цена, медь марки A на LME. Для сравнения: LME cash 13 октября 2026 года 14 741 USD/t (Westmetall); среднее января–сентября 2026 года 13 431 USD/t."}
+  usd_kzt: {value: 448.45, unit: KZT/USD, status: sourced, title: "Курс доллара США",
+    source: "Национальный банк Республики Казахстан, официальные (рыночные) курсы валют на 14 октября 2026 года",
+    url: "https://nationalbank.kz/en/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut", note: "Официальный курс на дату расчёта."}
+  payable_cu_pct: {<<: *kz25, value: 95.5, unit: "%", status: derived, title: "Оплачиваемая доля меди в концентрате",
+    note: "Актогай, 2025 год: оплачиваемая медь из сульфидной руды 210,4 тыс. т / медь в концентрате 220,3 тыс. т = 95,5 %. Для сравнения, рыночный стандарт около 96,5 % (Fastmarkets, 2024)."}
+  tc_usd_t: {value: 0, unit: USD/t, status: sourced, title: "Плата за переработку концентрата (TC)",
+    source: "SMM, «Chinese Smelters, Antofagasta Set 2026 Copper Concentrate TC/RC Benchmark at $0/0.0¢», 20 декабря 2025 года",
+    url: "https://news.metal.com/newscontent/103681795-chinese-smelters-antofagasta-set-2026-copper-concentrate-tcrc-benchmark-at-000¢",
+    note: "Годовой ориентир долгосрочных контрактов на 2026 год: 0 USD за тонну концентрата (в 2025 году 21,25). Формула выручки вычитает TC с тонны концентрата; при нуле вычет равен нулю."}
+  rc_usc_lb: {value: 0, unit: "US cents/lb", status: sourced, title: "Плата за рафинирование (RC)",
+    source: "SMM, «Chinese Smelters, Antofagasta Set 2026 Copper Concentrate TC/RC Benchmark at $0/0.0¢», 20 декабря 2025 года",
+    url: "https://news.metal.com/newscontent/103681795-chinese-smelters-antofagasta-set-2026-copper-concentrate-tcrc-benchmark-at-000¢",
+    note: "Ориентир 2026 года: 0,0 цента за фунт оплачиваемой меди (в 2025 году 2,125)."}
+  diesel_kzt_l: {value: 352, unit: KZT/l, status: sourced, title: "Цена дизельного топлива (розница, по данным трекера цен)",
+    source: "DailyFuels, страница Казахстана, обновление 13 октября 2026 года (сторонний трекер цен, не официальная статистика)",
+    url: "https://dailyfuels.com/kazakhstan/?lang=pt",
+    note: "Второй трекер даёт 351 тг/л на 12 октября 2026 года (GlobalPetrolPrices). Официальная цена Бюро национальной статистики не найдена; оптовая цена для рудника, вероятно, ниже розничной."}
+  power_kzt_kwh: {value: 40.29, unit: KZT/kWh, status: sourced, title: "Цена электроэнергии (приближение: предельный тариф для юридических лиц одного региона)",
+    source: "digitalbusiness.kz, «Что подорожает в Казахстане с 1 сентября 2026 года», 29 августа 2026 года: предельный тариф для потребителей, кроме населения, Северо-Казахстанской области",
+    url: "https://digitalbusiness.kz/2026-08-29/chto-podorozhaet-v-kazahstane-s-1-sentyabrya-2026-goda/amp/",
+    note: "Приближение: средний промышленный тариф по стране не найден; учёт НДС в источнике не указан. Для сравнения, цена единого закупщика в 2025 году 34–36 тг/кВт·ч без НДС (inbusiness.kz)."}
+  diesel_co2_kg_l: {value: 2.58354, unit: kg CO2e/l, status: sourced, title: "Выбросы CO₂ при сжигании дизельного топлива",
+    source: "UK DESNZ, Greenhouse gas reporting: conversion factors 2026, полный набор, лист Fuels, Diesel (average biofuel blend), litres, kg CO2e",
+    url: "https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2026",
+    note: "Дизель со средней долей биотоплива; для чистого минерального дизеля 2,66155 кг CO₂e/л. Прямые выбросы при сжигании, без добычи и доставки топлива."}
+  grid_co2_t_mwh: {value: 0.603, unit: t CO2/MWh, status: sourced, title: "Выбросы CO₂ на 1 МВт·ч электроэнергии сети Казахстана",
+    source: "Low-Carbon Power, страница Казахстана: углеродоёмкость электроэнергии за 12 месяцев с апреля 2025 по март 2026 года (по данным Ember, Energy Institute, IEA)",
+    url: "https://www.lowcarbonpower.org/region/Kazakhstan",
+    note: "Вторичный агрегатор; официального коэффициента министерства не найдено. Альтернативы: 0,805 т/МВт·ч за 2025 год (Ember и Our World in Data по Inzonex), 0,653 и 0,817 т/МВт·ч (гармонизированный набор МФО в РКИК ООН, без даты). Разброс до 35 %."}
+  lb_per_t: {<<: *derived, value: 2204.62, unit: lb/t, status: derived, title: "Фунтов в метрической тонне",
+    note: "1 т = 1000 кг / 0,45359237 кг = 2204,62 фунта; нужен для платы RC, назначаемой за фунт."}
+  stock_kzt_t: {value: 897, unit: KZT/t, status: snippet, title: "Работа парка на тонну горной массы в оценке запасов",
+    source: "Crux Investor, Analysts' notes, неделя 11: стоимость выемки на открытых рудниках — от 2 USD за тонну на очень крупных рудниках и около вдвое больше при производительности ниже 15 млн т в год",
+    url: "https://www.cruxinvestor.com/posts/analysts-notes-week-11",
+    note: "Прогноз оценивает руду, которую горизонт оставляет следующей смене, везде одинаково, где бы она ни лежала — во взорванном блоке, в кузове, в бункере дробилки, на конвейере, на складе дроблёной руды, на рудном складе, в мельнице: медь, которую руда даст (содержание × опорное извлечение 87,2 % × цена оплачиваемой меди), за вычетом того, что ещё нужно, чтобы превратить её в концентрат. Мельница — узкое место фабрики, поэтому главное из этого — время мельницы: за то время, что мельница перерабатывает эту тонну, она переработала бы тонну средней руды месторождения (`geology.mean_head_grade_pct`, 0,41 %). Руда стоит своей меди сверх меди средней руды; добытая руда — ещё и работы парка, которую она избавляет делать заново, по этой цене; руда на рудных складах — за вычетом перевалки, которая ей ещё нужна (`rom.rehandle_kzt_t`, 208 тг/т). Энергия измельчения и флотации на тонну у руды и у средней руды, которую она вытесняет, одна и та же и сокращается. Вскрыша, снятая за горизонт, — по той же цене работы парка. Перекладывание руды из кучи в кучу поэтому меняет итог только на то, что перекладывание стоит: дизель и энергию за горизонт и перевалку с рудного склада. Богатая руда, взятая со склада или из богатого забоя, даёт медь, но запасы теряют её столько же: выигрывает только то, что прибавляет время мельницы, извлечение или экономит затраты. Взята нижняя граница источника: 2 USD/t × 448,45 тг/USD = 897 тг/т."}
+
+forecast:
+  horizon_h: {<<: *assumed, value: 12, unit: h, status: assumption, title: "Горизонт прогноза по умолчанию",
+    note: "Одна смена: смены на руднике по 12 часов (`world.yaml`, `clock`: дневная с 8 до 20 ч). Решение начальника смены по инциденту оценивается на всю смену, за которую он отвечает, и дольше, чем склад дроблёной руды (несколько часов питания мельницы) скрывает потерю подачи руды."}
+  max_horizon_h: {<<: *assumed, value: 24, unit: h, status: assumption, title: "Наибольший горизонт прогноза", note: "Настройка проекта: сутки модели считаются за несколько секунд."}
+  period_s: {<<: *assumed, value: 20, unit: s, status: assumption, title: "Шаг обмена ядер модулей с моделью в прогнозе",
+    note: "На стенде модуль видит изменения двойников раз в такт симулятора: 20 секунд модели при ускорении ×20. Прогноз воспроизводит этот такт."}
+  max_parallel: {<<: *assumed, value: 12, unit: "-", status: assumption, title: "Сколько ветвей прогноза считается одновременно",
+    note: "Ветви советника и модулей: каждая — отдельный процесс на своём ядре процессора с пониженным приоритетом (`nice` 10), чтобы не отнимать время у живого симулятора и сервисов модулей; два ядра остаются им, поэтому процессов не больше, чем доступных контейнеру ядер минус два (число ядер берётся из маски допустимых процессоров, а не из числа ядер хозяина). Советник заказывает 4 ветви × 3 парных повтора = 12: при 14 ядрах и больше они считаются разом, на 8 ядрах — в две волны по 6. Две ветви прогноза страницы запускаются сразу, сверх этого числа и раньше остальных, чтобы оператор не ждал фоновых прогнозов."}
+  timeout_s: {<<: *assumed, value: 120, unit: s, status: assumption, title: "Наибольшее время счёта одной ветви",
+    note: "Ветвь, не досчитанная за это время, снимается, прогноз получает статус error. Измерено на стенде: прогноз на 12 часов (две ветви) готов через 9–16 с на 24 ядрах и через 12–15 с на 8 ядрах (при закреплении всех контейнеров за ядрами 0–7; до ограничения процессов по ядрам и понижения их приоритета — 25 с), разбор советника (4 варианта × 3 повтора) — через 14–30 с на 24 ядрах и через 26 с на 8 ядрах, где ветви считаются в две волны по 6. Ожидание результата не короче 60 с для прогноза и 75 с для разбора советника: страница ждёт 90 с, проверка стенда — 90 с и 120 с."}
+  max_replicas: {<<: *assumed, value: 6, unit: "-", status: assumption, title: "Наибольшее число парных повторов одного прогноза",
+    note: "Повтор считает обе ветви ещё раз на своих случайных потоках, одинаковых для ветвей A и B. Защита от ошибочного запроса: шесть повторов четырёх ветвей советника — 24 процесса."}
+  max_actions: {<<: *assumed, value: 40, unit: "-", status: assumption, title: "Наибольшее число действий в ветви", note: "Защита от ошибочного запроса."}
+  noise_kzt: {<<: *assumed, value: 8000000, unit: KZT, status: assumption, title: "Парный разброс одного прогноза по итогу с поправкой за 12 ч (стандартное отклонение)",
+    note: "Проверка проекта на модели участка Актогая со всеми модулями: из 16 моментов через каждые 2 часа ветвь «ничего не менять» сравнивается с ветвью, отличающейся пренебрежимо малым изменением, на тех же случайных потоках. У одного самосвала на 300 л меньше топлива (он заправляется раньше): стандартное отклонение разницы итога 7,6 млн тг, крайние −10,1 и +13,7 млн тг, меди 0,68 т; 200 т руды на складе дроблёной руды сверх имеющихся: 4,7 млн тг; у одного самосвала 5 м лишнего пути: 0 (разница 45 тг). До перехода на потоки отдельных машин те же проверки давали 11,2 млн тг, 2,3 млн тг и 16,8 млн тг. Оставшийся разброс — не случайные числа: модуль диспетчеризации по-другому распределяет самосвалы после малого сдвига во времени, и за 12 часов к дробилке приходят другие один-два самосвала руды или руда другого забоя; без модулей тот же сдвиг даёт 0,9 млн тг. Принято 8 млн тг: ниже этой стандартной ошибки на один повтор советник оценку разброса не опускает (`advisor.min_t`). Тексты прогноза и эффекта модуля называют разницу «в пределах разброса прогноза», если она не больше двух стандартных ошибок: 2 × 8 = 16 млн тг для одного прогноза, 2 × 8 / √n для среднего n прогнозов или повторов."}
+  noise_cu_t: {<<: *assumed, value: 0.7, unit: t, status: assumption, title: "Парный разброс одного прогноза по меди за 12 ч (стандартное отклонение)",
+    note: "Та же проверка: стандартное отклонение разницы меди 0,68 т при 300 л топлива у одного самосвала и 0,44 т при 200 т руды на складе (до перехода на потоки отдельных машин — 0,74 и 0,14 т)."}
+  module_slots_first: {<<: *assumed, value: 6, unit: "-", status: assumption, title: "Первый слот прогнозов «с модулем / без модуля»",
+    note: "Слоты 1 (страница) и 2–5 (советник) заняты; модули диспетчеризации, качества руды, фабрики и техобслуживания получают слоты 6–9 (`world.yaml`, `forecasts.module_slots`)."}
+  module_period_h: {<<: *assumed, value: 3, unit: h, status: assumption, title: "Как часто модуль заказывает прогноз «с модулем / без модуля»",
+    note: "Каждые 3 часа модели (9 минут стенда при ×20); модули сдвинуты друг относительно друга на 30 минут, чтобы ветви не считались одновременно."}
+  module_first_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Первый прогноз «с модулем / без модуля» после включения модуля",
+    note: "Через 10 минут модели после включения или запуска сервиса."}
+  module_results_kept: {<<: *assumed, value: 4, unit: "-", status: assumption, title: "Сколько последних прогнозов «с модулем / без модуля» усредняется",
+    note: "Среднее четырёх прогнозов за последние 12 часов модели гасит часть разброса одного прогноза."}
+
+advisor:
+  truck_cluster_out: {<<: *assumed, value: 9, unit: "-", status: assumption, title: "Самосвалов вне работы, при котором отказы считаются групповыми",
+    note: "При готовности парка около 87 % в ремонте и на обслуживании в среднем 4–5 самосвалов из 32; девять и больше (четверть парка) — заметная потеря провозной способности."}
+  truck_cluster_min: {<<: *assumed, value: 10, unit: min, status: assumption, title: "Сколько минут модели должно держаться групповое выбытие самосвалов",
+    note: "Отсекает случайные совпадения коротких остановок."}
+  hard_ore_bwi: {<<: *assumed, value: 16.0, unit: kWh/t, status: assumption, title: "Индекс Бонда питания мельницы, с которого руда считается крепкой",
+    note: "Среднее по месторождению 14,0 при разбросе блоков 1,2; на складе смесь многих блоков, поэтому 16 — за пределами обычных колебаний питания."}
+  pad_reserve_t: {<<: *assumed, value: 5000, unit: t, status: assumption, title: "Запас на складе, с которого советник предлагает подавать руду в дробилку",
+    note: "Не меньше пяти часов работы погрузчика при подаче 1000 т/ч."}
+  hold_h: {<<: *assumed, value: 12, unit: h, status: assumption, title: "Срок указания оператора по варианту советника",
+    note: "Равен горизонту прогноза: вариант оценён на этот срок. Модуль, владеющий тем же рычагом, это указание не перебивает; по окончании срока рычаг возвращается модулю или базовому правилу."}
+  replicas: {<<: *assumed, value: 3, unit: "-", status: assumption, title: "Сколько парных повторов прогноза советник заказывает на каждый вариант",
+    note: "Каждый повтор считает ветви «ничего не менять» и «вариант» на одних и тех же случайных потоках (отказы, погрузка, рейсы), разных для разных повторов; выигрыш варианта — среднее по повторам, его стандартная ошибка — по их разбросу. Три повтора — наименьшее число, по которому разброс вообще оценивается, и 4 ветви × 3 = 12 процессов; на стенде разбор инцидента готов через 15–30 с (`forecast.max_parallel`)."}
+  min_t: {<<: *assumed, value: 2.0, unit: "-", status: assumption, title: "Во сколько стандартных ошибок должен уложиться выигрыш рекомендуемого варианта",
+    note: "Советник рекомендует вариант, только если его средний выигрыш не меньше двух стандартных ошибок: при нормальном разбросе вариант, который на деле не лучше, проходит этот порог примерно в 2–3 случаях из 100. Стандартная ошибка — по трём повторам, но не меньше `forecast.noise_kzt` / √3 = 4,6 млн тг: три близких повтора не делают прогноз точнее, чем показала проверка. Порог при трёх повторах — не меньше 9,2 млн тг (около 1,5 т меди за 12 ч). Достоверность в тексте: «высокая» — от 4 стандартных ошибок, «средняя» — от 2, «низкая» — от 1, ниже — «нет»."}
+  min_gain_kzt: {<<: *assumed, value: 3000000, unit: KZT, status: assumption, title: "Наименьший выигрыш варианта, при котором советник его рекомендует",
+    note: "Сколько должен дать вариант, чтобы ради него стоило давать указание: 3 млн тг — около 0,5 т меди за 12 часов, 0,3 % переменной маржи смены. Обычно порог разброса (`advisor.min_t`) выше и решает он."}
+  max_cu_loss_t: {<<: *assumed, value: 1.0, unit: t, status: assumption, title: "Наибольшая потеря меди за горизонт, с которой вариант ещё может быть рекомендован",
+    note: "Жёсткое ограничение: мельница — узкое место фабрики, и медь, не полученная сейчас, позже не наверстывается. Вариант, теряющий в среднем по повторам больше 1 т меди, показывается, но не рекомендуется, сколько бы он ни давал по деньгам. 1 т — около полутора стандартных отклонений меди одного прогноза (`forecast.noise_cu_t`): меньшая потеря неотличима от разброса."}
+  min_cu_t: {<<: *assumed, value: 0.5, unit: t, status: assumption, title: "Наименьшая разница меди, ниже которой выигрыш «только на запасах» не рекомендуется",
+    note: "Выигрыш варианта делится на деньги горизонта — медь по средней руде месторождения (выручка минус медь сверх средней руды, отданная запасами) и затраты на дизель, энергию и перевалку — и на работу парка, вложенную в руду и вскрышу, которые горизонт оставляет. Вариант, у которого деньги горизонта меньше `advisor.min_gain_kzt`, а медь отличается меньше чем на 0,5 т или деньги горизонта дают меньше половины выигрыша, не рекомендуется: такой выигрыш держится на запасах, а не на меди."}
+  reanalyse_stock_h: {<<: *assumed, value: 2.0, unit: h, status: assumption, title: "На сколько часов питания мельницы должен упасть склад, чтобы советник разобрал тот же инцидент заново",
+    note: "Варианты оценены на момент начала инцидента. Если инцидент длится (дробилка стоит часами, экскаватор в ремонте), а склад дроблёной руды за это время потерял два часа питания мельницы и больше, те же рычаги стоят уже другого: советник строит и прогнозирует варианты снова. Если вариант уже применён, повторного разбора нет."}
+  retry_min: {<<: *assumed, value: 60, unit: min, status: assumption, title: "Через сколько минут модели советник повторяет запрос прогнозов, если ответа нет",
+    note: "Обычно прогнозы готовы через несколько секунд стенда, то есть через несколько минут модели."}
+
+response:
+  wage_kzt_month: {value: 888903, unit: KZT/month, status: sourced, title: "Среднемесячная номинальная зарплата в горнодобывающей промышленности",
+    source: "Бюро национальной статистики АСПиР РК, «Численность и заработная плата работников в Республике Казахстан (II квартал 2025 г.)», строка «Горнодобывающая промышленность и разработка карьеров»",
+    url: "https://stat.gov.kz/ru/industries/labor-and-income/stat-wags/publications/431530/",
+    note: "Ставка ремонтника рудника берётся по средней по отрасли: зарплата слесарей и электриков Актогая не публикуется."}
+  hours_month: {<<: *derived, value: 173.3, unit: h, status: derived, title: "Рабочих часов в месяце",
+    note: "Нормальная продолжительность рабочего времени по Трудовому кодексу РК — 40 часов в неделю: 40 × 52 / 12 = 173,3 ч."}
+  overtime_factor: {value: 1.5, unit: "-", status: snippet, title: "Надбавка за сверхурочную работу",
+    source: "Трудовой кодекс Республики Казахстан, статья 108 «Оплата труда за работу в сверхурочное время»",
+    url: "https://kodeksy-kz.com/ka/trudovoj_kodeks/108.htm",
+    note: "При повременной оплате — не ниже полуторного размера часовой ставки. Вторая бригада своих ремонтников выходит сверх смены, поэтому её час стоит по сверхурочной ставке."}
+  payroll_factor: {<<: *assumed, value: 1.2, unit: "-", status: assumption, title: "Начисления работодателя на фонд оплаты труда",
+    note: "Социальный налог, социальные отчисления и отчисления на обязательное медицинское страхование вместе — около пятой части зарплаты; точная сумма зависит от года и ставок, поэтому 1,2 — округлённое допущение."}
+  crew_size: {<<: *assumed, value: 6, unit: "-", status: assumption, title: "Численность ремонтной бригады",
+    note: "Слесари, электрик, сварщик, крановщик и мастер: состав бригады на ремонт узла дробилки или экскаватора. Источник не найден."}
+  own_crew_kzt_h: {<<: *derived, value: 55400, unit: KZT/h, status: derived, title: "Час второй бригады своих ремонтников",
+    note: "888 903 / 173,3 × 1,5 × 1,2 × 6 = 55 400 тг/ч: шесть человек по сверхурочной ставке с начислениями."}
+  contractor_usd_h: {<<: *assumed, value: 150, unit: USD/h, status: assumption, title: "Час специалиста сервисной службы изготовителя или подрядчика",
+    note: "В объявлениях дилеров Caterpillar в США механик выездной службы получает 27–59 USD/ч (Foley Equipment, 2025–2026 годы); заказчику час специалиста выставляют обычно в 2,5–3 раза дороже зарплаты (накладные, выезд, инструмент). 150 USD/ч — допущение по этой оценке."}
+  contractor_people: {<<: *assumed, value: 2, unit: "-", status: assumption, title: "Специалистов подрядчика во второй бригаде",
+    note: "Сервисный инженер изготовителя и гидравлик: то, чего не хватает своим ремонтникам для работы на втором фронте. Источник не найден."}
+  contractor_min_h: {<<: *assumed, value: 8, unit: h, status: assumption, title: "Наименьшее оплачиваемое время вызова подрядчика",
+    note: "Вызов на аварийный ремонт оплачивается не меньше смены специалиста, даже если работа кончилась раньше; это плата за выезд. Источник не найден."}
+  second_crew_factor: {<<: *assumed, value: 0.6, unit: "-", status: assumption, title: "Во сколько раз вторая бригада сокращает оставшийся ремонт",
+    note: "Вторая бригада открывает второй фронт работ (механика и гидравлика или электрика одновременно), но не делит время пополам: доступ к узлу один, кран один, часть работы идёт по очереди (разборка, замена, проверка). Оставшееся время ремонта умножается на 0,6. Источник не найден."}
+  workshop_lend_factor: {<<: *assumed, value: 0.75, unit: "-", status: assumption, title: "Во сколько раз бригада мастерской сокращает ремонт экскаватора",
+    note: "Бригада одного бокса мастерской уходит в забой помогать полевой бригаде: время ремонта × 0,75, меньше, чем вторая бригада с подрядчиком (свои слесари, без сервисного инженера). Бокс стоит, пока экскаватор в ремонте: плановое обслуживание самосвалов ждёт. Источник не найден."}
+  grader_kzt_h: {<<: *assumed, value: 53800, unit: KZT/h, status: assumption, title: "Час работы автогрейдера рудника",
+    note: "Стоимость владения и эксплуатации карьерного автогрейдера класса Cat 16M с машинистом и топливом — около 120 USD/ч × 448,45 = 53 800 тг/ч. Опубликованных ставок аренды грейдеров в Казахстане не найдено."}
+  grading_h: {<<: *assumed, value: 1.5, unit: h, status: assumption, title: "Время подготовки мокрого съезда грейдером с подсыпкой",
+    note: "Грейдер срезает размокший слой и разравнивает подсыпку на съезде длиной 2,6 км за несколько проходов. Источник не найден."}
+  topping_m: {<<: *assumed, value: 0.05, unit: m, status: assumption, title: "Толщина подсыпки дроблёной породой на мокрый съезд",
+    note: "Слой 5 см по всей ширине проезжей части. Порода — своя, со склада дроблёной вскрыши: её цена — работа парка на тонну (`economics.stock_kzt_t`), насыпная плотность — `rock.loose_density_t_m3`."}
+  treated_wet_kmh: {<<: *assumed, value: 15, unit: km/h, status: assumption, title: "Ограничение скорости на подготовленном мокром съезде",
+    note: "Съезд, закрытый в сильный дождь, после грейдера и подсыпки открывают с ограничением 15 км/ч, пока идут осадки и дорога не просохла. Правило рудника, источник не найден."}
+  road_crew_kzt_h: {<<: *assumed, value: 358800, unit: KZT/h, status: assumption, title: "Час аварийной дорожной бригады",
+    note: "Бульдозер, фронтальный погрузчик, автогрейдер и два самосвала с подсыпкой, снятые с других работ: около 800 USD/ч × 448,45 = 358 800 тг/ч стоимости владения и эксплуатации. Источник не найден."}
+  road_repair_h: {<<: *assumed, value: 2, unit: h, status: assumption, title: "Время аварийного ремонта участка дороги",
+    note: "Аварийная бригада расчищает одну полосу и временно подсыпает её: участок открывают через 2 ч с ограничением скорости, а полный ремонт идёт дальше до ожидаемого окончания. Источник не найден."}
+  repaired_kmh: {<<: *assumed, value: 15, unit: km/h, status: assumption, title: "Ограничение скорости на участке после аварийного ремонта",
+    note: "Временная подсыпка и одна расчищенная полоса: 15 км/ч до конца полного ремонта. Правило рудника, источник не найден."}
+  workshop_overtime_h: {<<: *assumed, value: 12, unit: h, status: assumption, title: "Срок сверхурочной работы мастерской",
+    note: "Вторая бригада мастерской выходит на смену: 12 ч, пока в боксах есть ремонт отказавших самосвалов; время каждого такого ремонта × `response.second_crew_factor`."}
+
+reference:
+  queue_min_per_trip: {<<: *derived, value: 2.95, unit: min, status: derived, title: "Очередь на один рейс самосвала без модулей",
+    note: "Сумма ожидания у экскаватора и у пункта разгрузки, делённая на число рейсов."}
+  grade_in_band_pct: {<<: *derived, value: 47.3, unit: "%", status: derived, title: "Доля времени, когда содержание в питании мельницы в полосе, без модулей",
+    note: "Полоса `grade_control.target_pct` ± `grade_control.band_pct`."}
+  cu_tph: {<<: *derived, value: 13.87, unit: t/h, status: derived, title: "Выпуск меди в концентрате без модулей",
+    note: "Медь в концентрате за прогон, делённая на его длительность."}
+  truck_availability_pct: {<<: *derived, value: 87.15, unit: "%", status: derived, title: "Готовность парка самосвалов без модулей",
+    note: "Доля времени, когда самосвал не в ремонте и не на обслуживании."}
