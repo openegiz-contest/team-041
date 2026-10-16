@@ -9,6 +9,7 @@ four module cores and the forecast desk in one process, as on the stand.
 import copy
 import time
 import unittest
+from datetime import datetime
 
 from mine.common import envelope
 from mine.model.build_twins import MARGIN_SPLIT
@@ -478,7 +479,12 @@ class StockpileDecides(unittest.TestCase):
         # A drained one does not: recommended, earned with copper, and the card says why.
         self.assertEqual(drained["recommended"], m)
         self.assertGreater(drained[f"option{m}_cu_delta_t"], 3.0)
-        self.assertIn("Ускорить ремонт дробилки окупается: без этого мельнице", drained[f"option{m}_reason"])
+        # Without the crew the plant module cuts the feed (or the mill stops): never «the mill runs short in 1 h»
+        # next to a stockpile of several hours.
+        self.assertRegex(drained[f"option{m}_reason"], r"Ускорить ремонт дробилки окупается: без этого (уже в первый час|"
+                                                       r"через \d+ ч) (модуль управления фабрикой начнёт снижать подачу "
+                                                       r"мельницы|мельница встанет|подача мельницы начнёт падать)")
+        self.assertNotIn("не хватит руды", drained[f"option{m}_reason"])
         self.assertIn("Ускорить ремонт дробилки окупается", drained["last_decision"])
 
 
@@ -551,6 +557,66 @@ class ClayDecides(unittest.TestCase):
         self.assertFalse(any("move-to-block" in none[f"option{n}_actions"] for n in range(2, none["options_count"] + 1)))
         self.assertEqual(none["recommended"], 1)
         self.assertIn("оставить как есть", none["last_decision"])
+
+
+class Wording(unittest.TestCase):
+    """The reasons and labels say what the numbers next to them say."""
+
+    core_for = Options.core_for
+
+    def test_a_feed_cut_by_the_plant_module_is_not_called_a_lack_of_ore(self):
+        core = self.core_for("crusher-stop")
+        core.observe("module-plant", {"status": "online", "enabled": True})
+        core.step()
+        core.incident["stock_h"] = 5.9
+        r = {"a_mill": [3700.0, 3700.0, 2140.0] + [2140.0] * 9, "b_mill": [3700.0] * 12, "a_stops": 0, "b_stops": 0}
+        text = core._starve_text(r)
+        self.assertTrue(text.startswith("через 2 ч модуль управления фабрикой начнёт снижать подачу мельницы"), text)
+        self.assertIn(f"склада дроблёной руды на 5,9 ч питания не хватит до пуска дробилки в "
+                      f"{core.incident['end'][11:16]}", text)
+        self.assertIn("снизит её до 2 140 т/ч", text)
+        self.assertNotIn("не хватит руды", text)
+        stock = f" (склада дроблёной руды на 5,9 ч питания не хватит до пуска дробилки в {core.incident['end'][11:16]})"
+        r["a_mill"][2:] = [0.0] * 10
+        self.assertEqual(core._starve_text(r), "мельница встанет через 2 ч" + stock)
+        # Cut first, stopped later: both, each at its own hour (not «встанет через 1 ч» beside a 5,9 h stockpile).
+        r["a_mill"] = [3700.0, 2900.0, 2500.0, 2200.0, 2140.0, 300.0] + [0.0] * 6
+        r["a_stops"] = 1
+        self.assertEqual(core._starve_text(r), "через 1 ч модуль управления фабрикой начнёт снижать подачу мельницы"
+                                               + stock + ", а через 6 ч мельница встанет")
+
+    def test_copper_taken_from_the_stocks_is_not_called_no_copper(self):
+        core = self.core_for("road-closure")
+        core.step()
+        split = {"revenue": 18_100_000, "grade": -18_100_000, "work": 11_700_000, "rehandle": 0, "diesel": -1_700_000,
+                 "power": 0, "resources": 0}
+        text = core._stock_reason({"cu": 2.9, "split": split})
+        self.assertEqual(text, "медь +2,9 т взята из запасов богатой руды, а выигрыш держится на оценке работы парка "
+                               "(+11,7 млн тг)")
+        self.assertEqual(core._stock_reason({"cu": 0.1, "split": split}), "выигрыш держится на запасах руды, меди не прибавляет")
+
+    def test_a_clay_face_the_grade_module_routes_is_said_so(self):
+        core = self.core_for("clay-face")
+        core.observe("module-grade", {"status": "online", "enabled": True})
+        core.step()
+        loader = core.incident["thing"]
+        block = short_block(core, loader)
+        self.assertIn("модуль управления качеством руды распределяет её между ОФ-2", core.incident["text"])
+        self.assertIn("(по блочной модели)", core.incident["text"])
+        # The module sends the face to ОФ-2: the incident text follows, and holding ОФ-2 is offered as a hold.
+        core.observe(block, {"destination": f"{NS}:{core.clay_plant}", "destination_source": "grade-control"})
+        core.observe("mine", {"sim_time": datetime.fromtimestamp(core.world.now + 60).isoformat(timespec="seconds")})
+        core.step()
+        self.assertIn(f"сейчас её везут на «{core.world.title(core.clay_plant)}» (решение модуля управления качеством "
+                      f"руды)", core.incident["text"])
+        self.assertIn(core.incident["text"], core.twin()["incident_text"])
+        option = core._clay_route([(loader, block)], core.clay_plant)
+        self.assertIsNotNone(option)
+        self.assertIn("закрепить за ОФ-2", option["label"])
+        self.assertIn("без указания модуль управления качеством руды переводит её и в шихту ОФ-1", option["label"])
+        # Without the module, ore already on its way to ОФ-2 is not offered to go there.
+        core.observe("module-grade", {"status": "disabled", "enabled": False})
+        self.assertIsNone(core._clay_route([(loader, block)], core.clay_plant))
 
 
 class Withdrawal(unittest.TestCase):

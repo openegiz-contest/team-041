@@ -20,12 +20,14 @@ GRAFANA=http://127.0.0.1:3000
 INFLUX=http://influxdb:8086
 ORG_NAME=${GF_AUTH_ANONYMOUS_ORG_NAME:?}
 DS_UID=opentwins-influxdb
-DASHBOARD=/etc/mine-grafana/dashboards/aktogay-history.json
+DASHBOARD=/etc/mine-grafana/dashboards/bozshakol-history.json
+UID_NOW=bozshakol-history
+TITLE="Бозшаколь — история"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 umask 077
 
-log() { echo "aktogay-history: $*"; }
+log() { echo "bozshakol-history: $*"; }
 
 # grafana <curl arguments...>: a request to Grafana as its admin.
 grafana() {
@@ -90,11 +92,22 @@ EOF
   [ "$status" = OK ]
 }
 
+# A dashboard of the same title under another uid (made before the uid was renamed): Grafana would save the
+# new one over it and keep the old uid, so it is deleted first.
+drop_renamed() {
+  grafana -G -H "X-Grafana-Org-Id: $org" --data-urlencode "query=$TITLE" "$GRAFANA/api/search" \
+    | tr '{' '\n' | sed -n 's/.*"uid":"\([^"]*\)".*/\1/p' | while read -r uid; do
+      [ -n "$uid" ] && [ "$uid" != "$UID_NOW" ] || continue
+      grafana -X DELETE -H "X-Grafana-Org-Id: $org" "$GRAFANA/api/dashboards/uid/$uid" > /dev/null && log "old dashboard uid $uid removed"
+    done
+}
+
 ensure_dashboard() {
-  { printf '{"overwrite": true, "message": "mine/grafana/dashboards/aktogay-history.json", "dashboard": '; cat "$DASHBOARD"; printf '}'; } > "$WORK/dash.json"
+  drop_renamed
+  { printf '{"overwrite": true, "message": "mine/grafana/dashboards/bozshakol-history.json", "dashboard": '; cat "$DASHBOARD"; printf '}'; } > "$WORK/dash.json"
   result=$(grafana -X POST -H "X-Grafana-Org-Id: $org" --data-binary "@$WORK/dash.json" "$GRAFANA/api/dashboards/db" | first status)
   [ "$result" = success ] || return 1
-  printf '{"homeDashboardUID": "aktogay-history", "theme": "dark"}' > "$WORK/prefs.json"
+  printf '{"homeDashboardUID": "%s", "theme": "dark"}' "$UID_NOW" > "$WORK/prefs.json"
   grafana -X PUT -H "X-Grafana-Org-Id: $org" --data-binary "@$WORK/prefs.json" "$GRAFANA/api/org/preferences" > /dev/null
 }
 

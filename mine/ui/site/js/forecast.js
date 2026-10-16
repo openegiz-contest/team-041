@@ -323,7 +323,8 @@ function renderResult(result) {
   const lead = verdict(result, request.verdictLead);
   const at = formatSimClock(result.forkedAt || feature(first('mine'), 'sim_time'));
   const tone = toneOf('total', 'up', result);
-  body.replaceChildren(
+  // replaceChildren() prints a null as the text "null": the parts that are absent are dropped first.
+  body.replaceChildren(...[
     lead ? el('p', { className: 'fc-verdict', dataset: { tone } }, lead) : null,
     result.copperText ? el('p', { className: 'fc-copper' }, result.copperText) : null,
     result.assumption ? el('p', { className: 'fc-assume' }, result.assumption) : null,
@@ -331,7 +332,8 @@ function renderResult(result) {
     resultTable(result),
     result.summary ? el('details', { className: 'fc-more' }, el('summary', {}, 'Подробнее о прогнозе'),
       el('p', { className: 'fc-summary' }, result.summary)) : null,
-    el('p', { className: 'fc-foot' }, `Копия рудника снята в ${at} модельного времени; настоящий рудник прогноз не меняет.`));
+    el('p', { className: 'fc-foot' }, `Копия рудника снята в ${at} модельного времени; настоящий рудник прогноз не меняет.`),
+  ].filter(Boolean));
   body.hidden = false;
   setState('ready', '');
   showNotes(result);

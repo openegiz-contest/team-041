@@ -443,7 +443,7 @@ try {
   check(causes && causes.options.length === 2 && /8\sч/.test(causes.first) && /3\sч: заклинивание/.test(causes.jam),
     `the crusher card offers its causes (${causes ? causes.options.join(' / ') : 'none'}) with their duration: «${causes?.jam ?? ''}»`);
   await page.evaluate(`document.querySelector('${crusherCard} button.expand')?.click()`);
-  // The clay-ore plant stop offers its causes the same way; the clay face takes the clay share of the face.
+  // The clay-ore plant stop offers its three causes the same way (6, 3 and 1,5 h); the clay face takes the clay share of the face.
   const clayCards = await page.evaluate(`(() => {
     const out = { scenarios: document.querySelectorAll('.scenario').length };
     const stop = document.querySelector('.scenario[data-id="${NS}:scenario-clay-plant-stop"]');
@@ -458,7 +458,7 @@ try {
     out.clay = face ? [...(face.querySelector('select.clay')?.options ?? [])].map((option) => option.value) : null;
     return out;
   })()`);
-  check(clayCards.stop?.length === 2 && /6\sч/.test(clayCards.stopDuration) && Array.isArray(clayCards.clay) && clayCards.clay.length >= 3,
+  check(clayCards.stop?.length === 3 && clayCards.stop.some((text) => /1,5\sч/.test(text)) && /6\sч/.test(clayCards.stopDuration) && Array.isArray(clayCards.clay) && clayCards.clay.length >= 3,
     `the clay-ore scenarios: ОФ-2 stop offers its causes (${(clayCards.stop ?? []).join(' / ')}), the clay face its clay share (${(clayCards.clay ?? []).join(', ')} %); ${clayCards.scenarios} scenarios`);
   await page.click(`${card} [data-action="activate"]`);
   const active = await until(() => featureOf('scenario-road-closure', 'status'), (value) => value === 'active');
@@ -597,6 +597,9 @@ try {
     const moduleState = await page.waitFor(`document.querySelector('${moduleCard} .forecast')?.dataset.state === 'ready' && 'ready'`, 120000, 'the module forecast').catch(() => page.evaluate(`document.querySelector('${moduleCard} .forecast')?.dataset.state`));
     const moduleLegend = await page.evaluate(`document.querySelector('${moduleCard} .fc-legend')?.textContent`);
     check(moduleState === 'ready' && /С модулем/.test(moduleLegend) && /Без модуля/.test(moduleLegend), `the module panel is ready with «${moduleLegend}»`);
+    // A part of the panel that is absent (no assumption text, no summary) is left out, not printed as «null».
+    const strayNull = await page.evaluate(`[...document.querySelectorAll('${moduleCard} .fc-body, ${card} .fc-body')].some((node) => /\\bnull\\b|\\bundefined\\b/.test(node.textContent))`);
+    check(!strayNull, `the forecast panel prints no «null» or «undefined»`);
     await page.click(`${moduleCard} .fc-close`);
     await sleep(500);
     check(await page.evaluate(`!document.querySelector('.forecast') && window.minePlan.notes().length === 0 && window.minePlan.scene().notes.length === 0`), 'closing the panel removes it and its notes');
@@ -799,7 +802,7 @@ try {
   const link = await page.evaluate('document.querySelector(".journal a.head-link")?.getAttribute("href")');
   const hop = await fetch(`${base}${link}`, { redirect: 'manual' });
   const landing = hop.headers.get('location') ?? '';
-  check(hop.status === 302 && /\/d\/aktogay-history$/.test(landing), `the page's link ${link} leads to ${landing} (${hop.status})`);
+  check(hop.status === 302 && /\/d\/bozshakol-history$/.test(landing), `the page's link ${link} leads to ${landing} (${hop.status})`);
   const viewer = await launch({ width, height });
   try {
     await viewer.goto(`${base}${link}`);
@@ -815,7 +818,7 @@ try {
       noData: [...document.querySelectorAll('*')].filter((n) => n.childElementCount === 0 && n.textContent === 'No data').length,
       canvases: document.querySelectorAll('canvas').length,
     }))()`);
-    check(seen.panels >= 6 && !seen.login && /\/d\/aktogay-history/.test(seen.url),
+    check(seen.panels >= 6 && !seen.login && /\/d\/bozshakol-history/.test(seen.url),
       `Grafana shows «${seen.title}» with ${seen.panels} panels at ${seen.url} without a login (panel errors: ${drawn.errors}, «No data»: ${drawn.noData}, charts drawn: ${drawn.canvases})`);
   } finally {
     await viewer.close();

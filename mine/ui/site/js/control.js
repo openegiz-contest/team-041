@@ -353,7 +353,7 @@ function worseWay(label, unit) {
 // effect) shows only that chain; `kpiN_significant` false means the change is
 // within the measured noise.
 const NOISE_SHARE = 0.03;          // without a word from the model: a change under 3 % is noise
-const LARGE_SHARE = 0.5;           // a change by half or more is shown whatever the model says
+const LARGE_SHARE = 0.5;           // without a word from the model: a change by half or more is never noise
 // «До» may be missing: no clean window before the start (the model says so
 // with `kpiN_baseline_known` false, or in words). «Сейчас» may be the model's
 // forecast rather than a measurement in the first minutes of a scenario.
@@ -511,7 +511,7 @@ function updateScenario(twin) {
         nowCell.replaceChildren(`≈${figure(now)}`, el('span', { className: 'cell-tag' }, estimate));
       }
       nowCell.dataset.state = 'forecast';
-      nowCell.title = forecastNote || 'Прогноз модели по новым маршрутам: рейсов, начатых после запуска, закончено ещё мало для замера';
+      nowCell.title = forecastNote || 'Прогноз модели: рейсов, начатых после запуска, закончено ещё мало для замера';
     } else {
       if (nowCell.dataset.state) { nowCell.replaceChildren(); delete nowCell.dataset.state; delete nowCell.dataset.key; nowCell.title = ''; }
       setText(nowCell, figure(now));
@@ -519,10 +519,12 @@ function updateScenario(twin) {
     const both = typeof before === 'number' && typeof now === 'number' && !missing;
     // From zero a percentage says nothing: the change is written as it is.
     const change = both && !before && now ? formatDelta(now, Math.abs(now) >= 100 ? 0 : 1) : percentChange(before, now);
-    // Inside the noise: the model says so, or (without its word) the change is under 3 %.
-    // A change by half or more, or from or to zero, is never called noise.
-    const large = both && now !== before && (Math.abs(now - before) >= LARGE_SHARE * Math.abs(before) || (!before !== !now));
-    const noise = both && !large && (significant === false || (significant === undefined && Math.abs(now - before) <= NOISE_SHARE * Math.abs(before || 1)));
+    // Inside the noise: the model says so (it measured the swing of the indicator over windows of this
+    // length), or, without its word, the change is under 3 % and not by half or more. A change from or to
+    // zero is never called noise.
+    const zero = both && now !== before && !before !== !now;
+    const large = both && now !== before && (Math.abs(now - before) >= LARGE_SHARE * Math.abs(before) || zero);
+    const noise = both && !zero && (significant === false || (significant === undefined && !large && Math.abs(now - before) <= NOISE_SHARE * Math.abs(before || 1)));
     const cell = row.children[3];
     setText(cell, missing ? '—' : noise ? 'в пределах колебаний' : change || '—');
     cell.title = noise ? `Изменение ${change || '0 %'} не больше обычных колебаний этого показателя` : '';

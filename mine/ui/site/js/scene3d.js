@@ -2386,7 +2386,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         return p;
       }).filter(Boolean);
       // Both plants: the clay-ore plant ОФ-2 beside ОФ-1 (its stockpile is not framed: it lies beyond it),
-      // seen across the line between them, so that they spread over the width of the screen.
+      // seen nearly across the line between them, so that they spread over the screen.
       let azimuth = -0.85;
       const clayAt = first('clay-plant') ? units.get(first('clay-plant').thingId)?.at : null;
       const of1 = hallAnchor ?? pile;
@@ -2403,13 +2403,17 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (!points.length) return null;
       const box = { minX: Math.min(...points.map((p) => p.x)) - 40, maxX: Math.max(...points.map((p) => p.x)) + 40,
         minY: Math.min(...points.map((p) => p.y)) - 40, maxY: Math.max(...points.map((p) => p.y)) + 40, minZ: surfaceZ, maxZ: surfaceZ + 50 };
-      // Every unit in view, the stockpile with its whole cone.
-      const spots = points.map((p) => [p.x, p.y, heightAt(p.x, p.y) + 20]);
+      // Every unit in view, the stockpile with its whole cone, and room above the units for their floating
+      // panels: the plants sit in the lower part of the picture, not on a line through its middle.
+      const spots = points.flatMap((p) => [[p.x, p.y, heightAt(p.x, p.y) + 20], [p.x, p.y, heightAt(p.x, p.y) + 260]]);
       if (plant?.stockpile) {
         const s = plant.stockpile;
         for (let i = 0; i < 8; i += 1) spots.push([s.x + Math.cos(i * Math.PI / 4) * s.r * 0.8, s.y + Math.sin(i * Math.PI / 4) * s.r * 0.8, s.z]);
       }
-      return fitPoints(spots, azimuth, 0.42, 0.92) ?? fit(box, azimuth, 0.4, 0.82);
+      // Turned a little off square to that line: ОФ-1, with most units and panels, in front and lower in the
+      // picture, ОФ-2 behind it on the left, so both fill the frame instead of one line across its middle.
+      const tilt = 0.45;
+      return fitPoints(spots, azimuth + tilt, 0.42, 0.86) ?? fit(box, azimuth + tilt, 0.4, 0.82);
     }
     if (name === 'faces') {
       // A face at work: a shovel with a truck under its bucket (loading, or the truck spotting), its muck
@@ -2699,6 +2703,19 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (state === 'down') text += ' · неисправен';
       push(id, special ? 1.8 : 4, text, undefined, { size: 10.5 });
     }
+    // From afar the two plants stand close together on the screen: each pill goes below its plant (the panels float
+    // above it), on the side away from the other plant.
+    const plantX = {};
+    for (const kind of ['mill', 'clay-plant']) {
+      const u = first(kind) ? units.get(first(kind).thingId) : null;
+      const at = u ? toScreen(u.at.x, u.at.y, u.at.z) : null;
+      if (at) plantX[kind] = at.x;
+    }
+    const pillSides = (kind) => {
+      const other = plantX[kind === 'mill' ? 'clay-plant' : 'mill'];
+      if (other === undefined || plantX[kind] === undefined) return undefined;
+      return plantX[kind] < other ? ['bl', 'b', 'l', 'tl', 't', 'br', 'r', 'tr'] : ['br', 'b', 'r', 'tr', 't', 'bl', 'l', 'tl'];
+    };
     for (const [id, unit] of units) {
       const twin = twins.get(id);
       const kind = kindOf(twin);
@@ -2709,8 +2726,9 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       else if (kind === 'stockpile') text = `Склад руды · ${formatNumber(feature(twin, 'level_pct') ?? 0, 0)} %`;
       else if (kind === 'sag-mill') text = near ? `МПСИ${note}` : null;
       else if (kind === 'ball-mill') text = near ? `Шаровые мельницы${note}` : null;
-      // From afar the grinding circuit stands for the whole plant, the mine's bottleneck: named so, with its feed.
-      else if (kind === 'mill') text = near ? null : `Фабрика · мельница ${formatNumber(feature(twin, 'feed_tph') ?? 0, 0)} т/ч${note}`;
+      // From afar the grinding circuit stands for the whole plant, the mine's bottleneck: named so, with its feed;
+      // the plant is marked on the ground (plantRings).
+      else if (kind === 'mill') text = near ? null : `ОФ-1 · сульфидная руда · ${formatNumber(feature(twin, 'feed_tph') ?? 0, 0)} т/ч${note}`;
       else if (kind === 'flotation') text = `Флотация${note}`;
       else if (kind === 'concentrate') text = 'Концентрат';
       else if (kind === 'tailings') text = 'Хвостохранилище';
@@ -2718,11 +2736,14 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       else if (kind === 'workshop') text = 'Мастерская';
       else if (kind === 'fuel-station') text = near ? 'Заправка' : null;
       else if (kind === 'conveyor') text = 'Конвейер';
-      else if (kind === 'clay-plant') text = `ОФ-2${note}`;
+      else if (kind === 'clay-plant') text = near ? `ОФ-2${note}` : `ОФ-2 · глинистая руда · ${formatNumber(feature(twin, 'feed_tph') ?? 0, 0)} т/ч${note}`;
       else if (kind === 'desliming') text = near ? `Обесшламливание${note}` : null;
       else if (kind === 'clay-flotation') text = near ? `Флотация ОФ-2${note}` : null;
       const main = ['crusher', 'stockpile', 'sag-mill', 'ball-mill', 'mill', 'flotation', 'clay-plant'].includes(kind);
-      push(id, main ? 2.5 : 5, text, unit.at.z, { color: main ? '#f1f3f4' : '#d5dadd', ...(kind === 'mill' && !near ? { size: 13 } : {}) });
+      // The two plants from afar: a pill over each, ahead of every other caption.
+      const plantPill = !near && (kind === 'mill' || kind === 'clay-plant')
+        ? { pill: true, bold: true, size: 12, accent: holo() ? HOLO.crest : '#ffffff', ...(pillSides(kind) ? { sides: pillSides(kind) } : {}) } : {};
+      push(id, plantPill.pill ? 1.2 : main ? 2.5 : 5, text, unit.at.z, { color: main ? '#f1f3f4' : '#d5dadd', ...plantPill });
       if (kind === 'crusher' && feature(twin, 'queue_len') > 0 && near && !panelIds.has(id)) {
         const at = toScreen(unit.at.x, unit.at.y, unit.at.z);
         if (at) out.push({ priority: 1.5, sign: 'queue', value: feature(twin, 'queue_len'), at: { x: at.x - 18, y: at.y - 12 } });
@@ -2837,12 +2858,60 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     }
   }
 
+  // From afar the two plants are small beside a pit four kilometres long: each is outlined on the ground by a
+  // ring round its units (ОФ-1: the stockpile, the mills, the flotation, the concentrate; ОФ-2: the building and
+  // the feed stockpile where the trucks tip), drawn on the caption layer, so it costs the 3D view nothing.
+  function plantSites() {
+    const sites = [];
+    const site = (kinds, extra = []) => {
+      const pts = [...extra];
+      for (const kind of kinds) for (const twin of byKind(kind)) { const u = units.get(twin.thingId); if (u) pts.push([u.at.x, u.at.y, u.r]); }
+      if (!pts.length) return;
+      const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+      const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+      const r = Math.max(...pts.map((p) => Math.hypot(p[0] - cx, p[1] - cy) + (p[2] ?? 0))) + 40;
+      sites.push({ x: cx, y: cy, r });
+    };
+    site(['stockpile', 'sag-mill', 'ball-mill', 'mill', 'flotation', 'concentrate']);
+    const yard = first('clay-plant')?.attributes?.geo?.polygon ?? [];
+    site(['clay-plant', 'desliming', 'clay-flotation'], yard.map((p) => [p[0], p[1], 0]));
+    return sites;
+  }
+  function plantRings() {
+    if (cam.distance < 1300) return;
+    const ctx = lctx;
+    const tone = holo() ? HOLO.crest : '#ffffff';
+    for (const s of plantSites()) {
+      const ring = [];
+      for (let i = 0; i <= 40; i += 1) {
+        const a = (i / 40) * Math.PI * 2;
+        const x = s.x + Math.cos(a) * s.r;
+        const y = s.y + Math.sin(a) * s.r;
+        projected.set(x - O.x, y - O.y, heightAt(x, y) + 2 - O.z).project(camera);
+        if (projected.z > 1 || projected.z < -1) { ring.length = 0; break; }
+        ring.push({ x: ((projected.x + 1) / 2) * width, y: ((1 - projected.y) / 2) * height });
+      }
+      if (ring.length < 3) continue;
+      ctx.beginPath();
+      ring.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.fillStyle = holo() ? 'rgba(85, 230, 255, 0.10)' : 'rgba(255, 255, 255, 0.12)';
+      ctx.fill();
+      ctx.setLineDash([7, 4]);
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = tone;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   let captionCount = 0;
   let placedCaptions = [];
   function drawCaptions() {
     const ctx = lctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    plantRings();
     const panelRects = drawPanels();
     const requests = captionRequests().sort((a, b) => a.priority - b.priority);
     const boxes = [...panelRects];
@@ -3338,6 +3407,22 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         // The block that is about to blow: the whole exclusion zone in view.
         setCamera({ target: new THREE.Vector3(blast.x - O.x, blast.y - O.y, blast.z - O.z), distance: blast.radius * 4.2, elevation: Math.max(elevation, 0.6) });
         return true;
+      }
+      const unit = units.get(thingId);
+      if (closer && unit && geo.polygon?.length >= 3 && kind !== 'mine') {
+        // A building with its yard (ОФ-2 and the feed stockpile where the trucks tip): both in view, seen across
+        // the line between them, in the part of the screen the panels leave free.
+        const yard = geo.polygon.map((p) => [p[0], p[1], p[2] ?? heightAt(p[0], p[1])]);
+        const c = yard.reduce((acc, p) => [acc[0] + p[0] / yard.length, acc[1] + p[1] / yard.length], [0, 0]);
+        const spots = [...yard];
+        for (let i = 0; i < 8; i += 1) {
+          const a = (i * Math.PI) / 4;
+          spots.push([unit.at.x + Math.cos(a) * unit.r * 1.2, unit.at.y + Math.sin(a) * unit.r * 1.2, unit.at.z + 25]);
+        }
+        let azimuth = Math.atan2(c[1] - unit.at.y, c[0] - unit.at.x);
+        if (Math.cos(azimuth - cam.azimuth) < 0) azimuth += Math.PI;      // the side nearer the camera's
+        const view = Math.hypot(c[0] - unit.at.x, c[1] - unit.at.y) > 30 ? fitPoints(spots, azimuth, Math.max(elevation, 0.55), 0.8) : null;
+        if (view) { setCamera(view); return true; }
       }
       if (closer && (geo.path || (geo.polygon && kind !== 'mine'))) {
         // A road or an area: its whole outline in view.

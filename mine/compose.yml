@@ -143,7 +143,7 @@ services:
       retries: 6
 
   # The platform's Grafana, plus the mine history «Бозшаколь — история»
-  # (mine/grafana/dashboards/aktogay-history.json). In the platform's
+  # (mine/grafana/dashboards/bozshakol-history.json). In the platform's
   # organisation it is provisioned from the file and needs a login like
   # everything there. Visitors without an account enter a separate
   # organisation as viewers: it holds only this dashboard and a data source
@@ -158,4 +158,4 @@ services:
       GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
     volumes:
       - ../../mine/grafana:/etc/mine-grafana:ro
-      - ../../mine/grafana/dashboards/aktogay-history.json:/var/lib/grafana/example-dashboards/aktogay-history.json:ro
+      - ../../mine/grafana/dashboards/bozshakol-history.json:/var/lib/grafana/example-dashboards/bozshakol-history.json:ro

@@ -74,7 +74,7 @@ async function openScene() {
       scene = made;
       planui.reportOverlays();
       // An object chosen before the scene was ready (a deep link) is flown to now.
-      if (shownSelection) setTimeout(() => made.reveal(shownSelection, true), 60);
+      if (shownSelection) setTimeout(() => { planui.reportOverlays(); made.reveal(shownSelection, true); }, 60);
       return made;
     })();
   }
@@ -119,8 +119,12 @@ function applySelection({ reveal = true } = {}) {
   map.select(thingId);
   scene?.select(thingId);
   objects.select(thingId);
-  // A selected object is flown to, so it is seen up close beside its card.
-  if (thingId && changed && reveal) current().reveal(thingId, kindOf(twins.get(thingId)) !== 'mine');
+  // A selected object is flown to, so it is seen up close beside its card: framed in what the card, opened
+  // just now, and the other panels leave free.
+  if (thingId && changed && reveal) {
+    planui.reportOverlays();
+    current().reveal(thingId, kindOf(twins.get(thingId)) !== 'mine');
+  }
 }
 
 topbar.init({

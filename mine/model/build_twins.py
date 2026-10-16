@@ -1124,7 +1124,7 @@ class TwinBuilder:
                 # total = margin + adjustment - resources: what options are ranked by.
                 f"{branch}_total_kzt": (0, KZT),
                 f"{branch}_co2_t": (0.0, T),
-                # What the control modules are judged by, over the horizon.
+                # What the control modules are measured by, over the horizon.
                 f"{branch}_queue_min": (0.0, MIN),
                 f"{branch}_in_band_pct": (0.0, PCT),
                 f"{branch}_avail_pct": (0.0, PCT),

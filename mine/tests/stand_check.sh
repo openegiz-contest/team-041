@@ -302,8 +302,11 @@ round_trip() {
 round_trip road-closure   target                 status       '^closed$'            '^open$'
 round_trip shovel-failure target                 state        '^down$'              '^(waiting|loading)$'
 round_trip crusher-stop   "$NS:crusher"          state        '^stopped$'           '^(running|idle|blocked)$'
-# Heavy rain closes the steep west ramp (10 %); the main ramp (8 %) stays open.
-round_trip heavy-rain     "$NS:road-segment-09"  status       '^closed$'            '^open$'
+# Heavy rain closes the steep west ramp (10 %); the main ramp (8 %) stays open. A planned blast closes the roads
+# round its zone, and the rain then keeps the steep ramp open (slowly) if it is the only way to a face: the check
+# waits for a blast under way to be over first.
+wait_value "$NS:pit" blast_state idle 300 || true
+round_trip heavy-rain    "$NS:road-segment-09"  status       '^closed$'            '^open$'
 valid="$(value "$NS:scenario-blast" valid_targets || true)"
 if [ -n "$valid" ]; then
   pass "blast targets offered: ${valid//$NS:/}"

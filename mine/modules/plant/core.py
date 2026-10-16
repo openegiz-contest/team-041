@@ -6,7 +6,9 @@ Every control period the module sets the setpoint to
 
 - the power limit is the feed the installed mill power can grind at the
   hardness of the ore on the stockpile, less a small margin; feeding more
-  would overload the mill;
+  would overload the mill. It is capped at the highest rate ОФ-1 has shown
+  (`plant_control.max_feed_tph`, the 2024 trials): with soft ore the power
+  would allow more, but the plant has never run faster;
 - the second term lets the stockpile glide towards its reserve over the
   horizon: with a full stockpile it exceeds the power limit, so the mill runs
   as fast as its power allows; when the stockpile falls it shrinks to what
@@ -52,7 +54,9 @@ class PlantCore(Core):
         self.capacity_t = float(w.spec(self.stockpile, "capacity_t"))
         self.design_tph = float(w.spec(self.mill, "design_tph"))
         self.min_tph = float(w.spec(self.mill, "min_feed_tph"))
-        self.max_setpoint_tph = float(w.spec(self.mill, "max_setpoint_tph"))
+        # The module's ceiling: the highest feed the mill accepts, but never above what ОФ-1 has shown it can take
+        # (the 2024 trials, `plant_control.max_feed_tph`).
+        self.max_setpoint_tph = min(float(w.spec(self.mill, "max_setpoint_tph")), float(self.p["max_feed_tph"]))
         self.reserve_t = self.p["reserve_pct"] / 100.0 * self.capacity_t
         self.restart()
 
@@ -153,9 +157,14 @@ class PlantCore(Core):
                       f"чтобы склад не опустился ниже {self.p['reserve_pct']:.0f} % за {self.p['horizon_h']:.0f} ч")
         text = None
         if abs(setpoint - self.setpoint) >= 30.0 or reason.split(":")[-1] != self.last_reason:
+            if self.power_limit_tph < max_feed * self.p["power_margin"] - 1.0:
+                ceiling = (f"наибольшая производительность ОФ-1 на испытаниях 2024 года "
+                           f"({num(float(self.p['max_feed_tph']), 0)} т/ч); предел мельницы по мощности {max_feed:.0f} т/ч")
+            else:
+                ceiling = f"{100 * self.p['power_margin']:.0f} % предела мельницы по мощности {max_feed:.0f} т/ч"
             text = (f"Уставка питания {setpoint:.0f} т/ч: {reason}. Потолок уставки модуля {self.power_limit_tph:.0f} т/ч — "
-                    f"{100 * self.p['power_margin']:.0f} % предела мельницы по мощности {max_feed:.0f} т/ч при крепости "
-                    f"{num(bwi)} кВт·ч/т; прогноз: извлечение {num(recovery)} %, медь {num(self.predicted[1], 2)} т/ч.")
+                    f"{ceiling} при крепости {num(bwi)} кВт·ч/т; прогноз: извлечение {num(recovery)} %, медь "
+                    f"{num(self.predicted[1], 2)} т/ч.")
             self.last_reason = reason.split(":")[-1]
         self.setpoint = setpoint
         self.send(self.mill, "set-feed-rate", {"tph": setpoint}, text)

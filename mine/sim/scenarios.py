@@ -264,6 +264,7 @@ class Scenario:
     # A scenario that changes the routes (a road closure): its trip indicators count only the trips begun after
     # the start and are forecast from the routes until enough of those have finished (chain.measure).
     route_based = False
+    forecast_basis = "прогноз по маршрутам"     # how the chain's sentence names such a forecast
 
     def expected(self, ind: Indicator, before: float | None) -> float | None:
         return None
@@ -341,7 +342,7 @@ class Scenario:
             v = {"feed0": self.mark["feed"], "feed": self.feed_current(), "cycle0": self.mark["cycle"],
                  "cycle": self.cycle_current(), "kpi0": self.mark["kpi"], "kpi": self.kpi_current(),
                  "margin0": self.mark["margin"], "margin": self.margin_current()}
-            text, affected = (f"{self.text(v)} {sentence(chain['rows'], chain['active'], chain['note'], chain['trips_after_start'])}",
+            text, affected = (f"{self.text(v)} {sentence(chain['rows'], chain['active'], chain['note'], chain['trips_after_start'], self.forecast_basis)}",
                               self.affected())
         digits = self.kpi_digits
         out = {
@@ -1005,6 +1006,27 @@ class ClayFace(Scenario):
         mill = plant.mill
         self.mark.update(recovery=plant.flotation.recovery_pct or 0.0, max_feed=mill.max_feed_tph(mill.feed_bwi, self._clay_now()),
                          bin=plant.clay_plant.bin.t, pile=plant.clay_stock.stock.t, overloads=mill.overloads)
+
+    # The clay ore tipped at ОФ-2 and the clay-ore stockpile in the first minutes is the loads begun before the
+    # start: until `scenario.route_trips_min` trips begun after it have finished, «now» of that rate is the
+    # forecast from where the face's ore goes now (chain.measure).
+    route_based = True
+    forecast_basis = "прогноз по назначению руды забоя"
+
+    def _face_tph(self) -> float:
+        """What the face's loader digs, t/h: over the last hour, else the design rate of an ore face."""
+        loader = self.sim.fleet.loaders.get(self.target)
+        rate = loader.dug.per_hour(self.sim.now) if loader is not None else 0.0
+        return rate if rate > 300.0 else float(self.sim.params["plan"]["mill_rate_tph"]) / 3.0
+
+    def expected(self, ind: Indicator, before: float | None) -> float | None:
+        """The clay ore to ОФ-2 and the clay-ore stockpile «now»: the value before (the face went to the crusher
+        of ОФ-1 then), plus what the face digs if its ore goes to one of them now."""
+        if ind.key != "to_clay_t" or before is None:
+            return None
+        plant, block = self.sim.plant, self.sim.pit.blocks.get(self.block_name)
+        to_clay = block is not None and block.destination in (plant.clay_plant.name, plant.clay_stock.name)
+        return before + (self._face_tph() if to_clay else 0.0)
 
     def pick_target(self) -> str:
         """Without a target: the loader on a sulphide ore face with the most tonnes left, the default first."""

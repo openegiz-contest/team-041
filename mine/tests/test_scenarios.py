@@ -550,6 +550,26 @@ class ClayFace(unittest.TestCase):
         rig.run(30)
         self.assertEqual(block.destination, "crusher")               # sulphide ore again: back to ОФ-1
 
+    def test_the_clay_ore_rate_is_forecast_until_trips_begun_after_the_start_have_finished(self):
+        # In the first minutes the clay ore tipped at ОФ-2 is the loads begun before the start, sometimes none
+        # in a short window («1666 → 0 т/ч (−100 %)» while the face's ore goes there): «now» is a forecast instead.
+        sim = new_sim()
+        run(sim, 30)
+        block = self.start(sim)
+        sim.handle_message(block.name, "set-destination", {"destination": f"{NS}:clay-plant", "hold_min": 600})
+        run(sim, 12)
+        v = twin(sim, self.NAME)
+        self.assertEqual(v["kpi4_label"], "Глинистая руда на ОФ-2 и склад глинистой руды")
+        self.assertTrue(v["kpi4_forecast"])
+        self.assertTrue(v["kpi4_baseline_known"])
+        self.assertGreater(v["kpi4_current"], v["kpi4_baseline"] + 300)      # the face's ore now goes there
+        self.assertIn("прогноз по назначению руды забоя", v["impact_text"])
+        self.assertFalse(v["kpi1_forecast"] or v["kpi2_forecast"] or v["kpi3_forecast"])
+        run(sim, 60)
+        v = twin(sim, self.NAME)
+        self.assertFalse(v["kpi4_forecast"])                                # enough trips since: measured
+        self.assertGreater(v["kpi4_current"], v["kpi4_baseline"])
+
     def test_only_a_sulphide_face_can_turn_out_clay_rich(self):
         sim = new_sim()
         clay_loader = next(l for l in sim.fleet.loaders.values() if l.material == "clay")
@@ -622,7 +642,7 @@ class Windows(unittest.TestCase):
         sim = new_sim()
         crusher_from = sim.now
         sim.handle_message("scenario-crusher-stop", "activate", {})
-        run(sim, 60)
+        run(sim, 20)
         sim.handle_message("scenario-crusher-stop", "cancel", {})
         run(sim, 10)
         sim.handle_message("scenario-road-closure", "activate", {})
@@ -634,6 +654,24 @@ class Windows(unittest.TestCase):
                                                  f"или восстановление после них")
         self.assertTrue(v["kpi1_baseline_known"])
         self.assertIn("«до» — окно", v["impact_text"])
+
+    def test_a_clean_window_long_before_the_start_is_no_baseline(self):
+        # The last clean window ends more than `scenario.kpi_baseline_max_age_min` before the start: another state
+        # of the mine, not a baseline (a blast after an hour of other scenarios showed the dig rate up by a third).
+        self.assertEqual(PARAMS["scenario"]["kpi_baseline_max_age_min"], 60)
+        sim = new_sim()
+        sim.handle_message("scenario-crusher-stop", "activate", {})
+        run(sim, 60)
+        sim.handle_message("scenario-crusher-stop", "cancel", {})
+        run(sim, 10)
+        sim.handle_message("scenario-blast", "activate", {})
+        run(sim, 10)
+        v = twin(sim, "scenario-blast")
+        self.assertTrue(v["kpi_baseline_note"].startswith("база недоступна: за 60 мин до запуска"), v["kpi_baseline_note"])
+        self.assertFalse(any(v[f"kpi{n}_baseline_known"] for n in range(1, 4)))
+        self.assertFalse(any(v[f"kpi{n}_significant"] for n in range(1, 4)))
+        self.assertIn("Цепочка (база недоступна", v["impact_text"])
+        self.assertNotIn("%)", v["impact_text"].split("Цепочка", 1)[1])
 
     def test_no_clean_window_means_no_baseline(self):
         sim = new_sim()

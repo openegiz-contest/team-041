@@ -26,11 +26,13 @@ The «before» window must show the mine in ordinary work: no other scenario
 in it, nor within `scenario.kpi_recovery_min` before it (the queues, stocks
 and routes settle that long after a scenario ends). When scenarios run back
 to back, the latest clean window of the same length further back is taken
-and `kpi_baseline_note` says where it lies. If the history holds no clean
-window (a simulator just started, or scenarios one after another), the
-«before» value is not made up from what is there: the indicator reports that
-the baseline is missing (`kpiN_baseline_known` false) and the text says
-«база недоступна».
+and `kpi_baseline_note` says where it lies, but it may end at most
+`scenario.kpi_baseline_max_age_min` before the start: an older window shows
+another state of the mine (other faces, another shift), not the one the
+scenario changed. If there is no clean window that recent (a simulator just
+started, or scenarios one after another), the «before» value is not made up
+from what is there: the indicator reports that the baseline is missing
+(`kpiN_baseline_known` false) and the text says «база недоступна».
 
 A road closure changes the routes at once, but the trips completed in its
 first minutes were begun on the old ones, and the first to finish after it
@@ -40,7 +42,11 @@ that were already on their way, bunched behind the closure. Its trip
 indicators therefore count only the trips begun after the start, and until
 `scenario.route_trips_min` of them have finished, «now» of the loaded haul,
 the trip time and the ore to the crusher is the forecast from the open
-routes (`kpiN_forecast` true, labelled so in the text).
+routes (`kpiN_forecast` true, labelled so in the text). A clay face is read
+the same way: the clay ore tipped at ОФ-2 and the clay-ore stockpile in its
+first minutes is the loads begun before it, so until enough trips begun
+after the start have finished, «now» of that rate is the forecast from where
+the face's ore goes now.
 """
 from __future__ import annotations
 
@@ -196,13 +202,13 @@ def _rms(values: list[float]) -> float:
     return math.sqrt(sum(v * v for v in values) / len(values))
 
 
-def baseline_end(h: History, started: float, window: float) -> float | None:
+def baseline_end(h: History, started: float, window: float, max_age: float = math.inf) -> float | None:
     """End of the «before» window: the start itself if the window before it is clean (no other scenario, nor
     its recovery, in it), else the latest clean window of the same length further back, in steps of a quarter
-    window; None if the history holds no clean one."""
+    window, ending at most `max_age` seconds before the start; None if the history holds no such window."""
     step = max(window / 4.0, 60.0)
     end = started
-    while end - window >= h.oldest() - 1e-6:
+    while end - window >= h.oldest() - 1e-6 and started - end <= max_age + 1e-6:
         if h.clean(end - window, end - 1e-6):
             return end
         end -= step
@@ -213,10 +219,11 @@ def before(sim: "Simulation", indicators: list[Indicator], started: float, windo
     """What the «before» side of the comparison needs: the end of the clean window (or None), the note on it,
     the value of each indicator over it, and each indicator's usual swing over windows of the same length."""
     h = sim.kpis.history
-    end = baseline_end(h, started, window)
+    max_age_min = float(sim.params["scenario"]["kpi_baseline_max_age_min"])
+    end = baseline_end(h, started, window, max_age_min * 60.0)
     if end is None:
-        note = ("база недоступна: до запуска нет чистого окна той же длины (модель работает меньше окна, "
-                "или шли другие сценарии и час восстановления после них)")
+        note = (f"база недоступна: за {max_age_min:.0f} мин до запуска нет чистого окна той же длины (модель "
+                f"работает меньше окна, или шли другие сценарии и час восстановления после них)")
     elif end < started - 1.0:
         note = (f"«до» — окно {sim.sim_time(end - window)[11:16]}–{sim.sim_time(end)[11:16]}: позже шли другие "
                 f"сценарии или восстановление после них")
@@ -318,14 +325,15 @@ def measure(sim: "Simulation", indicators: list[Indicator], started: float | Non
     return {"features": out, "rows": rows, "active": active, "trips_after_start": len(fresh), "note": note}
 
 
-def sentence(rows: list, active: bool, note: str = "", trips_after_start: int = 0) -> str:
+def sentence(rows: list, active: bool, note: str = "", trips_after_start: int = 0,
+             forecast_basis: str = "прогноз по маршрутам") -> str:
     """The chain as one Russian sentence: 'Цепочка: A 1 → 2 ед. (+5 %); B ... (в пределах колебаний).'"""
     if not active:
         return "Показатели цепочки сравниваются через 5 минут модели после запуска."
     parts = []
     for ind, base, current, significant, known, forecast in rows:
         label = ind.label.lower() if parts else ind.label
-        how = (f"прогноз по маршрутам: рейсов, начатых после запуска, закончено {trips_after_start}"
+        how = (f"{forecast_basis}: рейсов, начатых после запуска, закончено {trips_after_start}"
                if forecast else "")
         if base is None:
             parts.append(f"{label} сейчас {num(current, ind.digits)} {ind.unit}" + (f" ({how})" if how else ""))

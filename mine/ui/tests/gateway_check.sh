@@ -145,14 +145,14 @@ fi
 echo "-- Grafana: the history dashboard opens without a login, and nothing else does"
 G="http://127.0.0.1:${GRAFANA_PORT:-3000}"
 location=$(curl -s -o /dev/null -m 15 -w '%{redirect_url}' "$UI/grafana")
-if [[ "$location" == */d/aktogay-history ]]; then pass "the page's link leads to the dashboard ($location)"; else fail "the page's link leads to «$location»"; fi
-meta=$(curl -s -m 15 "$G/api/dashboards/uid/aktogay-history")
+if [[ "$location" == */d/bozshakol-history ]]; then pass "the page's link leads to the dashboard ($location)"; else fail "the page's link leads to «$location»"; fi
+meta=$(curl -s -m 15 "$G/api/dashboards/uid/bozshakol-history")
 if [[ "$meta" == *'"title":"Бозшаколь — история"'* && "$meta" == *'"canSave":false'* && "$meta" == *'"canEdit":false'* ]]; then
   pass "a visitor without a login reads «Бозшаколь — история» and may not save or edit it"
 else
   fail "a visitor without a login does not get the dashboard: ${meta:0:160}"
 fi
-expect 200 "a visitor opens the dashboard page" "$G/d/aktogay-history"
+expect 200 "a visitor opens the dashboard page" "$G/d/bozshakol-history"
 # refused_g <description> <curl arguments ...>: Grafana answers 401, 403 or 404, never 2xx.
 refused_g() {
   local text=$1; shift
@@ -160,7 +160,7 @@ refused_g() {
   if [[ "$got" =~ ^(401|403|404)$ ]]; then pass "$text ($got)"; else fail "$text: got $got, wanted 401, 403 or 404"; fi
 }
 refused_g "a visitor saves a dashboard" -X POST "${JSON[@]}" -d '{"dashboard":{"title":"gateway-check"},"overwrite":true}' "$G/api/dashboards/db"
-refused_g "a visitor deletes the dashboard" -X DELETE "$G/api/dashboards/uid/aktogay-history"
+refused_g "a visitor deletes the dashboard" -X DELETE "$G/api/dashboards/uid/bozshakol-history"
 refused_g "a visitor creates a folder" -X POST "${JSON[@]}" -d '{"title":"gateway-check"}' "$G/api/folders"
 refused_g "a visitor creates a data source" -X POST "${JSON[@]}" -d '{"name":"gateway-check","type":"influxdb","access":"proxy","url":"http://x"}' "$G/api/datasources"
 refused_g "a visitor changes the data source" -X PUT "${JSON[@]}" -d '{"name":"gateway-check","type":"influxdb","access":"proxy","url":"http://x"}' "$G/api/datasources/uid/opentwins-influxdb"
@@ -237,11 +237,11 @@ answers+=$(curl -s -m 6 -N -H 'Accept: text/event-stream' "$UI/ditto/api/2/thing
 leaks "answers of the gateway: twins, search, change stream, history, redirects and refusals" "$answers"
 
 grafana_answers=""
-grafana_answers+=$(curl -s -i -m 15 "$G/api/dashboards/uid/aktogay-history")
+grafana_answers+=$(curl -s -i -m 15 "$G/api/dashboards/uid/bozshakol-history")
 grafana_answers+=$(curl -s -i -m 15 "$G/api/datasources")
 grafana_answers+=$(curl -s -i -m 15 "$G/api/datasources/uid/opentwins-influxdb")
 grafana_answers+=$(curl -s -i -m 15 "$G/api/frontend/settings")
-grafana_answers+=$(curl -s -i -m 15 "$G/d/aktogay-history")
+grafana_answers+=$(curl -s -i -m 15 "$G/d/bozshakol-history")
 grafana_answers+="$read_answer$write_answer"
 leaks "what Grafana shows a visitor: dashboard, data sources, settings, query answers" "$grafana_answers"
 

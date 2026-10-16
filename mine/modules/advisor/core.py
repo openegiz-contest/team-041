@@ -126,7 +126,7 @@ ORDER = ("crusher-stop", "clay-plant-stop", "loader-down", "clay-face", "road-cl
 OUT_STATES = ("down", "service", "to_service")
 NOTHING = "Ничего не менять"
 # A gain beyond the scatter that rests on inventory, not copper: the verdict starts with ON_STOCK,
-# the reason text says STOCK_REASON.
+# the reason text says STOCK_REASON when the copper differs by less than advisor.min_cu_t, else where it comes from.
 ON_STOCK = "выигрыш набран не медью"
 STOCK_REASON = "выигрыш держится на запасах руды, меди не прибавляет"
 MODULE_TITLES = {"module-dispatch": "модуль диспетчеризации", "module-grade": "модуль управления качеством руды",
@@ -274,7 +274,7 @@ class AdvisorCore(Core):
                 found.append((f"clay-face:{loader}", loader,
                               f"{w.title(loader)}: забой {w.title(block)} показал глинистую руду — глины "
                               f"{num(float(w.get(block, 'clay_pct', 0.0)))} % при пороге {num(self.clay_min, 0)} %, а по "
-                              f"блочной модели руда сульфидная; сейчас её везут на «{w.title(short(w.get(block, 'destination', '')))}». "
+                              f"блочной модели руда сульфидная; {self._clay_destination_text(block)}. "
                               f"Глины на складе дроблёной руды ОФ-1 {num(float(w.get(self.stockpile, 'clay_pct', 0.0)))} %, "
                               f"предел мельницы {float(w.get(self.mill, 'max_feed_tph', 0.0)):.0f} т/ч."))
         for loader in self.loaders:
@@ -323,6 +323,29 @@ class AdvisorCore(Core):
         if len(found) > 1:
             text += f" Других инцидентов: {len(found) - 1}."
         return {"key": key, "kind": key.split(":")[0], "thing": thing, "text": text, "end": end, "basis": basis}
+
+    def _grade_on(self) -> bool:
+        return self.world.get("module-grade", "status") == "online"
+
+    def _clay_destination_text(self, block: str) -> str:
+        """Where the ore of a clay face goes now and who decided it, and what the grade-control module, if on,
+        does with it from here. The incident text is refreshed when the destination changes (`decide`)."""
+        w = self.world
+        source = {"cutoff": "по блочной модели", "grade-control": "решение модуля управления качеством руды",
+                  "operator": "указание оператора"}.get(str(w.get(block, "destination_source", "cutoff")), "")
+        text = f"сейчас её везут на «{w.title(short(w.get(block, 'destination', '')))}»" + (f" ({source})" if source else "")
+        if self._grade_on() and w.get(block, "destination_source") != "operator":
+            text += (f"; модуль управления качеством руды распределяет её между ОФ-2, складом глинистой руды и шихтой "
+                     f"ОФ-1 (до {num(self.clay_limit, 0)} % глины в питании)")
+        return text
+
+    def _clay_destination(self, incident: dict | None) -> str:
+        """The destination and its source of the face of a clay-face incident; '' for any other incident."""
+        if not incident or incident.get("kind") != "clay-face":
+            return ""
+        w = self.world
+        block = short(w.get(incident["thing"], "block", ""))
+        return f"{w.get(block, 'destination', '')}|{w.get(block, 'destination_source', '')}"
 
     def _scenario_end(self, scenario: str, target: str | None = None) -> tuple[str, str]:
         """The expected end of a running scenario (on `target`, if given) and its basis; ('', '') otherwise."""
@@ -478,7 +501,11 @@ class AdvisorCore(Core):
     def _clay_route(self, faces: list[tuple[str, str]], sink: str) -> dict | None:
         """Send the ore of these faces to the clay-ore stockpile, ОФ-2 or the crusher of ОФ-1, as an operator's order."""
         w = self.world
-        faces = [(l, b) for l, b in faces if short(w.get(b, "destination", "")) != sink]
+        # A face already sent there is left out; on ОФ-2, unless it is the grade-control module's choice: the module
+        # may send the ore into the blend of ОФ-1 later, and the option holds it on ОФ-2 for the hold time.
+        grade = self._grade_on()
+        faces = [(l, b) for l, b in faces if short(w.get(b, "destination", "")) != sink
+                 or (grade and sink == self.clay_plant and w.get(b, "destination_source") == "grade-control")]
         if not faces:
             return None
         tph = sum(self._face_rate(l) for l, _ in faces)
@@ -496,7 +523,14 @@ class AdvisorCore(Core):
             if w.get(self.clay_plant, "state") == "stopped" or room < 2000.0:
                 return None
             hours = room / max(tph, 1.0)
-            label = f"Руду забоя ({names}) — сразу на ОФ-2 ({self._hold_text()})"
+            if grade:
+                # The module sends clay ore to ОФ-2 too, but not only there: the option differs from «change nothing»
+                # by holding all of this face's ore on ОФ-2, and the label says so.
+                label = (f"Руду забоя ({names}) — закрепить за ОФ-2 на {self._hold_text()}: без указания модуль "
+                         f"управления качеством руды переводит её и в шихту ОФ-1 (до {num(self.clay_limit, 0)} % глины) "
+                         f"или на склад глинистой руды")
+            else:
+                label = f"Руду забоя ({names}) — сразу на ОФ-2 ({self._hold_text()})"
             why = (f"на приёмном складе ОФ-2 свободно {thousands(room)} т — {num(hours)} ч работы забоя, ОФ-2 перерабатывает "
                    f"{float(w.get(self.clay_plant, 'feed_setpoint_tph', 0.0)):.0f} т/ч")
         else:
@@ -759,6 +793,13 @@ class AdvisorCore(Core):
         if found and found.get("end") != self.incident.get("end"):
             # The expected end moved (a crew was sent, the repair overran): the card says the new one.
             self.incident.update(end=found["end"], basis=found["basis"], text=found["text"])
+        dest = self._clay_destination(found)
+        if found and dest != self.incident.get("dest", dest):
+            # The clay face's ore was sent elsewhere (by the grade-control module, an order): the card says where
+            # it goes now, in the incident and in the decision that quotes it.
+            old = self.incident["text"]
+            self.incident.update(text=found["text"], dest=dest)
+            self.last_decision = self.last_decision.replace(old, found["text"])
         if self.status == "running":
             self._collect()
             if self.status == "running" and now - self.asked_at >= self.p["retry_min"] * 60.0:
@@ -779,6 +820,7 @@ class AdvisorCore(Core):
         incident["since"] = now if since is None else since
         incident["sim_time"] = first or str(w.get("mine", "sim_time", ""))
         incident["stock_h"] = self._stock_h()
+        incident["dest"] = self._clay_destination(incident)
         self.incident = incident
         self.options = self._options(incident)
         self.recommended = 0
@@ -954,6 +996,45 @@ class AdvisorCore(Core):
         full = max(a + b) if a or b else 0.0
         return full > 0 and any(x < 0.9 * full for x in a) and any(y < 0.9 * full for y in b)
 
+    def _starve_text(self, r: dict) -> str:
+        """What happens to the mill's feed without the option (branch A), in Russian; '' when it is not cut.
+        A cut is not a lack of ore: with the plant-control module on it is the module stretching the stockpile,
+        and for a stopped crusher the text says how long the stockpile lasts against the expected restart."""
+        short_a = self._short_of_ore(r.get("a_mill", []), r.get("b_mill", []))
+        if short_a is None:
+            return ""
+        hour, least = short_a
+        at = lambda h: "уже в первый час" if h <= 1 else f"через {h - 1} ч"
+        inc, stock = self.incident or {}, ""
+        if inc.get("kind") == "crusher-stop" and inc.get("end") and inc.get("stock_h", 0.0) < self._left_h(inc["end"]):
+            stock = (f" (склада дроблёной руды на {num(inc['stock_h'])} ч питания не хватит до пуска дробилки "
+                     f"в {hhmm(inc['end'])})")
+        cutter = ("модуль управления фабрикой начнёт снижать подачу мельницы"
+                  if self.world.get("module-plant", "status") == "online" else "подача мельницы начнёт падать")
+        a = r.get("a_mill", [])
+        if least < 1.0 or r.get("a_stops", 0) > r.get("b_stops", 0):
+            # The mill stops in the hour its feed is least; before that the feed may only be cut.
+            stop = next((h for h in range(hour, len(a) + 1) if a[h - 1] <= least + 1.0), hour)
+            if stop > hour:
+                return f"{at(hour)} {cutter}{stock}, а {at(stop)} мельница встанет"
+            return f"мельница встанет {at(stop)}{stock}"
+        least_text = f"{least:,.0f}".replace(",", " ")
+        if cutter.startswith("модуль"):
+            return f"{at(hour)} {cutter}{stock} и снизит её до {least_text} т/ч"
+        return f"{at(hour)} {cutter}{stock} и упадёт до {least_text} т/ч"
+
+    def _stock_reason(self, r: dict) -> str:
+        """Why a gain beyond the scatter rests on inventory, not copper, in Russian: «no copper» only when the
+        copper differs by less than `advisor.min_cu_t`; else where the copper comes from."""
+        cu, split = r["cu"], r["split"]
+        if abs(cu) < float(self.p["min_cu_t"]):
+            return STOCK_REASON
+        work = signed(split["work"] / 1e6)
+        if cu > 0 and split["grade"] < 0 and -split["grade"] >= 0.5 * max(split["revenue"], 1):
+            return (f"медь {signed(cu)} т взята из запасов богатой руды, а выигрыш держится на оценке работы парка "
+                    f"({work} млн тг)")
+        return f"выигрыш держится на оценке работы парка в запасах руды и вскрыше ({work} млн тг), а не на меди"
+
     def _reason(self, n: int, r: dict, recommended: bool) -> str:
         """Why option `n` pays or does not, in one Russian sentence; '' for «change nothing»."""
         if n == 1:
@@ -977,7 +1058,7 @@ class AdvisorCore(Core):
             left = self._left_h(self.incident.get("end") or "") if self.incident else 0.0
             if ON_STOCK in verdict and not recommended:
                 # Beyond the scatter, but the gain is inventory, not copper: say so instead of «не окупается».
-                return (f"{what}: {STOCK_REASON}; до пуска {num(left)} ч, со второй бригадой ОФ-2 запустится раньше "
+                return (f"{what}: {self._stock_reason(r)}; до пуска {num(left)} ч, со второй бригадой ОФ-2 запустится раньше "
                         f"({signed(gained)} т меди за {self.horizon_h} ч); {who} стоит {money(cost)} млн тг, "
                         f"итог {figures}.")
             head = (f"{what} {pays}: до пуска {num(left)} ч, со второй бригадой ОФ-2 запустится раньше и даст "
@@ -987,15 +1068,7 @@ class AdvisorCore(Core):
             return f"{head}, итог {figures}{tail}."
         cost = -r["split"].get("resources", 0)
         price = f"{who} стоит {money(cost)} млн тг" if cost >= 50_000 else f"{who} денег не стоит"
-        short_a = self._short_of_ore(r.get("a_mill", []), r.get("b_mill", []))
-        if short_a is not None:
-            hour, least = short_a
-            least_text = f"{least:,.0f}".replace(",", " ")
-            when = "уже в первый час" if hour <= 1 else f"через {hour - 1} ч"
-            starve = (f"мельница встанет {when}" if least < 1.0 or r.get("a_stops", 0) > r.get("b_stops", 0)
-                      else f"мельнице {when} не хватит руды, подача упадёт до {least_text} т/ч")
-        else:
-            starve = ""
+        starve = self._starve_text(r)
         if recommended:
             head = f"{what} окупается: без этого {starve}" if starve else f"{what} окупается"
             return f"{head}; {price}, итог {figures}."
@@ -1008,8 +1081,8 @@ class AdvisorCore(Core):
         if ON_STOCK in verdict:
             # Beyond the scatter, but the gain is inventory, not copper: say so instead of «не окупается».
             if starve:
-                return f"{what}: без этого {starve}, но {who}: {STOCK_REASON} (итог {figures})."
-            return f"{who[:1].upper()}{who[1:]}: {STOCK_REASON} (итог {figures})."
+                return f"{what}: без этого {starve}, но {who}: {self._stock_reason(r)}; итог {figures}."
+            return f"{who[:1].upper()}{who[1:]}: {self._stock_reason(r)}; итог {figures}."
         # The verdict says more than the figures only when it is not about the scatter or a loss in money.
         why = verdict if verdict and "разброс" not in verdict and "не выгоднее" not in verdict else figures
         if starve:
