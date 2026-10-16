@@ -26,6 +26,7 @@ export const C = {
   padRich: '#4b3524',
   padPoor: '#38322b',
   padEdge: '#7a6850',
+  padClay: '#4d4331',
   // roads
   road: '#7f8a94',
   roadWet: '#3d8fd1',
@@ -81,7 +82,7 @@ export function stateColor(state) {
     case 'loading': case 'drilling': case 'running': case 'dumping': return C.good;
     case 'waiting': return C.ready;
     case 'down': case 'stopped': return C.bad;
-    case 'blocked': case 'starved': case 'overload': case 'queue_load': case 'queue_dump': return C.warn;
+    case 'blocked': case 'starved': case 'overload': case 'queue_load': case 'queue_dump': case 'starting': return C.warn;
     case 'hauling': case 'returning': case 'relocating': case 'setup': case 'tramming': case 'positioning': return C.moving;
     default: return C.idle;
   }
@@ -118,7 +119,7 @@ function binned(name, unit, digits, edges, colors) {
 const STATUS_COLORS = { insitu: '#56616b', drilled: '#199e70', charged: '#e5484d', blasted: '#c98500', mining: '#3987e5' };
 export const DEPLETED = '#22272c';
 
-const DESTINATION_COLORS = ['#3987e5', '#199e70', '#c98500', '#9085e9'];
+const DESTINATION_COLORS = ['#3987e5', '#199e70', '#c98500', '#9085e9', '#d4688f', '#c6a24a'];
 const WASTE_COLOR = '#535c65';
 
 export const LAYERS = {
@@ -142,6 +143,12 @@ export const LAYERS = {
     legendTitle: 'крепость, кВт·ч/т',
     ...binned('hardness_bwi', 'кВт·ч/т', 1, [12.5, 13.5, 14.5, 15.5],
       ['#27455b', '#2f6789', '#3d8eb6', '#63b7da', '#aae1f6']),
+  },
+  clay: {
+    title: 'Глинистость руды',
+    legendTitle: '% глины',
+    ...binned('clay_pct', '% глины', 0, [5, 10, 15, 20, 30],
+      ['#4f6a7d', '#7a8a6e', '#b0a060', '#d49a48', '#e47d3a', '#ff6a3d']),
   },
   destination: {
     title: 'Куда везти породу блока',
@@ -167,14 +174,16 @@ function destinationShort(thingId) {
   const name = shortName(thingId);
   if (name === 'crusher') return 'дробилка';
   if (name === 'waste-dump') return 'отвал';
+  if (name === 'clay-plant') return 'ОФ-2';
+  if (name === 'clay-stockpile') return 'склад глины';
   const number = /(\d+)$/.exec(name);
   return number ? `склад №${Number(number[1])}` : titleById(thingId);
 }
 
-// Destinations in a fixed order (crusher, ore pads, waste dump), so a colour
+// Destinations in a fixed order (crusher, ore pads, the clay-ore plant and its stockpile, waste dump), so a colour
 // stays with its destination whichever blocks happen to use it.
 export function refreshDestinationLegend(blocks, twins) {
-  const order = ['crusher', 'rom-pad', 'waste-dump'];
+  const order = ['crusher', 'rom-pad', 'clay-plant', 'clay-stockpile', 'waste-dump'];
   const sinks = [...twins.values()].filter((twin) => order.includes(kindOf(twin)))
     .sort((a, b) => order.indexOf(kindOf(a)) - order.indexOf(kindOf(b)) || a.thingId.localeCompare(b.thingId));
   let next = 0;

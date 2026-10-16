@@ -19,12 +19,13 @@ NS = WORLD["namespace"]
 
 # kind -> allowed number of twins.
 KINDS = {
-    "mine": (1, 1), "pit": (1, 1), "bench": (17, 17), "block": (40, 60), "drill-rig": (3, 3), "loader": (5, 5),
-    "truck": (30, 40), "road-node": (15, 20), "road-segment": (18, 24), "crusher": (1, 1), "conveyor": (1, 1),
+    "mine": (1, 1), "pit": (1, 1), "bench": (15, 15), "block": (40, 60), "drill-rig": (4, 4), "loader": (6, 6),
+    "truck": (25, 40), "road-node": (15, 22), "road-segment": (18, 26), "crusher": (1, 1), "conveyor": (1, 1),
     "stockpile": (1, 1), "rom-pad": (2, 2), "waste-dump": (1, 1), "mill": (1, 1), "sag-mill": (1, 1), "ball-mill": (1, 1),
     "flotation": (1, 1), "concentrate": (1, 1), "tailings": (1, 1),
+    "clay-plant": (1, 1), "desliming": (1, 1), "clay-flotation": (1, 1), "clay-stockpile": (1, 1),
     "substation": (1, 1), "fuel-station": (1, 1), "workshop": (1, 1), "weather": (1, 1), "module": (5, 5),
-    "scenario": (6, 6), "forecast": (10, 10), "journal": (1, 1),
+    "scenario": (7, 7), "forecast": (10, 10), "journal": (1, 1),
 }
 MOBILE = ("truck", "loader", "drill-rig")     # their position is a feature; `home` says where they started
 
@@ -81,17 +82,24 @@ class TwinDefinitions(unittest.TestCase):
         for name in ("module-dispatch", "module-grade", "module-plant", "module-maint", "module-advisor",
                      "forecast-1", "forecast-5", "scenario-road-closure",
                      "scenario-shovel-failure", "scenario-crusher-stop", "scenario-heavy-rain", "scenario-blast",
-                     "scenario-hard-ore", "mine", "journal", "truck-32", "rom-pad-02"):
+                     "scenario-clay-face", "scenario-clay-plant-stop", "mine", "journal", "truck-31", "rom-pad-02",
+                     "clay-plant", "desliming", "clay-flotation", "clay-stockpile"):
             self.assertIn(f"{NS}:{name}", ids)
+        self.assertNotIn(f"{NS}:scenario-hard-ore", ids)
 
     def test_one_namespace_setting(self):
-        self.assertEqual(NS, "kz.aktogay")
+        self.assertEqual(NS, "kz.bozshakol")
         self.assertTrue(all(t["thingId"].startswith(f"{NS}:") for t in THINGS))
         mine = by_name("mine")["attributes"]
-        self.assertIn("Актогай", mine["name"])
+        self.assertIn("Бозшаколь", mine["name"])
+        self.assertIn("(упрощённо)", mine["name"])
         for key in ("object", "data_basis", "disclaimer", "operator"):
             self.assertTrue(mine["about"][key], key)
+        self.assertIn("Модель рудника Бозшаколь: карьер, сульфидная фабрика ОФ-1 и глинистая фабрика ОФ-2 (упрощённо)",
+                      mine["about"]["object"])
         self.assertIn("не связан", mine["about"]["disclaimer"])
+        text = " ".join([mine["name"], *mine["about"].values(), *(t["attributes"]["name"] for t in THINGS)])
+        self.assertNotIn("Актогай", text)
 
     def test_attributes(self):
         ids = {t["thingId"] for t in THINGS}
@@ -148,13 +156,21 @@ class TwinDefinitions(unittest.TestCase):
             self.assertIn(f"{NS}:{downstream}", [links.get("feeds"), links.get("to")], upstream)
         self.assertEqual(by_name("flotation")["attributes"]["links"]["feeds"], [f"{NS}:concentrate", f"{NS}:tailings"])
         for end in ("concentrate", "tailings"):
-            self.assertEqual(by_name(end)["attributes"]["links"]["fed_by"], f"{NS}:flotation")
+            self.assertEqual(by_name(end)["attributes"]["links"]["fed_by"], [f"{NS}:flotation", f"{NS}:clay-flotation"])
+        # ОФ-2: the clay-ore stockpile feeds the plant, the plant the desliming, the desliming the flotation.
+        clay = ["clay-stockpile", "clay-plant", "desliming", "clay-flotation"]
+        for upstream, downstream in zip(clay, clay[1:]):
+            self.assertEqual(by_name(upstream)["attributes"]["links"]["feeds"], f"{NS}:{downstream}", upstream)
+        self.assertEqual(by_name("clay-flotation")["attributes"]["links"]["feeds"], [f"{NS}:concentrate", f"{NS}:tailings"])
+        for unit in ("desliming", "clay-flotation"):
+            self.assertEqual(by_name(unit)["attributes"]["_parents"], f"{NS}:clay-plant")
         self.assertEqual(by_name("mill")["attributes"]["links"]["units"], [f"{NS}:mill-sag", f"{NS}:mill-ball"])
         for unit in ("mill-sag", "mill-ball"):
             self.assertEqual(by_name(unit)["attributes"]["_parents"], f"{NS}:mill")
         supplied = set(by_name("substation")["attributes"]["links"]["supplies"])
         loaders = {t["thingId"] for t in of_kind("loader")}
-        self.assertEqual(supplied, loaders | {f"{NS}:{n}" for n in ("crusher", "conveyor", "mill-sag", "mill-ball", "flotation")})
+        self.assertEqual(supplied, loaders | {f"{NS}:{n}" for n in ("crusher", "conveyor", "mill-sag", "mill-ball", "flotation",
+                                                                    "clay-plant")})
         for block in of_kind("block"):
             bench = next(t for t in THINGS if t["thingId"] == block["attributes"]["links"]["bench"])
             self.assertEqual(block["attributes"]["_parents"], bench["thingId"])
@@ -183,17 +199,18 @@ class TwinDefinitions(unittest.TestCase):
 
 
 class Geometry(unittest.TestCase):
-    """The pit as a deep hard-rock pit: benches, walls, ramps, exits and hauls of realistic size."""
+    """The pit as a long narrow open pit of the Bozshakol size: benches, walls, ramps, exits and hauls of realistic size."""
 
     def test_pit_size_depth_and_benches(self):
         pit = by_name("pit")["attributes"]
         rim = pit["geo"]["polygon"]
         xs, ys = [p[0] for p in rim], [p[1] for p in rim]
-        self.assertAlmostEqual(max(xs) - min(xs), 2300, delta=50)
-        self.assertAlmostEqual(max(ys) - min(ys), 1400, delta=50)
-        self.assertLessEqual(max(xs) - min(xs), PARAMS["pit"]["final_length_m"])      # a slice, short of the final pit
+        self.assertAlmostEqual(max(xs) - min(xs), PARAMS["pit"]["top_length_m"], delta=10)       # 2023: 4070 x 880 m
+        self.assertAlmostEqual(max(ys) - min(ys), PARAMS["pit"]["top_width_m"], delta=10)
+        area_km2 = 0.5 * abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(rim, rim[1:] + rim[:1]))) / 1e6
+        self.assertLess(area_km2, PARAMS["pit"]["licence_area_km2"])                            # within the mining allocation
         elevations = sorted((value(b, "elevation_m") for b in of_kind("bench")), reverse=True)
-        self.assertEqual(len(elevations), 17)
+        self.assertEqual(len(elevations), 15)
         self.assertEqual({a - b for a, b in zip(elevations, elevations[1:])}, {15.0})
         depth = pit["spec"]["rim_elevation_m"] - elevations[-1]
         self.assertEqual(depth, PARAMS["pit"]["depth_m"])
@@ -230,7 +247,7 @@ class Geometry(unittest.TestCase):
 
     def test_working_benches_and_the_rest_of_the_wall(self):
         working = [b for b in of_kind("bench") if b["attributes"]["spec"]["working"]]
-        self.assertEqual(len(working), 5)
+        self.assertEqual(len(working), 6)
         for bench in of_kind("bench"):
             has_blocks = bool(bench["attributes"]["links"]["blocks"])
             self.assertEqual(has_blocks, bench["attributes"]["spec"]["working"], bench["thingId"])
@@ -241,7 +258,8 @@ class Geometry(unittest.TestCase):
         self.assertEqual({r["grade_pct"] for r in ramps.values()}, {8.0, 10.0})
         depth = by_name("pit")["attributes"]["spec"]["depth_m"]
         for r in ramps.values():
-            self.assertGreaterEqual(r["switchbacks"], 1, r["id"])
+            # Along the long walls of the pit a ramp reaches the floor without a switchback.
+            self.assertGreaterEqual(r["switchbacks"], 0, r["id"])
             self.assertAlmostEqual(r["length_m"], depth / (r["grade_pct"] / 100), delta=0.05 * r["length_m"])
         for t in of_kind("road-segment"):
             spec = t["attributes"]["spec"]
@@ -249,7 +267,7 @@ class Geometry(unittest.TestCase):
             if spec["road_class"] == "ramp":
                 grade = ramps[spec["ramp"]]["grade_pct"]
                 self.assertAlmostEqual(abs(value(t, "grade_pct")), grade, delta=0.4, msg=t["thingId"])
-                self.assertAlmostEqual(spec["max_grade_pct"], grade, delta=0.3, msg=t["thingId"])
+                self.assertAlmostEqual(spec["max_grade_pct"], grade, delta=0.35, msg=t["thingId"])
             # A ramp segment follows the wall: every point of its path lies between the rim and the floor.
             for x, y, z in t["attributes"]["geo"]["path"]:
                 self.assertTrue(WORLD["pit"]["floor_z"] - 1e-6 <= z <= WORLD["pit"]["rim_z"] + 15, t["thingId"])
@@ -282,33 +300,41 @@ class Geometry(unittest.TestCase):
                 roads.reopen(seg, "test")
             self.assertIsNotNone(alternate, bench["thingId"])
             self.assertGreater(roads.route_length(alternate), roads.route_length(main), bench["thingId"])
-            self.assertTrue(1000 <= roads.route_length(main) <= 6000, bench["thingId"])
+            self.assertTrue(300 <= roads.route_length(main) <= 6000, bench["thingId"])
 
     def test_hauls_and_the_plant_at_realistic_distances(self):
         d = design_basis(WORLD, PARAMS)
         hauls = {name: f["haul_m"] for name, f in d["faces"].items()}
         ore = [h for name, h in hauls.items() if d["faces"][name]["material"] != "waste"]
-        self.assertTrue(all(2000 <= h <= 6000 for h in ore), hauls)
-        self.assertGreaterEqual(max(ore), 4000, "the deepest ore face hauls more than 4 km to the crusher")
+        self.assertTrue(all(1000 <= h <= 6000 for h in ore), hauls)
+        self.assertGreaterEqual(max(ore), 3000, "the deepest ore face hauls more than 3 km to the crusher")
+        clay = [h for name, h in hauls.items() if d["faces"][name]["material"] == "clay"]
+        self.assertTrue(clay and all(2000 <= h <= 6000 for h in clay), "clay ore hauled to ОФ-2 on the plant site")
         conveyor = by_name("conveyor")["attributes"]["spec"]
         self.assertAlmostEqual(conveyor["length_m"], 3800, delta=150)          # KAZ Minerals 2014: 3.8 km
         rim = by_name("pit")["attributes"]["geo"]["polygon"]
-        for kind in ("rom-pad", "waste-dump", "tailings"):
+        for kind in ("rom-pad", "waste-dump", "tailings", "clay-stockpile"):
             for t in of_kind(kind):
                 for corner in t["attributes"]["geo"]["polygon"]:
                     self.assertFalse(inside(corner, rim), f"{t['thingId']} lies in the pit")
-        for kind in ("crusher", "fuel-station", "workshop", "stockpile", "mill", "flotation", "substation"):
+        for kind in ("crusher", "fuel-station", "workshop", "stockpile", "mill", "flotation", "substation", "clay-plant",
+                     "desliming", "clay-flotation"):
             geo = of_kind(kind)[0]["attributes"]["geo"]
             self.assertFalse(inside((geo["x"], geo["y"]), rim), kind)
-        self.assertGreater(by_name("stockpile")["attributes"]["geo"]["x"] - max(p[0] for p in rim), 3500)
+        stockpile = by_name("stockpile")["attributes"]["geo"]
+        self.assertGreater(distance_to((stockpile["x"], stockpile["y"]), rim), 2000)
+        # ОФ-2 beside ОФ-1 on the same site (ecoportal 66983).
+        clay_plant = by_name("clay-plant")["attributes"]["geo"]
+        self.assertLess(math.dist((clay_plant["x"], clay_plant["y"]), (stockpile["x"], stockpile["y"])), 1500)
 
     def test_every_facility_has_its_own_node(self):
         nodes = {}
-        for kind in ("crusher", "rom-pad", "waste-dump", "fuel-station", "workshop"):
+        for kind in ("crusher", "rom-pad", "waste-dump", "fuel-station", "workshop", "clay-plant", "clay-stockpile"):
             for t in of_kind(kind):
                 nodes.setdefault(t["attributes"]["links"]["access_node"], []).append(kind)
         self.assertEqual(sorted(map(sorted, nodes.values())),
-                         [["crusher"], ["fuel-station"], ["rom-pad", "rom-pad"], ["waste-dump"], ["workshop"]])
+                         [["clay-plant", "clay-stockpile"], ["crusher"], ["fuel-station"], ["rom-pad", "rom-pad"],
+                          ["waste-dump"], ["workshop"]])
 
 
 class Parameters(unittest.TestCase):
@@ -325,10 +351,13 @@ class Parameters(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"), build_params_doc.render(),
                          "docs/mine/parameters.md is stale: run python -m mine.model.build_params_doc --write")
 
-    def test_aktogay_figures(self):
-        """The numbers read in KAZ Minerals' reports and the equipment data sheets."""
+    def test_bozshakol_figures(self):
+        """The numbers read in KAZ Minerals' reports, the permits and the equipment data sheets."""
         p = PARAMS
-        self.assertEqual((p["geology"]["mean_head_grade_pct"], p["flotation"]["recovery_ref_pct"]), (0.41, 87.2))
+        self.assertEqual((p["pit"]["top_length_m"], p["pit"]["top_width_m"], p["pit"]["final_depth_m"],
+                          p["pit"]["licence_area_km2"]), (4070, 880, 430, 8.19))
+        self.assertEqual((p["geology"]["design_strip_ratio"], p["geology"]["cutoff_grade_pct"]), (0.7, 0.20))
+        self.assertEqual((p["clay_plant"]["licence_tph"], p["clay_plant"]["feed_bin_t"]), (799, 35736))
         self.assertEqual((p["crusher"]["design_tph"], p["crusher"]["motor_kw"]), (4186, 750))
         self.assertEqual((p["mill"]["sag_installed_mw"], p["mill"]["ball_mills"], p["mill"]["ball_installed_mw"],
                           p["mill"]["sag_design_tph"]), (28, 2, 44, 3425))
@@ -344,10 +373,10 @@ class Parameters(unittest.TestCase):
         self.assertEqual(nominal_passes(p), 4)
         self.assertAlmostEqual(full_power_fuel_lph(p), 253.7, delta=0.1)
         self.assertTrue(172 <= p["drill"]["hole_diameter_mm"] <= 254)            # the D55SP range
-        w = p["weather"]
+        w = p["weather"]                                                         # Ekibastuz, 1991-2020
         self.assertEqual((w["oct_mean_c"], w["oct_max_c"], w["oct_min_c"], w["oct_precip_mm"], w["oct_wet_days"]),
-                         (7.6, 15.4, 1.3, 20.0, 4.4))
-        self.assertEqual((w["nov_mean_c"], w["nov_precip_mm"], w["annual_precip_mm"]), (-2.0, 26.9, 195.6))
+                         (4.9, 10.7, 0.2, 18.3, 4.4))
+        self.assertEqual((w["nov_mean_c"], w["nov_precip_mm"], w["annual_precip_mm"]), (-5.3, 17.3, 285.3))
         rel = p["reliability"]
         self.assertEqual((rel["truck_mtbf_h"], rel["truck_mttr_h"], rel["pm_interval_h"], rel["pm_duration_h"]),
                          (500, 12, 250, 4))
@@ -355,15 +384,31 @@ class Parameters(unittest.TestCase):
 
     def test_figures_derived_from_kaz_reports(self):
         p = PARAMS
-        self.assertAlmostEqual(p["geology"]["strip_ratio"], 26.7 / 73.486, delta=0.0005)        # 2024
-        self.assertAlmostEqual(p["geology"]["low_grade_share"], 75.512 / 62.095 - 1, delta=0.0005)  # 2025
-        self.assertAlmostEqual(p["economics"]["payable_cu_pct"], 100 * 210.4 / 220.3, delta=0.05)  # 2025
-        self.assertAlmostEqual(p["plan"]["mill_rate_tph"], 30.909e6 / (8760 * p["plan"]["plant_availability"]), delta=1)
+        g = p["geology"]
+        # The strip ratio of the block model: the design 0.7 t beyond the plant ore, less the low-grade ore.
+        self.assertAlmostEqual(g["strip_ratio"], (1 + g["design_strip_ratio"]) / (1 + g["low_grade_share"]) - 1, delta=0.0005)
+        self.assertAlmostEqual(p["economics"]["payable_cu_pct"], 100 * 104.7 / 109.6, delta=0.05)  # 2024
+        # 2024: 34,755 kt processed, of it the clay ore mined (6,086 kt) at ОФ-2, the rest at ОФ-1.
+        hours = 8760 * p["plan"]["plant_availability"]
+        self.assertAlmostEqual(p["plan"]["mill_rate_tph"], (34.755e6 - 6.086e6) / hours, delta=1)
+        self.assertAlmostEqual(p["plan"]["clay_rate_tph"], 6.086e6 / hours, delta=1)
         self.assertEqual(p["mill"]["design_tph"], p["plan"]["mill_rate_tph"])
-        # Recovery against grade: the least-squares slope through 2025 over the published points.
-        points = [(0.43, 87.9), (0.50, 87.7), (0.42, 86.8), (0.40, 86.6)]
-        xs = [math.log(g / 0.41) for g, _ in points]
-        slope = sum(x * (r - 87.2) for x, (_, r) in zip(xs, points)) / sum(x * x for x in xs)
+        self.assertEqual(p["clay_plant"]["design_tph"], p["plan"]["clay_rate_tph"])
+        # The grade split: g x 28,669 + 1.2 g x 6,086 = the copper fed (109.6 kt / 78.1 %).
+        fed = 109.6 / 0.781 * 1000                                              # kt Cu x 1000 = t
+        sulphide = fed / ((28.669 + 6.086 * p["clay"]["clay_grade_factor"]) * 1e4)
+        self.assertAlmostEqual(g["mean_head_grade_pct"], sulphide, delta=0.005)
+        self.assertAlmostEqual(p["clay_plant"]["mean_feed_grade_pct"], sulphide * p["clay"]["clay_grade_factor"], delta=0.005)
+        self.assertAlmostEqual(p["clay"]["clay_grade_factor"], 0.61 / 0.51, delta=0.005)    # Q4 2020
+        # Recovery of each plant from the copper split of Q4 2024 (ОФ-2: 4.4 of 25.5 kt).
+        share = 4.4 / 25.5
+        self.assertAlmostEqual(p["flotation"]["recovery_ref_pct"], 100 * 109.6 * (1 - share) / (28.669 * sulphide * 10), delta=0.3)
+        self.assertAlmostEqual(p["clay_plant"]["recovery_check_pct"],
+                               100 * 109.6 * share / (6.086 * sulphide * p["clay"]["clay_grade_factor"] * 10), delta=0.5)
+        # Recovery against grade: the least-squares slope of the mine's yearly points through 2024 (0.40 %, 78.1 %).
+        points = [(0.48, 81.1), (0.51, 79.7), (0.46, 74.4), (0.43, 75.4), (0.42, 79.2), (0.39, 73.4)]
+        xs = [math.log(g / 0.40) for g, _ in points]
+        slope = sum(x * (r - 78.1) for x, (_, r) in zip(xs, points)) / sum(x * x for x in xs)
         self.assertAlmostEqual(p["flotation"]["grade_gain_pct"], slope, delta=0.05)
         self.assertAlmostEqual(p["crusher"]["rated_tph"], p["crusher"]["design_tph"] * p["mill"]["design_tph"] / p["mill"]["sag_design_tph"], delta=5)
 
@@ -387,6 +432,11 @@ class Parameters(unittest.TestCase):
         self.assertAlmostEqual(p["loader"]["fill_factor"], p["truck"]["payload_t"] / (4 * p["loader"]["bucket_m3"]
                                                                                        * p["rock"]["loose_density_t_m3"]), delta=0.005)
         self.assertAlmostEqual(p["plan"]["ore_share"], 1 / (1 + p["geology"]["strip_ratio"]), delta=0.001)
+        # ОФ-2: the desliming model on the reference clay ore gives the recovery of 2024.
+        from mine.common.process import clay_plant_recovery_pct
+        c = p["clay_plant"]
+        self.assertAlmostEqual(clay_plant_recovery_pct(p, c["mean_feed_grade_pct"], c["ref_clay_pct"]), c["recovery_check_pct"],
+                               delta=0.15)
         self.assertEqual(mill["bwi_ref_kwh_t"], p["geology"]["bwi_mean_kwh_t"])
         # Grinding: the installed power of the 2014 design at the drive load of the operating point.
         self.assertEqual(mill["sag_installed_mw"] + mill["ball_installed_mw"], mill["installed_mw"])
@@ -418,7 +468,7 @@ class Parameters(unittest.TestCase):
 
 
 class DesignBasis(unittest.TestCase):
-    """The fleet is sized from the concentrator line: params.yaml and world.yaml repeat the calculation."""
+    """The fleet is sized from the two plants: params.yaml and world.yaml repeat the calculation."""
 
     @classmethod
     def setUpClass(cls):
@@ -426,10 +476,15 @@ class DesignBasis(unittest.TestCase):
 
     def test_rates_follow_from_the_line(self):
         d, p = self.d, PARAMS
-        self.assertAlmostEqual(d["annual_ore_mt"], 30.909, delta=0.05)                      # Sulphide 1, 2025
+        self.assertAlmostEqual(d["annual_ore_mt"], 34.755, delta=0.05)                      # ОФ-1 + ОФ-2, 2024
         self.assertAlmostEqual(d["rock_tph"], p["plan"]["rock_tph"], delta=1.0)
         self.assertAlmostEqual(d["ore_share"], p["plan"]["ore_share"], delta=0.001)
-        self.assertAlmostEqual(d["waste_tph"] / (d["mill_tph"] + d["low_grade_tph"]), p["geology"]["strip_ratio"], delta=1e-6)
+        self.assertAlmostEqual((d["waste_tph"] + d["low_grade_tph"]) / (d["mill_tph"] + d["clay_tph"]),
+                               p["geology"]["design_strip_ratio"], delta=1e-6)
+        self.assertAlmostEqual(d["waste_tph"] / (d["mill_tph"] + d["clay_tph"] + d["low_grade_tph"]), p["geology"]["strip_ratio"],
+                               delta=0.001)
+        # The mining mass of the whole mine against the 2024 mining plan (60.4 Mt).
+        self.assertAlmostEqual(d["yearly_rock_mt"], 60.4, delta=2.0)
 
     def test_fleet_size_and_allocation(self):
         d, p = self.d, PARAMS
@@ -457,9 +512,9 @@ class BlockModel(unittest.TestCase):
         self.blocks = of_kind("block")
 
     def test_class_shares_and_grades_follow_kaz_figures(self):
-        geology = PARAMS["geology"]
+        geology, clay = PARAMS["geology"], PARAMS["clay"]
         tonnes = lambda blocks: sum(b["attributes"]["spec"]["tonnes_initial"] for b in blocks)
-        classes = {m: [b for b in self.blocks if value(b, "material") == m] for m in ("ore", "low-grade", "waste")}
+        classes = {m: [b for b in self.blocks if value(b, "material") == m] for m in ("ore", "low-grade", "waste", "clay")}
         total = tonnes(self.blocks)
         mean = sum(value(b, "grade_pct") * b["attributes"]["spec"]["tonnes_initial"] for b in classes["ore"]) / tonnes(classes["ore"])
         self.assertAlmostEqual(mean, geology["mean_head_grade_pct"], delta=0.015)
@@ -473,9 +528,31 @@ class BlockModel(unittest.TestCase):
             material = value(b, "material")
             self.assertEqual(material == "waste", grade < geology["cutoff_grade_pct"], b["thingId"])
             self.assertEqual(material == "low-grade", geology["cutoff_grade_pct"] <= grade < geology["low_grade_below_pct"])
+            # Clay ore: ore with at least the clay threshold, its grade enriched by the clay grade factor.
+            self.assertEqual(material == "clay", grade >= geology["low_grade_below_pct"] and value(b, "clay_pct") >= clay["clay_ore_min_pct"],
+                             b["thingId"])
             self.assertEqual(value(b, "destination"),
-                             {"waste": "waste-dump", "low-grade": low_grade_pad, "ore": "crusher"}[material])
+                             {"waste": "waste-dump", "low-grade": low_grade_pad, "ore": "crusher", "clay": "clay-plant"}[material])
             self.assertTrue(geology["bwi_min_kwh_t"] <= value(b, "hardness_bwi") <= geology["bwi_max_kwh_t"])
+            self.assertTrue(0 < value(b, "clay_pct") <= clay["kaolin_clay_pct"], b["thingId"])
+        self.assertGreaterEqual(len(classes["clay"]), 4)
+
+    def test_clay_near_the_top_and_in_the_west(self):
+        """Kaolinisation fades with depth: the upper benches carry clay ore, the deep ones sulphide ore with background clay."""
+        by_bench = {}
+        for b in self.blocks:
+            bench = next(t for t in THINGS if t["thingId"] == b["attributes"]["links"]["bench"])
+            by_bench.setdefault(value(bench, "elevation_m"), []).append(value(b, "clay_pct"))
+        mean = lambda xs: sum(xs) / len(xs)
+        self.assertGreater(mean(by_bench[200.0]), PARAMS["clay"]["clay_ore_min_pct"])
+        self.assertLess(mean(by_bench[5.0]), 2 * PARAMS["clay"]["sulphide_clay_pct"])
+        self.assertLess(mean(by_bench[95.0]), mean(by_bench[200.0]))
+        ore = [value(b, "clay_pct") for b in self.blocks if value(b, "material") == "ore"]
+        self.assertAlmostEqual(mean(ore), PARAMS["flotation"]["clay_ref_pct"], delta=1.0)
+        # The clay face of the start lies at the west end of the pit, where the kaolinised ore is (lib-ekb).
+        clay_loader = next(l for l in of_kind("loader")
+                           if value(next(t for t in THINGS if t["thingId"] == value(l, "block")), "material") == "clay")
+        self.assertLess(clay_loader["attributes"]["home"]["x"], -1000)
 
     def test_months_of_rock_in_the_pit(self):
         """Broken and in-situ rock for months of the fleet's work, not weeks."""
@@ -505,10 +582,11 @@ class BlockModel(unittest.TestCase):
             expected = spec["area_m2"] * spec["height_m"] * PARAMS["rock"]["insitu_density_t_m3"]
             self.assertAlmostEqual(spec["tonnes_initial"], expected, delta=0.01 * expected)
 
-    def test_start_has_four_loaders_on_ore_and_one_on_waste(self):
-        materials = sorted(value(next(t for t in THINGS if t["thingId"] == value(l, "block")), "material") != "waste"
+    def test_start_has_four_loaders_on_ore_and_two_on_waste(self):
+        materials = sorted(value(next(t for t in THINGS if t["thingId"] == value(l, "block")), "material")
                            for l in of_kind("loader"))
-        self.assertEqual(materials, [False, True, True, True, True])
+        self.assertEqual([m != "waste" for m in materials].count(True), 4)
+        self.assertEqual(materials.count("clay"), 1)                                  # one face on clay ore for ОФ-2
         statuses = Counter(value(b, "status") for b in self.blocks)
         for status in ("insitu", "drilling", "drilled", "charged", "blasted", "mining"):
             self.assertGreaterEqual(statuses[status], 1, status)

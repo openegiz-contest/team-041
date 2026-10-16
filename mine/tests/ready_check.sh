@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Readiness check of the Aktogay mine slice stand, run at the end of `make mine`:
+# Readiness check of the Bozshakol mine model stand, run at the end of `make mine`:
 #   twins      every twin of the model exists in Ditto, every kind is found by search
 #   telemetry  the simulated clock advances and the trucks move
 #   history    the twins' telemetry reaches InfluxDB through Telegraf

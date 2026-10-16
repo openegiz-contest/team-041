@@ -21,6 +21,22 @@
 // particle in motion. Captions are drawn on a 2D canvas over the scene
 // and never overlap. Without WebGL the same scene is drawn on a 2D canvas,
 // simpler and less often (softrender.js).
+//
+// Once the first frame is on the screen the Blender models (models/*.glb,
+// gltf3d.js) are loaded and take the place of the procedural ones: the
+// trucks, shovels and drills (detailed near the camera, simple afar, one
+// instanced mesh per moving part: dump body, wheels, upper, boom, stick,
+// bucket, mast, cylinders), the crusher, the mill hall (its mill shells turn,
+// its roof lifts off close up), the flotation, the thickeners (their rakes
+// turn), the conveyor truss, the floodlight towers and the clay-ore plant.
+// Plant models afar are drawn as their silhouettes. If the models cannot be
+// loaded (or without WebGL, or with ?models=0) the procedural models stay.
+//
+// That is the realistic look. The default look is the hologram (holo3d.js):
+// the same meshes wear hologram materials (dark teal ground and benches with
+// glowing contour lines, roads as lit lanes, machines and plant as tinted
+// glass), there is no sun, and floating panels (panels3d.js) carry the live
+// figures of the machines and units over them. setStyle() switches the look.
 
 import * as THREE from 'three';
 import { twins, byKind, first, feature, kindOf, titleOf, relatedIds, activeScenarios, resolveRef } from './store.js';
@@ -33,10 +49,10 @@ import { createSoftRenderer } from './softrender.js';
 import { Builder, ribbon, densify, relight, LIGHT, rgb, scale, mix, clamp, distanceToPolyline, centroid } from './geom3d.js';
 import { textures, fbm, noise2, TEXTURE_MEAN } from './textures3d.js';
 import { buildTerrain, roadGeometry, dumpGeometry, padGeometry } from './terrain3d.js';
-import { buildPlant } from './plant3d.js';
+import { buildPlant, modelProxy } from './plant3d.js';
 import { truckParts, shovelParts, drillParts, haloGeometry, blobGeometry, trianglesOf, TRUCK, DRILL } from './models3d.js';
 import { sunAt, palette, keyDirection, createSky, createDust, createWeather, createGlows } from './sky3d.js';
-import { HOLO, holoTone, TONE_COLOR, createHoloMaterials, roadMaterial, markGlass, setFog, createDome, prepare, contourLines, laneLines, holoRelight } from './holo3d.js';
+import { HOLO, holoTone, createHoloMaterials, roadMaterial, markGlass, setFog, createDome, prepare, contourLines, laneLines, holoRelight } from './holo3d.js';
 import { createPanels, PANEL_KINDS } from './panels3d.js';
 
 const FONT = 'system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
@@ -144,7 +160,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   H.blocks.opacity = 0.5;
   H.halo = M.halo.clone();
   H.halo.blending = THREE.AdditiveBlending;
-  H.halo.opacity = 0.5;
+  H.halo.opacity = 0.32;
   H.pool = M.pool;
   const HOLO_OF = new Map([[M.ground, H.ground], [M.face, H.face], [M.flat, H.flat], [M.dumpSide, H.dump], [M.dumpTop, H.dumpTop], [M.pad, H.pad],
     [M.piles, H.piles], [M.tracks, H.hidden], [M.plant, H.plantPlain], [M.glass, H.plantGlass], [M.windows, H.hidden], [M.water, H.water], [M.muck, H.muck],
@@ -232,6 +248,27 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
 
   const heightAt = (x, y) => (terrain ? terrain.heightAt(x, y) : surfaceZ);
 
+  // -- the Blender models (gltf3d.js) ----------------------------------------------------
+  // Loaded once after the first frame of the procedural scene; until they are
+  // ready (or if they cannot be loaded, or without WebGL) the procedural
+  // models stand in. Their geometries are shared by every placement.
+  let G = null;                    // the module gltf3d.js, once imported
+  let lib = null;                  // the loaded models: {models: {id: {info, lods}}, textures}
+  // ?models=0 in the address keeps the procedural models (to compare, or to check the fallback).
+  let libState = soft || new URLSearchParams(window.location.search).get('models') === '0' ? 'off' : 'idle';
+  let libStarted = 0;
+  let libReadyAt = 0;
+  const MM = {};                   // materials of the models (realistic look)
+  const modelHolo = new Map();     // twin thingId -> its hologram glass for the plant models
+  let placed = [];                 // plant models drawn: [{placement, rig, base, mats, meshes, angles, turning, cluster}]
+  let farClusters = [];            // their silhouettes for afar: [{mesh, entries, x, y, z, far}]
+  let roofMeshes = [];
+  let conveyorModel = null;        // the conveyor truss tiled along the deck
+  let towerMeshes = [];
+  const modelIds = () => (libState === 'ready' && lib ? new Set(Object.keys(lib.models)) : null);
+  const MACHINE_MODELS = { truck: 'cat785c', loader: 'ex3600', 'drill-rig': 'd55sp' };
+  const PLANT_MODELS = ['crusher', 'mill_hall', 'flotation', 'thickener_tailings', 'thickener_concentrate', 'floodlight', 'conveyor'];
+
   // -- building ---------------------------------------------------------------------
 
   const shared = new Set([...Object.values(M), ...holoShared]);
@@ -240,7 +277,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (keep.has(child)) continue;
       group.remove(child);
       child.traverse?.((node) => {
-        node.geometry?.dispose();
+        if (!node.geometry?.userData?.keep) node.geometry?.dispose();
         const materials = new Set([node.material, node.userData.real, node.userData.holo].flat().filter(Boolean));
         materials.forEach((material) => { if (!shared.has(material)) material.dispose(); });
       });
@@ -266,7 +303,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     const i = lit.indexOf(mesh.geometry);
     if (i >= 0) lit.splice(i, 1);
     pickables = pickables.filter((m) => m !== mesh);
-    mesh.geometry.dispose();
+    if (!mesh.geometry.userData?.keep) mesh.geometry.dispose();
   }
 
   function boxOfTwins() {
@@ -328,19 +365,34 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       pickables.push(addMesh(groups.areas, d.sides.geometry(), M.dumpSide, { id: dump.thingId }));
       pickables.push(addMesh(groups.areas, d.tops.geometry(), M.dumpTop, { id: dump.thingId, top: d.top }));
     }
-    for (const pad of byKind('rom-pad')) {
+    for (const pad of [...byKind('rom-pad'), ...byKind('clay-stockpile')]) {
       if (!pad.attributes?.geo?.polygon) continue;
       const p = padGeometry(pad, terrain, L, 0);
       pickables.push(addMesh(groups.areas, p.slab.geometry(), M.pad, { id: pad.thingId }));
       padMeshes.set(pad.thingId, { piles: null, level: -1, z0: p.z0 });
     }
-    plant = buildPlant({ L, terrain, detail: DETAIL });
+    buildPlantMeshes();
+    muckKey = '';
+    buildTowers();
+    siteLamps();
+    buildHoloLines();
+  }
+
+  // The plant: built procedurally, with the Blender models where they are loaded.
+  // Run again (alone) when the models arrive.
+  function buildPlantMeshes() {
+    const old = new Set();
+    groups.plant.traverse((node) => { old.add(node); const i = lit.indexOf(node.geometry); if (i >= 0) lit.splice(i, 1); });
+    pickables = pickables.filter((mesh) => !old.has(mesh));
+    clearGroup(groups.plant);
+    bandMaterials.clear();
+    plant = buildPlant({ L, terrain, detail: DETAIL, models: modelIds() });
     units = plant.units;
     hallAnchor = plant.hallAnchor;
-    plantMesh = addMesh(groups.plant, plant.opaque.geometry(), M.plant, { owners: plant.opaque.owner });
+    plantMesh = plant.opaque.triangles ? addMesh(groups.plant, plant.opaque.geometry(), M.plant, { owners: plant.opaque.owner }) : null;
     plantOwners = [...new Set(plant.opaque.owner)];
     plantTintKey = '';
-    pickables.push(plantMesh);
+    if (plantMesh) pickables.push(plantMesh);
     if (plant.glass.triangles) addMesh(groups.plant, plant.glass.geometry(), M.glass, { owners: plant.glass.owner });
     if (plant.win.triangles) addMesh(groups.plant, plant.win.machineGeometry(), M.windows);
     if (plant.water.triangles) pickables.push(addMesh(groups.plant, plant.water.geometry(), M.water, { owners: plant.water.owner }));
@@ -350,6 +402,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, toneMapped: false });
       const mesh = new THREE.Mesh(b.machineGeometry(), material);
       mesh.userData.id = band.id;
+      mesh.userData.roof = Boolean(band.roof);
       groups.plant.add(mesh);
       bandMaterials.set(band.id, material);
     }
@@ -375,15 +428,349 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     }
     stockpileMesh = null;
     stockpileLevel = -1;
-    muckKey = '';
-    buildTowers();
-    // The lamps of the site light the ground round them once it is dark.
+    placePlantModels();
+  }
+
+  // The lamps of the site light the ground round them once it is dark.
+  function siteLamps() {
     LIGHT.locals = [
       ...towers.map((t) => ({ x: t.cx - O.x, y: t.cy - O.y, z: t.z - O.z, color: [1.5, 1.22, 0.85], range: 170, core: 70 })),
       ...plant.lamps.map(([x, y, z]) => ({ x: x - O.x, y: y - O.y, z: z - O.z, color: [1.0, 0.82, 0.58], range: 110, core: 50 })),
     ];
     LIGHT.localsVersion += 1;
-    buildHoloLines();
+  }
+
+  // -- the Blender models: loading, materials, plant placements -----------------------------
+
+  const LIFT = 0.3;                 // plant models stand this much over the ground (and over the gravel apron)
+
+  function startModels() {
+    if (libState !== 'idle') return;
+    libState = 'loading';
+    libStarted = performance.now();
+    const ids = [...Object.values(MACHINE_MODELS), ...PLANT_MODELS];
+    if (byKind('clay-plant').length) ids.push('clay_plant');
+    import('./gltf3d.js')
+      .then((module) => { G = module; return G.loadModels(ids); })
+      .then((loaded) => {
+        lib = loaded;
+        if (!Object.keys(lib.models).length) throw new Error('no model could be loaded');
+        createModelMaterials();
+        libState = 'ready';
+        libReadyAt = performance.now();
+        applyModels();
+      })
+      .catch((error) => {
+        libState = 'failed';
+        console.warn(`3D: the Blender models could not be loaded (${error?.message ?? error}); the procedural models stay`);
+      });
+  }
+
+  // A model needed later (the clay-ore plant, when its twins appear).
+  function loadMore(ids) {
+    const wanted = ids.filter((id) => !lib.models[id] && !lib.failed.includes(id) && !lib.pending?.has(id));
+    if (!wanted.length) return;
+    lib.pending = new Set([...(lib.pending ?? []), ...wanted]);
+    G.loadModels(wanted, { library: lib }).then(() => {
+      for (const id of wanted) lib.pending.delete(id);
+      applyModels();
+    }).catch(() => {});
+  }
+
+  function createModelMaterials() {
+    if (MM.plain) return;
+    MM.plain = G.modelMaterial();
+    MM.double = G.modelMaterial({ side: THREE.DoubleSide });
+    for (const [kind, texture] of lib.textures) {
+      MM[kind] = G.modelMaterial({ map: texture });
+      MM[`${kind}|2`] = G.modelMaterial({ map: texture, side: THREE.DoubleSide });
+    }
+    for (const material of Object.values(MM)) shared.add(material);
+    applyModelLight();
+  }
+  const materialOf = (layer) => (layer.texture ? MM[layer.double ? `${layer.texture}|2` : layer.texture] ?? MM.plain : layer.double ? MM.double : MM.plain);
+
+  // The light of the hour on the models: the sky and the ground they reflect, their lamps at night.
+  function applyModelLight() {
+    const p = skyState.colors;
+    for (const material of Object.values(MM)) {
+      const env = material.userData.env;
+      if (!env || !p) continue;
+      env.uEnvSky.value.setRGB(...p.sky);
+      env.uEnvGround.value.setRGB(...p.ground);
+      env.uLamp.value = 0.12 + 1.6 * (p.lamps ?? 0);
+    }
+  }
+
+  // The hologram's glass of a unit of the plant, in the colour of its state.
+  function holoOf(id) {
+    if (soft || !H.plantPlain?.clone) return H.plantPlain;
+    let material = modelHolo.get(id ?? '');
+    if (!material) {
+      material = H.plantPlain.clone();
+      material.userData.needs = H.plantPlain.userData.needs;
+      material.uniforms.uColor.value.set(unitTint(id));
+      modelHolo.set(id ?? '', material);
+      shared.add(material);
+      setFog([material], scene.fog.near, scene.fog.far);
+    }
+    return material;
+  }
+
+  // The models arrived: the plant and the fleet are drawn with them.
+  function applyModels() {
+    if (!terrain || libState !== 'ready') return;
+    buildPlantMeshes();
+    for (const mesh of towerMeshes) dropMesh(groups.pit, mesh);
+    towerMeshes = [];
+    towerModel = null;
+    buildTowers();
+    siteLamps();
+    buildFleet();
+    updateAreas();
+    roadsKey = '';
+    updateRoads();
+    plantTintKey = '';
+    updatePlant();
+    marksKey = '';
+    dirty = true;
+  }
+
+  // The plant's models where buildPlant() left their placements.
+  function placePlantModels() {
+    placed = [];
+    farClusters = [];
+    roofMeshes = [];
+    roofOpen = false;
+    insideKey = '';
+    conveyorModel = null;
+    if (!lib || libState !== 'ready') return;
+    for (const p of plant.placements ?? []) {
+      const model = lib.models[p.model];
+      const rig = model?.lods[0];
+      if (!rig) continue;
+      const base = new THREE.Matrix4().compose(new THREE.Vector3(...L(p.x, p.y, p.z + LIFT)), new THREE.Quaternion().setFromAxisAngle(zAxis, p.angle), new THREE.Vector3(1, 1, 1));
+      const mats = rig.parts.map(() => new THREE.Matrix4());
+      const angles = {};
+      G.poseRig(rig, base, angles, mats);
+      const entry = { placement: p, rig, base, mats, angles, meshes: rig.parts.map(() => []), turning: [], cluster: null };
+      rig.parts.forEach((part, i) => {
+        const owner = p.owners?.[part.name] ?? p.id;
+        for (const layer of part.layers) {
+          const material = materialOf(layer);
+          const mesh = new THREE.Mesh(layer.geometry, material);
+          mesh.matrixAutoUpdate = false;
+          mesh.matrix.copy(mats[i]);
+          mesh.userData.id = owner;
+          mesh.userData.real = material;
+          mesh.userData.holo = part.name === 'water' ? H.water : holoOf(owner);
+          mesh.userData.layer = 4;
+          groups.plant.add(mesh);
+          styleMesh(mesh);
+          if (part.name !== 'water') pickables.push(mesh);
+          entry.meshes[i].push(mesh);
+          if (part.name === 'roof') roofMeshes.push(mesh);
+        }
+        const twinId = p.turning?.[part.name];
+        if (twinId !== undefined && part.axis) entry.turning.push({ index: i, name: part.name, twin: twinId, speed: part.name === 'rake' ? 0.05 : part.name === 'sag_shell' ? 1.0 : 1.4 });
+      });
+      placed.push(entry);
+    }
+    // Their silhouettes for afar, one mesh for each group of models standing together (the
+    // crusher, the clay-ore plant, the rest of the plant), drawn instead of them beyond FAR_PLANT_M.
+    farClusters = [];
+    const byCluster = new Map();
+    for (const entry of placed) {
+      const key = entry.placement.model === 'crusher' ? 'crusher' : entry.placement.model === 'clay_plant' ? 'clay' : 'plant';
+      if (!byCluster.has(key)) byCluster.set(key, []);
+      byCluster.get(key).push(entry);
+    }
+    for (const entries of byCluster.values()) {
+      const b = new Builder();
+      for (const { placement: p } of entries) {
+        const proxy = modelProxy(p.model);
+        if (proxy.triangles) b.append(proxy, p.angle, L(p.x, p.y, p.z + LIFT), p.id);
+        if (!plantOwners.includes(p.id)) plantOwners.push(p.id);
+      }
+      if (!b.triangles) continue;
+      const mesh = addMesh(groups.plant, b.geometry(), M.plant, { owners: b.owner });
+      mesh.visible = false;
+      pickables.push(mesh);
+      const cluster = { mesh, entries, x: entries.reduce((sum, e) => sum + e.placement.x, 0) / entries.length,
+        y: entries.reduce((sum, e) => sum + e.placement.y, 0) / entries.length, z: entries[0].placement.z };
+      for (const entry of entries) entry.cluster = cluster;
+      farClusters.push(cluster);
+    }
+    if (plant.conveyorDeck && lib.models.conveyor) placeConveyor(plant.conveyorDeck, plant.belt?.twin);
+  }
+
+  // Turn the mill shells (while their mill runs) and the thickener rakes.
+  let plantTurning = false;
+  function stepPlantModels(dt) {
+    plantTurning = false;
+    if (!placed.length) return;
+    const paused = feature(first('mine'), 'sim_state') === 'paused';
+    const near = hallAnchor && Math.hypot(camera.position.x + O.x - hallAnchor.x, camera.position.y + O.y - hallAnchor.y) < 2400;
+    for (const entry of placed) {
+      if (!entry.turning.length) continue;
+      let changed = false;
+      for (const t of entry.turning) {
+        const state = feature(twins.get(t.twin), 'state');
+        const running = !paused && !['stopped', 'down', 'idle', 'standby', 'paused'].includes(state);
+        if (!running) continue;
+        if (t.speed > 0.5 && near) plantTurning = true;
+        if (!dt) continue;
+        entry.angles[t.name] = ((entry.angles[t.name] ?? 0) + t.speed * dt) % (Math.PI * 2);
+        changed = true;
+      }
+      if (!changed) continue;
+      G.poseRig(entry.rig, entry.base, entry.angles, entry.mats);
+      for (const t of entry.turning) for (const mesh of entry.meshes[t.index]) mesh.matrix.copy(entry.mats[t.index]);
+    }
+  }
+
+  // The roof of the mill hall lifts off when the camera comes close, to show the mills; the
+  // machinery inside is drawn only when it can be seen (roof off, or through the hologram's glass, not too far).
+  let roofOpen = false;
+  let insideKey = '';
+  const INSIDE = new Set(['sag_mill', 'sag_shell', 'ball_mill_1', 'ball_shell_1', 'ball_mill_2', 'ball_shell_2', 'crane']);
+  // Beyond this a plant model is drawn as its silhouette (modelProxy).
+  const FAR_PLANT_M = 1600;
+  function stepRoof() {
+    if (!placed.length) return;
+    const p = camera.position;
+    const dist = (x, y, z) => Math.hypot(p.x + O.x - x, p.y + O.y - y, p.z + O.z - z);
+    const hallD = hallAnchor ? dist(hallAnchor.x, hallAnchor.y, hallAnchor.z) : Infinity;
+    const open = roofMeshes.length > 0 && hallD < 1100;
+    const inside = open || (holo() && hallD < 2600);
+    for (const cluster of farClusters) cluster.far = dist(cluster.x, cluster.y, cluster.z) > FAR_PLANT_M;
+    const key = `${open}|${inside}|${farClusters.map((cluster) => Number(cluster.far)).join('')}`;
+    if (key === insideKey) return;
+    insideKey = key;
+    roofOpen = open;
+    for (const cluster of farClusters) cluster.mesh.visible = cluster.far;
+    placed.forEach((entry) => {
+      const far = Boolean(entry.cluster?.far);
+      entry.rig.parts.forEach((part, i) => {
+        let visible = !far;
+        if (part.name === 'roof') visible = visible && !open;
+        if (entry.placement.model === 'mill_hall' && INSIDE.has(part.name)) visible = visible && inside;
+        for (const mesh of entry.meshes[i]) mesh.visible = visible;
+      });
+    });
+    for (const mesh of groups.plant.children) if (mesh.userData.roof) mesh.visible = !open;
+  }
+
+  // The floodlight towers: the detailed model near the camera, the simple one afar.
+  let towerModel = null;
+  const NEAR_TOWER_M = 300;
+  function stepTowers(force = false) {
+    const t = towerModel;
+    if (!t) return;
+    if (!force && t.at && t.at.distanceTo(camera.position) < 20) return;
+    (t.at ??= new THREE.Vector3()).copy(camera.position);
+    const cx = camera.position.x + O.x; const cy = camera.position.y + O.y; const cz = camera.position.z + O.z;
+    const near = t.items.map((item) => Math.hypot(item.x - cx, item.y - cy, item.z - cz) < NEAR_TOWER_M);
+    const key = near.map((n) => (n ? 1 : 0)).join('');
+    if (!force && key === t.key) return;
+    t.key = key;
+    t.lods.forEach((meshes, li) => {
+      const take = t.items.filter((_, k) => near[k] === (li === 0) || (t.lods.length === 1));
+      for (const mesh of meshes) {
+        take.forEach((item, n) => mesh.setMatrixAt(n, item.matrix));
+        mesh.count = take.length;
+        mesh.visible = take.length > 0;
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+    });
+  }
+
+  // The conveyor: the 24 m truss segment of the model tiled along the deck,
+  // in detail near the camera, simplified afar, on trestles down to the ground.
+  function placeConveyor(deck, beltTwin) {
+    const model = lib.models.conveyor;
+    const segments = [];
+    let i = 1;
+    const total = deck[deck.length - 1][4];
+    const pointAt = (s) => {
+      while (i < deck.length - 1 && deck[i][4] < s) i += 1;
+      while (i > 1 && deck[i - 1][4] > s) i -= 1;
+      const a = deck[i - 1]; const b = deck[i];
+      const f = clamp((s - a[4]) / Math.max(1e-6, b[4] - a[4]), 0, 1);
+      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f];
+    };
+    for (let s = 0; s < total - 1; s += 24) {
+      const p = pointAt(s);
+      const q = pointAt(Math.min(total, s + 24));
+      const dx = q[0] - p[0]; const dy = q[1] - p[1]; const dz = q[2] - p[2];
+      const run = Math.hypot(dx, dy);
+      if (run < 0.5) continue;
+      const yaw = Math.atan2(dy, dx) - Math.PI / 2;
+      const pitch = Math.atan2(dz, run);
+      const length = Math.hypot(run, dz);
+      const origin = new THREE.Vector3(...L(p[0], p[1], p[2] - 0.6));
+      const rotation = new THREE.Quaternion().setFromAxisAngle(zAxis, yaw).multiply(new THREE.Quaternion().setFromAxisAngle(xAxis, pitch));
+      const truss = new THREE.Matrix4().compose(origin, rotation, new THREE.Vector3(1, length / 24, 1));
+      const h = p[2] - 0.6 - heightAt(p[0], p[1]);
+      const trestle = h > 1.2 ? new THREE.Matrix4().compose(origin, new THREE.Quaternion().setFromAxisAngle(zAxis, yaw), new THREE.Vector3(1, 1, h)) : null;
+      segments.push({ x: p[0], y: p[1], z: p[2], truss, trestle });
+    }
+    const lods = model.lods.map((rig) => {
+      const parts = {};
+      for (const part of rig.parts) {
+        parts[part.name] = part.layers.map((layer) => {
+          const mesh = new THREE.InstancedMesh(layer.geometry, materialOf(layer), Math.max(1, segments.length));
+          mesh.count = 0;
+          mesh.frustumCulled = false;
+          mesh.userData.layer = 4;
+          mesh.userData.real = mesh.material;
+          mesh.userData.holo = part.name === 'ore' ? H.hidden : holoOf(beltTwin?.thingId);
+          groups.plant.add(mesh);
+          styleMesh(mesh);
+          return mesh;
+        });
+      }
+      return { rig, parts };
+    });
+    conveyorModel = { segments, lods, key: '', twin: beltTwin };
+    stepConveyor(true);
+    insideKey = '';
+  }
+
+  // Which segments are drawn in detail: those near the camera (again when the camera has moved).
+  const NEAR_BELT_M = 260;
+  function stepConveyor(force = false) {
+    const c = conveyorModel;
+    if (!c) return;
+    const running = feature(c.twin, 'load_tph') > 0 && feature(c.twin, 'state') !== 'stopped';
+    // Again only when the camera has moved some way, or the belt started or stopped.
+    if (!force && c.at && c.at.distanceTo(camera.position) < 20 && c.running === running) return;
+    (c.at ??= new THREE.Vector3()).copy(camera.position);
+    c.running = running;
+    const cx = camera.position.x + O.x; const cy = camera.position.y + O.y; const cz = camera.position.z + O.z;
+    const near = c.segments.map((s) => Math.hypot(s.x - cx, s.y - cy, s.z - cz) < NEAR_BELT_M);
+    const key = `${near.map((n) => (n ? 1 : 0)).join('')}|${running}|${style}`;
+    if (!force && key === c.key) return;
+    c.key = key;
+    c.lods.forEach((lod, li) => {
+      const take = c.segments.filter((_, k) => near[k] === (li === 0));
+      for (const [name, meshes] of Object.entries(lod.parts)) {
+        for (const mesh of meshes) {
+          let n = 0;
+          for (const s of take) {
+            const m = name === 'trestle' ? s.trestle : s.truss;
+            if (!m) continue;
+            mesh.setMatrixAt(n, m);
+            n += 1;
+          }
+          mesh.count = name === 'ore' && (!running || holo()) ? 0 : n;
+          mesh.visible = mesh.count > 0;
+          mesh.instanceMatrix.needsUpdate = true;
+        }
+      }
+    });
+    // The ore stripe of the procedural belt is the hologram's lit lane; the model's ore stands for it in the realistic look.
+    if (beltMesh) beltMesh.visible = holo();
   }
 
   // The hologram's glowing lines: the crest and the toe of every bench (the
@@ -409,11 +796,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       for (const z of worked()) workedZ.add(z);
       contours = contourLines(terrain.pit, terrain.pitZs, L, (z) => [...workedZ].some((w) => Math.abs(w - z) < 1.5));
       groups.holo.add(contours);
+      if (soft) contours.material.color.set(HOLO.crest);      // the 2D stand-in draws a line in one colour
     }
     const roads = [...roadMeshes.entries()].map(([id, mesh]) => ({ id, points: mesh.userData.points, width: mesh.userData.width }));
     if (roads.length) {
       lanes = laneLines(roads, L);
       groups.holo.add(lanes);
+      if (soft) lanes.material.color.set(HOLO.lane);
     }
     groups.holo.visible = holo();
   }
@@ -442,6 +831,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   // and a frame of four lamps (lit at night).
   function buildTowers() {
     towers = [];
+    towerMeshes = [];
     const spots = [];
     const pitModel = terrain?.pit;
     const free = (x, y) => spots.every((p) => Math.hypot(p[0] - x, p[1] - y) > 140);
@@ -500,6 +890,33 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (free(px, py)) spots.push([px, py, top?.z ?? heightAt(px, py)]);
     }
     if (!spots.length) return;
+    const tower = libState === 'ready' ? lib?.models.floodlight : null;
+    towerModel = null;
+    if (tower) {
+      // The Blender tower (it faces local +y): one instanced mesh per part and level of detail
+      // for all of them, the detailed one for the towers near the camera.
+      const items = spots.map(([x, y, z]) => {
+        const toward = pitCentre() ? Math.atan2(pitCentre().y - y, pitCentre().x - x) : 0;
+        towers.push({ x: x + Math.cos(toward) * 1.2, y: y + Math.sin(toward) * 1.2, z: z + 9.5, cx: x + Math.cos(toward) * 6, cy: y + Math.sin(toward) * 6 });
+        return { x, y, z, matrix: new THREE.Matrix4().compose(new THREE.Vector3(...L(x, y, z + 0.1)), new THREE.Quaternion().setFromAxisAngle(zAxis, toward - Math.PI / 2), new THREE.Vector3(1, 1, 1)) };
+      });
+      const lods = tower.lods.map((rig) => rig.parts.flatMap((part) => part.layers.map((layer) => {
+        const lamp = part.name === 'lamps';
+        const mesh = new THREE.InstancedMesh(layer.geometry, lamp ? M.windows : materialOf(layer), items.length);
+        mesh.count = 0;
+        mesh.frustumCulled = false;
+        mesh.userData.layer = 4;
+        mesh.userData.real = mesh.material;
+        mesh.userData.holo = lamp ? H.hidden : H.plantPlain;
+        groups.pit.add(mesh);
+        styleMesh(mesh);
+        towerMeshes.push(mesh);
+        return mesh;
+      })));
+      towerModel = { items, lods, key: '' };
+      stepTowers(true);
+      return;
+    }
     const b = new Builder();
     const lamps = new Builder();
     const MAST = 13;
@@ -520,8 +937,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       lamps.append(tl, toward, L(x, y, z));
       towers.push({ x: x + Math.cos(toward) * 0.9, y: y + Math.sin(toward) * 0.9, z: z + MAST + 0.6, cx: x + Math.cos(toward) * 6, cy: y + Math.sin(toward) * 6 });
     }
-    addMesh(groups.pit, b.geometry(), M.plant);
-    addMesh(groups.pit, lamps.machineGeometry(), M.windows);
+    towerMeshes = [addMesh(groups.pit, b.geometry(), M.plant), addMesh(groups.pit, lamps.machineGeometry(), M.windows)];
   }
 
   // The stockpile and the ROM pads: rebuilt when their level has changed by a step.
@@ -617,24 +1033,30 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   let plantTintKey = '';
   function updatePlant() {
     for (const [id, material] of bandMaterials) material.color.set(stateColor(feature(twins.get(id), 'state') ?? 'running'));
-    // The hologram of each unit takes the colour of its state.
-    const attribute = plantMesh?.geometry.attributes.tint;
-    if (!holo() || !attribute) return;
+    // The hologram of each unit takes the colour of its state (the plant's merged meshes per
+    // triangle, the models by their own glass).
+    for (const [id, material] of modelHolo) material.uniforms.uColor.value.set(unitTint(id || null));
+    if (!holo()) return;
+    const meshes = [plantMesh, ...farClusters.map((cluster) => cluster.mesh)].filter((mesh) => mesh?.geometry.attributes.tint);
+    if (!meshes.length) return;
     const colourOf = new Map(plantOwners.map((id) => [id, unitTint(id)]));
-    const key = [...colourOf.values()].join('|');
+    const key = [...colourOf.values()].join('|') + meshes.length;
     if (key === plantTintKey) return;
     plantTintKey = key;
-    const owners = plantMesh.userData.owners;
-    const array = attribute.array;
     const c = new THREE.Color();
-    for (let t = 0; t < owners.length; t += 1) {
-      c.set(colourOf.get(owners[t]));
-      for (let v = 0; v < 3; v += 1) {
-        const o = (t * 3 + v) * 3;
-        array[o] = c.r; array[o + 1] = c.g; array[o + 2] = c.b;
+    for (const mesh of meshes) {
+      const owners = mesh.userData.owners;
+      const attribute = mesh.geometry.attributes.tint;
+      const array = attribute.array;
+      for (let t = 0; t < owners.length; t += 1) {
+        c.set(colourOf.get(owners[t]) ?? unitTint(owners[t]));
+        for (let v = 0; v < 3; v += 1) {
+          const o = (t * 3 + v) * 3;
+          array[o] = c.r; array[o + 1] = c.g; array[o + 2] = c.b;
+        }
       }
+      attribute.needsUpdate = true;
     }
-    attribute.needsUpdate = true;
   }
   function unitTint(id) {
     if (!id) return HOLO.glass;
@@ -665,7 +1087,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       mesh.userData.real.color.copy(roadTint(segment));
       const lane = mesh.userData.holo;
       const status = feature(segment, 'status');
-      const tint = status === 'closed' ? [1.9, 0.55, 0.6] : status === 'restricted' ? [1.5, 1.1, 0.6] : [1, 1, 1];
+      const tint = status === 'closed' ? [1.6, 0.6, 0.65] : status === 'restricted' ? [1.15, 1.0, 0.82] : [1, 1, 1];
       if (lane?.uniforms) lane.uniforms.uTint.value.setRGB(...tint);
       else if (lane?.color) lane.color.setRGB(...tint);
     }
@@ -852,12 +1274,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
 
   // -- machines --------------------------------------------------------------------------
 
-  function instanced(geometry, count, material = M.machine, layerIndex = 4) {
+  function instanced(geometry, count, material = M.machine, layerIndex = 4, holoMaterial = null) {
     const mesh = new THREE.InstancedMesh(geometry, material, Math.max(1, count));
     mesh.count = count;
     mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.userData.layer = layerIndex;
+    if (holoMaterial) mesh.userData.holo = holoMaterial;
     scene.add(mesh);
     styleMesh(mesh);
     return mesh;
@@ -872,7 +1295,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     if (tone === 'warn' || affected.has(id)) return HOLO.amber;
     return tone === 'dim' ? HOLO.dim : HOLO.glass;
   }
-  const LOAD_TINT = { ore: HOLO.load, 'low-grade': '#7fdcff', waste: '#86aab5' };
+  const LOAD_TINT = { ore: HOLO.load, clay: '#e9dcae', 'low-grade': '#7fdcff', waste: '#86aab5' };
   function whiteFleet() {
     for (const mesh of Object.values(fleet)) {
       if (!mesh.instanceColor || mesh === fleet.halo) continue;
@@ -881,10 +1304,47 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     }
   }
 
+  // The machines drawn with the Blender models, by kind: {rigs: [LOD0, LOD1],
+  // meshes[lod][part] = [instanced mesh per layer], mats[lod][part], used[lod]}.
+  const gf = { truck: null, loader: null, 'drill-rig': null };
+  function buildModelKind(kind, count) {
+    const model = libState === 'ready' ? lib?.models[MACHINE_MODELS[kind]] : null;
+    if (!model || !model.lods[0]) return null;
+    const rigs = [model.lods[0], model.lods[1] ?? model.lods[0]];
+    const meshes = rigs.map((rig, li) => rig.parts.map((part) => part.layers.map((layer, k) => {
+      const mesh = instanced(layer.geometry, count, materialOf(layer), 4, part.name === 'load' ? H.load : H.machine);
+      mesh.userData.real = mesh.material;
+      styleMesh(mesh);
+      fleet[`${kind}:${li}:${part.name}:${k}`] = mesh;
+      return mesh;
+    })));
+    return { rigs, meshes, mats: rigs.map((rig) => rig.parts.map(() => new THREE.Matrix4())), used: [0, 0],
+      load: rigs.map((rig) => rig.byName.get('load') ?? -1) };
+  }
+
+  // One machine of a kind drawn with its model: its parts posed, its tint (hologram), its load.
+  function drawModel(entry, close, frame, angles, tint, loadColor) {
+    const li = close ? 0 : 1;
+    const rig = entry.rigs[li];
+    const j = entry.used[li]++;
+    G.poseRig(rig, frame, angles, entry.mats[li]);
+    const loadIndex = entry.load[li];
+    const parts = entry.meshes[li];
+    for (let i = 0; i < parts.length; i += 1) {
+      const isLoad = i === loadIndex;
+      const matrix = isLoad && !loadColor ? HIDE : entry.mats[li][i];
+      for (const mesh of parts[i]) {
+        mesh.setMatrixAt(j, matrix);
+        if (isLoad && loadColor) mesh.setColorAt(j, tmpColor.set(loadColor));
+        else if (tint) mesh.setColorAt(j, tmpColor.set(tint));
+      }
+    }
+  }
+
   function buildFleet() {
     for (const mesh of Object.values(fleet)) {
       scene.remove(mesh);
-      mesh.geometry.dispose();
+      if (!mesh.geometry.userData?.keep) mesh.geometry.dispose();
     }
     for (const key of Object.keys(fleet)) delete fleet[key];
     fleetIds.truck = byKind('truck').map((twin) => twin.thingId);
@@ -901,27 +1361,43 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     // filled every frame with the machines it draws.
     const lit = !soft;
     const near = soft ? 'simple' : 'near';
-    const truck = truckParts({ lod: near, lit });
-    fleet.truckFrame = instanced(truck.frame, nt);
-    fleet.truckBody = instanced(truck.body, nt);
-    fleet.truckLoad = instanced(truck.load, nt, M.load);
-    const shovel = shovelParts({ lod: near, lit });
-    fleet.loaderBase = instanced(shovel.base, nl);
-    fleet.loaderUpper = instanced(shovel.upper, nl);
-    const drill = drillParts({ lod: near, lit });
-    fleet.rigBase = instanced(drill.base, nd);
-    fleet.rigMast = instanced(drill.mast, nd);
+    // The Blender models where they are loaded, the procedural ones otherwise.
+    gf.truck = buildModelKind('truck', nt);
+    gf.loader = buildModelKind('loader', nl);
+    gf['drill-rig'] = buildModelKind('drill-rig', nd);
+    if (!gf.truck) {
+      const truck = truckParts({ lod: near, lit });
+      fleet.truckFrame = instanced(truck.frame, nt);
+      fleet.truckBody = instanced(truck.body, nt);
+      fleet.truckLoad = instanced(truck.load, nt, M.load);
+    }
+    if (!gf.loader) {
+      const shovel = shovelParts({ lod: near, lit });
+      fleet.loaderBase = instanced(shovel.base, nl);
+      fleet.loaderUpper = instanced(shovel.upper, nl);
+    }
+    if (!gf['drill-rig']) {
+      const drill = drillParts({ lod: near, lit });
+      fleet.rigBase = instanced(drill.base, nd);
+      fleet.rigMast = instanced(drill.mast, nd);
+    }
     if (!soft) {
-      const truckFar = truckParts({ lod: 'far', lit });
-      fleet.truckFarFrame = instanced(truckFar.frame, nt);
-      fleet.truckFarBody = instanced(truckFar.body, nt);
-      fleet.truckFarLoad = instanced(truckFar.load, nt, M.load);
-      const shovelFar = shovelParts({ lod: 'far', lit });
-      fleet.loaderFarBase = instanced(shovelFar.base, nl);
-      fleet.loaderFarUpper = instanced(shovelFar.upper, nl);
-      const drillFar = drillParts({ lod: 'far', lit });
-      fleet.rigFarBase = instanced(drillFar.base, nd);
-      fleet.rigFarMast = instanced(drillFar.mast, nd);
+      if (!gf.truck) {
+        const truckFar = truckParts({ lod: 'far', lit });
+        fleet.truckFarFrame = instanced(truckFar.frame, nt);
+        fleet.truckFarBody = instanced(truckFar.body, nt);
+        fleet.truckFarLoad = instanced(truckFar.load, nt, M.load);
+      }
+      if (!gf.loader) {
+        const shovelFar = shovelParts({ lod: 'far', lit });
+        fleet.loaderFarBase = instanced(shovelFar.base, nl);
+        fleet.loaderFarUpper = instanced(shovelFar.upper, nl);
+      }
+      if (!gf['drill-rig']) {
+        const drillFar = drillParts({ lod: 'far', lit });
+        fleet.rigFarBase = instanced(drillFar.base, nd);
+        fleet.rigFarMast = instanced(drillFar.mast, nd);
+      }
     }
     lodTriangles = {};
     for (const [name, mesh] of Object.entries(fleet)) lodTriangles[name] = trianglesOf(mesh.geometry);
@@ -1003,6 +1479,32 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   const tiltM = new THREE.Matrix4();
   const poolScale = new THREE.Vector3();
 
+  // The front of the shovel through one pass (phase 0..1): crowd into the face
+  // and curl the full bucket, raise it and swing (the upper slews to the truck
+  // meanwhile), open the bucket over the body, lower it swinging back. Angles
+  // about each pin (models.json: boom, stick and bucket up with +).
+  const SHOVEL_REST = { boom: -0.3, stick: 0.6, bucket: -0.2 };
+  const DIG_KEYS = [
+    [0.0, { boom: -0.32, stick: -0.2, bucket: -0.5 }],
+    [0.22, { boom: -0.05, stick: 0.6, bucket: 0.45 }],
+    [0.35, { boom: 0.3, stick: 0.75, bucket: 0.55 }],
+    [0.52, { boom: 0.33, stick: 0.85, bucket: 0.5 }],
+    [0.62, { boom: 0.33, stick: 0.85, bucket: -0.75 }],
+    [0.8, { boom: 0.3, stick: 0.75, bucket: -0.6 }],
+    [1.0, { boom: -0.32, stick: -0.2, bucket: -0.5 }],
+  ];
+  const digPoseOut = { boom: 0, stick: 0, bucket: 0 };
+  function digPose(phase) {
+    let i = 1;
+    while (i < DIG_KEYS.length - 1 && phase > DIG_KEYS[i][0]) i += 1;
+    const [t0, a] = DIG_KEYS[i - 1];
+    const [t1, b] = DIG_KEYS[i];
+    const f = clamp((phase - t0) / (t1 - t0), 0, 1);
+    const e = f * f * (3 - 2 * f);
+    for (const key of ['boom', 'stick', 'bucket']) digPoseOut[key] = a[key] + (b[key] - a[key]) * e;
+    return digPoseOut;
+  }
+
   function updateFleet(now, dt) {
     if (!fleet.blob) return false;      // the twins are not loaded yet
     const k = equipmentScale();
@@ -1020,6 +1522,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     // Level of detail of each machine by its own distance from the camera.
     const near = (x, y, z) => soft || Math.hypot(x - O.x - camera.position.x, y - O.y - camera.position.y, z - O.z - camera.position.z) < NEAR_M;
     const used = { truck: 0, truckFar: 0, load: 0, loadFar: 0, loader: 0, loaderFar: 0, rig: 0, rigFar: 0 };
+    // The trucks queued at the crusher's model (reported at its access node): they wait in a line.
+    const bays0 = gf.truck ? plant?.crusherBays : null;
+    const crusherQueue = !bays0 ? [] : fleetIds.truck.filter((tid) => {
+      const t = twins.get(tid);
+      const px = feature(t, 'pos_x'); const py = feature(t, 'pos_y');
+      return feature(t, 'state') === 'queue_dump' && typeof px === 'number' && Math.hypot(px - bays0[0].x, py - bays0[0].y) < 90;
+    });
     fleetIds.truck.forEach((id) => {
       const twin = twins.get(id);
       const track = motion.shown(id, now);
@@ -1044,6 +1553,29 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         at.heading = -shovelAt.angle;
         at.at = null;
       }
+      // Tipping at the crusher's model: backed into one of its two bays, the tail over the hopper.
+      const bays = gf.truck && state === 'dumping' ? plant?.crusherBays : null;
+      if (bays) {
+        const bay = bays.reduce((best, b) => (Math.hypot(b.x - at.x, b.y - at.y) < Math.hypot(best.x - at.x, best.y - at.y) ? b : best), bays[0]);
+        if (Math.hypot(bay.x - at.x, bay.y - at.y) < 70) {
+          const taken = [...shown.entries()].some(([other, s]) => other !== id && s.bay === bay);
+          const use = taken ? bays.find((b) => b !== bay) ?? bay : bay;
+          at.x = use.x; at.y = use.y;
+          at.heading = -(use.angle + Math.PI / 2);
+          at.at = null;
+          at.bay = use;
+        }
+      }
+      // Waiting to tip there: in a line on the road in front of the bays.
+      const place = crusherQueue.indexOf(id);
+      if (place >= 0 && state === 'queue_dump') {
+        const [b0, b1] = plant.crusherBays;
+        const d = 17 + 13 * place;
+        at.x = (b0.x + b1.x) / 2 - Math.cos(b0.angle) * d;
+        at.y = (b0.y + b1.y) / 2 - Math.sin(b0.angle) * d;
+        at.heading = -(b0.angle + Math.PI / 2);
+        at.at = null;
+      }
       const z = truckZ(at.x, at.y, at.at);
       const k = scaleAt(at.x, at.y, z);
       const angle = -at.heading;
@@ -1052,24 +1584,41 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const behind = truckZ(at.x - fx * 5, at.y - fy * 5, at.at);
       const pitch = clamp(Math.atan2(ahead - behind, 10), -0.2, 0.2);
       let a = anim.get(id);
-      if (!a) { a = { tilt: 0, moving: false }; anim.set(id, a); }
-      const wantTilt = state === 'dumping' ? 0.9 : 0;
+      if (!a) { a = { tilt: 0, roll: 0, moving: false }; anim.set(id, a); }
+      const wantTilt = state === 'dumping' ? (gf.truck ? 0.79 : 0.9) : 0;
       if (Math.abs(a.tilt - wantTilt) > 0.001) {
         a.tilt += Math.sign(wantTilt - a.tilt) * Math.min(Math.abs(wantTilt - a.tilt), dt * (wantTilt ? 0.9 : 1.4));
         a.moving = true;
       } else a.moving = false;
       const close = near(at.x, at.y, z);
       base(at.x, at.y, z, angle, pitch, k, frameM);
+      const tint = hologram ? machineTint(id, state) : null;
+      // The wheels roll with the way the truck went since the last frame (a jump is not rolled).
+      if (a.lastX !== undefined) {
+        const step = Math.hypot(at.x - a.lastX, at.y - a.lastY);
+        if (step < 25 * k) a.roll = (a.roll - step / (1.47 * k)) % (Math.PI * 2);
+      }
+      a.lastX = at.x; a.lastY = at.y;
+      if (gf.truck) {
+        const material = feature(twin, 'material');
+        const loaded = feature(twin, 'payload_t') > 1 && a.tilt < 0.45;
+        const loadColor = !loaded ? null : hologram ? (LOAD_TINT[material] ?? HOLO.load) : material === 'waste' ? '#c4c8cc' : material === 'low-grade' ? '#efe2d2' : material === 'clay' ? '#f4e2c4' : '#ffffff';
+        const r = a.roll;
+        a.angles = { body: a.tilt, wheel_FL: r, wheel_FR: r, wheel_RL: r, wheel_RR: r };
+        drawModel(gf.truck, close, frameM, a.angles, tint, loadColor);
+        (a.frame ??= new THREE.Matrix4()).copy(frameM);
+        a.lod = close ? 0 : 1;
+        if (tint) poolsAt.push([at.x, at.y, z, 15 * k, 15 * k, angle, 0, id === selectedId ? 0.3 : 0.42, tint]);
+      } else {
       hinged(frameM, TRUCK.hinge, a.tilt, bodyM);
       const j = close ? used.truck++ : used.truckFar++;
       (close ? fleet.truckFrame : fleet.truckFarFrame).setMatrixAt(j, frameM);
       (close ? fleet.truckBody : fleet.truckFarBody).setMatrixAt(j, bodyM);
-      const tint = hologram ? machineTint(id, state) : null;
       if (tint) {
         tmpColor.set(tint);
         (close ? fleet.truckFrame : fleet.truckFarFrame).setColorAt(j, tmpColor);
         (close ? fleet.truckBody : fleet.truckFarBody).setColorAt(j, tmpColor);
-        poolsAt.push([at.x, at.y, z, 15 * k, 15 * k, angle, 0, 0.6, tint]);
+        poolsAt.push([at.x, at.y, z, 15 * k, 15 * k, angle, 0, id === selectedId ? 0.3 : 0.42, tint]);
       }
       if (feature(twin, 'payload_t') > 1 && a.tilt < 0.45) {
         const loadMesh = close ? fleet.truckLoad : fleet.truckFarLoad;
@@ -1077,11 +1626,12 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         loadMesh.setMatrixAt(l, bodyM);
         const material = feature(twin, 'material');
         if (hologram) loadMesh.setColorAt(l, tmpColor.set(LOAD_TINT[material] ?? HOLO.load));
-        else loadMesh.setColorAt(l, tmpColor.set(material === 'waste' ? '#8f897f' : material === 'low-grade' ? '#8d735c' : '#8a6146'));
+        else loadMesh.setColorAt(l, tmpColor.set(material === 'waste' ? '#8f897f' : material === 'low-grade' ? '#8d735c' : material === 'clay' ? '#a8906c' : '#8a6146'));
+      }
       }
       markers(slot, id, at.x, at.y, z, TRUCK.radius * k * 0.8, angle, tint ?? truckColor(state));
       if (glows && tint && !close) glows.add(...L(at.x, at.y, z + 4 * k), 7 * k, tmpColor.set(tint).toArray());
-      shown.set(id, { x: at.x, y: at.y, z, r: 6 * k, top: z + 6.2 * k });
+      shown.set(id, { x: at.x, y: at.y, z, r: 6 * k, top: z + 6.2 * k, bay: at.bay ?? null });
       const speed = feature(twin, 'speed_kmh') ?? 0;
       if (dust && at.moving && speed > 4 && !paused && weather?.kind === 'dry' && dt > 0 && (!hologram || close)) {
         a.dustDue = (a.dustDue ?? 0) - dt;
@@ -1122,11 +1672,12 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (!a) { a = { slew: at.angle, moving: false }; anim.set(id, a); }
       let want = at.angle;
       const truck = shown.get(feature(twin, 'truck'));
+      let phase = -1;
       if (state === 'loading' && truck && !paused) {
         // Dig at the face, swing to the truck, dump, swing back.
         const toTruck = Math.atan2(-(truck.x - at.x), truck.y - at.y);
         const period = clamp(passS / speedup, 3, 9) * 1000;
-        const phase = (now % period) / period;
+        phase = (now % period) / period;
         const swing = phase < 0.35 ? 0 : phase < 0.5 ? (phase - 0.35) / 0.15 : phase < 0.75 ? 1 : 1 - (phase - 0.75) / 0.25;
         const e = swing * swing * (3 - 2 * swing);
         let d = toTruck - at.angle;
@@ -1141,15 +1692,34 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       }
       a.slew = want;
       const close = near(at.x, at.y, at.z);
-      const j = close ? used.loader++ : used.loaderFar++;
-      (close ? fleet.loaderBase : fleet.loaderFarBase).setMatrixAt(j, base(at.x, at.y, at.z, at.angle, 0, k, m4));
-      (close ? fleet.loaderUpper : fleet.loaderFarUpper).setMatrixAt(j, base(at.x, at.y, at.z, a.slew, 0, k, m4));
       const tint = hologram ? machineTint(id, state) : null;
+      if (gf.loader) {
+        // The front: boom, stick and bucket through the pass (dig, swing loaded, dump, swing back), at rest otherwise.
+        const goal = phase >= 0 ? digPose(phase) : SHOVEL_REST;
+        for (const key of ['boom', 'stick', 'bucket']) {
+          const value = a[key] ?? goal[key];
+          a[key] = phase >= 0 ? goal[key] : value + Math.sign(goal[key] - value) * Math.min(Math.abs(goal[key] - value), dt * 0.5);
+          if (Math.abs(a[key] - goal[key]) > 0.002) a.moving = true;
+        }
+        let rel = a.slew - at.angle;
+        rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+        a.angles = { upper: rel, boom: a.boom, stick: a.stick, bucket: a.bucket };
+        base(at.x, at.y, at.z, at.angle, 0, k, frameM);
+        drawModel(gf.loader, close, frameM, a.angles, tint, null);
+        (a.frame ??= new THREE.Matrix4()).copy(frameM);
+        a.lod = close ? 0 : 1;
+      } else {
+        const j = close ? used.loader++ : used.loaderFar++;
+        (close ? fleet.loaderBase : fleet.loaderFarBase).setMatrixAt(j, base(at.x, at.y, at.z, at.angle, 0, k, m4));
+        (close ? fleet.loaderUpper : fleet.loaderFarUpper).setMatrixAt(j, base(at.x, at.y, at.z, a.slew, 0, k, m4));
+        if (tint) {
+          tmpColor.set(tint);
+          (close ? fleet.loaderBase : fleet.loaderFarBase).setColorAt(j, tmpColor);
+          (close ? fleet.loaderUpper : fleet.loaderFarUpper).setColorAt(j, tmpColor);
+        }
+      }
       if (tint) {
-        tmpColor.set(tint);
-        (close ? fleet.loaderBase : fleet.loaderFarBase).setColorAt(j, tmpColor);
-        (close ? fleet.loaderUpper : fleet.loaderFarUpper).setColorAt(j, tmpColor);
-        poolsAt.push([at.x, at.y, at.z, 24 * k, 24 * k, 0, 0, 0.7, tint]);
+        poolsAt.push([at.x, at.y, at.z, 24 * k, 24 * k, 0, 0, id === selectedId ? 0.35 : 0.55, tint]);
       }
       markers(slot, id, at.x, at.y, at.z, 9 * k, at.angle, tint ?? stateColor(state));
       if (glows && tint && !close) glows.add(...L(at.x, at.y, at.z + 8 * k), 11 * k, tmpColor.set(tint).toArray());
@@ -1174,28 +1744,38 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const k = scaleAt(at.x, at.y, at.z);
       let a = anim.get(id);
       const up = state === 'drilling' || state === 'positioning';
-      const want = up ? 0 : -1.45;
+      // The model's mast lowers backwards onto its rest (+1.55 rad, models.json); the procedural one the other way.
+      const want = up ? 0 : gf['drill-rig'] ? 1.55 : -1.45;
       if (!a) { a = { mast: want, moving: false }; anim.set(id, a); }
       if (Math.abs(a.mast - want) > 0.001) {
         a.mast += Math.sign(want - a.mast) * Math.min(Math.abs(want - a.mast), dt * 0.6);
         a.moving = true;
       } else a.moving = false;
       const close = near(at.x, at.y, at.z);
-      const j = close ? used.rig++ : used.rigFar++;
       base(at.x, at.y, at.z, at.angle, 0, k, frameM);
-      (close ? fleet.rigBase : fleet.rigFarBase).setMatrixAt(j, frameM);
-      mastM.multiplyMatrices(frameM, pivotM.makeTranslation(...DRILL.pivot)).multiply(tiltM.makeRotationX(a.mast));
-      (close ? fleet.rigMast : fleet.rigFarMast).setMatrixAt(j, mastM);
       const tint = hologram ? machineTint(id, state) : null;
+      if (gf['drill-rig']) {
+        a.angles = { mast: a.mast };
+        drawModel(gf['drill-rig'], close, frameM, a.angles, tint, null);
+        (a.frame ??= new THREE.Matrix4()).copy(frameM);
+        a.lod = close ? 0 : 1;
+      } else {
+        const j = close ? used.rig++ : used.rigFar++;
+        (close ? fleet.rigBase : fleet.rigFarBase).setMatrixAt(j, frameM);
+        mastM.multiplyMatrices(frameM, pivotM.makeTranslation(...DRILL.pivot)).multiply(tiltM.makeRotationX(a.mast));
+        (close ? fleet.rigMast : fleet.rigFarMast).setMatrixAt(j, mastM);
+        if (tint) {
+          tmpColor.set(tint);
+          (close ? fleet.rigBase : fleet.rigFarBase).setColorAt(j, tmpColor);
+          (close ? fleet.rigMast : fleet.rigFarMast).setColorAt(j, tmpColor);
+        }
+      }
       if (tint) {
-        tmpColor.set(tint);
-        (close ? fleet.rigBase : fleet.rigFarBase).setColorAt(j, tmpColor);
-        (close ? fleet.rigMast : fleet.rigFarMast).setColorAt(j, tmpColor);
-        poolsAt.push([at.x, at.y, at.z, 17 * k, 17 * k, 0, 0, 0.6, tint]);
+        poolsAt.push([at.x, at.y, at.z, 17 * k, 17 * k, 0, 0, id === selectedId ? 0.3 : 0.45, tint]);
       }
       markers(slot, id, at.x, at.y, at.z, 7 * k, at.angle, tint ?? stateColor(state));
       if (glows && tint && !close) glows.add(...L(at.x, at.y, at.z + 6 * k), 8 * k, tmpColor.set(tint).toArray());
-      shown.set(id, { x: at.x, y: at.y, z: at.z, r: 7 * k, top: at.z + (up ? DRILL.height : 6) * k });
+      shown.set(id, { x: at.x, y: at.y, z: at.z, r: 7 * k, top: at.z + (up ? (gf['drill-rig'] ? 23.5 : DRILL.height) : 6) * k });
       if (night > 0.05) poolsAt.push([at.x, at.y, at.z, 20 * k, 20 * k, 0, 0, 0.8]);
       if (glows && night > 0.05) glows.add(...L(at.x, at.y, at.z + 6 * k), 3 * k, [1.0, 0.9, 0.7]);
       if (beacons && state === 'down') beacons.add(...L(at.x, at.y, at.z + 8 * k), 4 * k, [1, 0.15, 0.1]);
@@ -1203,8 +1783,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     const counts = { truckFrame: used.truck, truckBody: used.truck, truckLoad: used.load, truckFarFrame: used.truckFar, truckFarBody: used.truckFar, truckFarLoad: used.loadFar,
       loaderBase: used.loader, loaderUpper: used.loader, loaderFarBase: used.loaderFar, loaderFarUpper: used.loaderFar,
       rigBase: used.rig, rigMast: used.rig, rigFarBase: used.rigFar, rigFarMast: used.rigFar };
+    for (const entry of Object.values(gf)) {
+      if (!entry) continue;
+      entry.meshes.forEach((parts, li) => { for (const meshes of parts) for (const mesh of meshes) { mesh.count = entry.used[li]; mesh.visible = mesh.count > 0; } });
+      entry.used[0] = 0; entry.used[1] = 0;
+    }
     for (const [name, mesh] of Object.entries(fleet)) {
-      if (name in counts) mesh.count = counts[name];
+      if (name in counts) { mesh.count = counts[name]; mesh.visible = mesh.count > 0; }
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
@@ -1225,7 +1810,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
           const kind = kindOf(twins.get(id));
           if (kind === 'conveyor' || kind === 'mill') continue;
           const r = Math.min(70, (unit.r ?? 20) * 1.5);
-          poolsAt.push([unit.at.x, unit.at.y, unit.base ?? heightAt(unit.at.x, unit.at.y), r, r, 0, 0, 0.5, unitTint(id)]);
+          poolsAt.push([unit.at.x, unit.at.y, unit.base ?? heightAt(unit.at.x, unit.at.y), r, r, 0, 0, 0.32, unitTint(id)]);
         }
       }
       pools.count = Math.min(poolsAt.length, POOLS);
@@ -1349,7 +1934,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         // A thin ring for related machines; for a scenario only while it touches a few of them.
         if (type === 'scenario' && [...affected.keys()].filter((key) => machines.has(key)).length > 6) continue;
         const ring = ringMesh(color, 0.35 + 0.4 * strength);
-        followers.push({ mesh: ring, id, grow: id === selectedId ? 1.5 : 1.15 });
+        followers.push({ mesh: ring, id, grow: id === selectedId ? 1.3 : 1.15 });
         groups.marks.add(ring);
         if (hologram && type !== 'link') pulse(ring, id === selectedId ? 1 : 0.7);
         continue;
@@ -1373,7 +1958,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         const lineWidth = 2.4 * Math.max(1, k * 0.5);
         ribbon(edges, side(1), lineWidth, [1, 1, 1], 0.6, false);
         ribbon(edges, side(-1), lineWidth, [1, 1, 1], 0.6, false);
-        const edgeMesh = new THREE.Mesh(edges.machineGeometry(), new THREE.MeshBasicMaterial({ toneMapped: false, color, transparent: true, opacity: 0.6 + 0.35 * strength, side: THREE.DoubleSide,
+        const edgeMesh = new THREE.Mesh(edges.machineGeometry(), new THREE.MeshBasicMaterial({ toneMapped: false, color, transparent: true, opacity: (0.6 + 0.35 * strength) * (hologram && type === 'link' ? 0.5 : 1), side: THREE.DoubleSide,
           depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, blending: hologram ? THREE.AdditiveBlending : THREE.NormalBlending }));
         groups.marks.add(edgeMesh);
         if (hologram && type !== 'link') pulse(edgeMesh, 0.5);
@@ -1392,7 +1977,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
           : large ? 3 * Math.max(1, k * 0.35) : 5 * Math.max(1, k * 0.45);
         const points = outline.points.map(([x, y, z]) => [x, y, Math.max(kind === 'road-segment' ? (z ?? 0) : 0, heightAt(x, y)) + 1.2]);
         ribbon(b, points.map(([x, y, z]) => L(x, y, z)), width, [1, 1, 1], 0.6, outline.closed);
-        const material = new THREE.MeshBasicMaterial({ toneMapped: false, color, transparent: true, opacity: (large ? 0.45 : 0.55) + 0.35 * strength, side: THREE.DoubleSide, depthWrite: false,
+        const material = new THREE.MeshBasicMaterial({ toneMapped: false, color, transparent: true, opacity: ((large ? 0.45 : 0.55) + 0.35 * strength) * (hologram && type === 'link' ? 0.45 : 1), side: THREE.DoubleSide, depthWrite: false,
           blending: type === 'scenario' || hologram ? THREE.AdditiveBlending : THREE.NormalBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 });
         const mesh = new THREE.Mesh(b.machineGeometry(), material);
         groups.marks.add(mesh);
@@ -1590,6 +2175,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     if (dust) dust.material.uniforms.fogColor.value.setRGB(...p.haze);
     skyState.dustColor = mix([0.36, 0.3, 0.23], p.haze, 0.15).map((v) => v * clamp(0.25 + up, 0.25, 1));
     if (weather) weather.set(wx);
+    applyModelLight();
     applyLook();
     applyCamera(false);
     dirty = true;
@@ -1658,7 +2244,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const lanesOwn = [];
       for (const mesh of roadMeshes.values()) if (mesh.userData.holo) lanesOwn.push(mesh.userData.holo);
       for (const child of groups.blast.children) if (child.material?.uniforms?.uFogNear) lanesOwn.push(child.material);
-      setFog([...H.all, ...lanesOwn], scene.fog.near, scene.fog.far);
+      setFog([...H.all, ...lanesOwn, ...modelHolo.values()], scene.fog.near, scene.fog.far);
     }
     const scaleK = height / (2 * Math.tan((FOV * Math.PI) / 360));
     if (dust) {
@@ -1799,6 +2385,21 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         if (kind === 'crusher' && pile && Math.hypot(p.x - pile.x, p.y - pile.y) > 1200) return null;
         return p;
       }).filter(Boolean);
+      // Both plants: the clay-ore plant ОФ-2 beside ОФ-1 (its stockpile is not framed: it lies beyond it),
+      // seen across the line between them, so that they spread over the width of the screen.
+      let azimuth = -0.85;
+      const clayAt = first('clay-plant') ? units.get(first('clay-plant').thingId)?.at : null;
+      const of1 = hallAnchor ?? pile;
+      for (const kind of ['clay-plant', 'desliming', 'clay-flotation']) {
+        for (const twin of byKind(kind)) {
+          const at = units.get(twin.thingId)?.at;
+          if (at) points.push({ x: at.x, y: at.y });
+        }
+      }
+      if (clayAt && of1 && Math.hypot(of1.x - clayAt.x, of1.y - clayAt.y) > 300) {
+        const [ax, ay] = of1.x >= clayAt.x ? [of1.x - clayAt.x, of1.y - clayAt.y] : [clayAt.x - of1.x, clayAt.y - of1.y];
+        azimuth = Math.atan2(ay, ax);
+      }
       if (!points.length) return null;
       const box = { minX: Math.min(...points.map((p) => p.x)) - 40, maxX: Math.max(...points.map((p) => p.x)) + 40,
         minY: Math.min(...points.map((p) => p.y)) - 40, maxY: Math.max(...points.map((p) => p.y)) + 40, minZ: surfaceZ, maxZ: surfaceZ + 50 };
@@ -1808,7 +2409,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         const s = plant.stockpile;
         for (let i = 0; i < 8; i += 1) spots.push([s.x + Math.cos(i * Math.PI / 4) * s.r * 0.8, s.y + Math.sin(i * Math.PI / 4) * s.r * 0.8, s.z]);
       }
-      return fitPoints(spots, -0.85, 0.42, 0.92) ?? fit(box, -0.85, 0.4, 0.82);
+      return fitPoints(spots, azimuth, 0.42, 0.92) ?? fit(box, azimuth, 0.4, 0.82);
     }
     if (name === 'faces') {
       // A face at work: a shovel with a truck under its bucket (loading, or the truck spotting), its muck
@@ -1972,12 +2573,23 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const twin = twins.get(id);
       if (!twin || !PANEL_KINDS.has(kindOf(twin))) return;
       let anchor = null;
-      if (machines.has(id)) { const at = shown.get(id); if (at) anchor = { x: at.x, y: at.y, z: at.top }; } else if (units.has(id)) anchor = units.get(id).at;
+      let box = null;
+      if (machines.has(id)) { const at = shown.get(id); if (at) anchor = { x: at.x, y: at.y, z: at.top, base: at.z, r: at.r }; } else if (units.has(id)) anchor = units.get(id).at;
       if (!anchor) return;
       const at = toScreen(anchor.x, anchor.y, anchor.z);
       if (!at || at.x < 8 || at.x > width - 8 || at.y < 8 || at.y > height - 8) return;
       if (!isFree([at.x - 1, at.y - 1, at.x + 1, at.y + 1], overlayRects)) return;
-      out.set(id, { twin, at, priority, accent, forced, compact });
+      // The selected machine itself stays in sight: no panel over it.
+      if (forced && anchor.base !== undefined) {
+        const foot = toScreen(anchor.x, anchor.y, anchor.base);
+        if (foot) {
+          // Its length runs away from the eye: the box reaches above its top and to the sides.
+          const h = Math.max(16, Math.abs(foot.y - at.y));
+          const w = Math.max(30, h * 2.6);
+          box = [at.x - w / 2, at.y - h * 0.8, at.x + w / 2, foot.y + h * 0.4];
+        }
+      }
+      out.set(id, { twin, at, priority, accent, forced, compact, box });
     };
     if (selectedId) add(selectedId, 0, 'select', true);
     for (const id of machines) if (feature(twins.get(id), 'state') === 'down') add(id, 0.5, 'bad');
@@ -1988,18 +2600,21 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     const hall = hallAnchor ?? plant?.stockpile;
     const atPlant = hall && cam.distance < 2200 && Math.hypot(cam.target.x + O.x - hall.x, cam.target.y + O.y - hall.y) < 1500;
     if (atPlant) {
-      const order = ['stockpile', 'sag-mill', 'ball-mill', 'flotation', 'concentrate', 'tailings', 'conveyor', 'crusher', 'substation', 'workshop', 'fuel-station'];
+      const order = ['stockpile', 'sag-mill', 'ball-mill', 'flotation', 'concentrate', 'tailings', 'conveyor', 'crusher', 'clay-plant', 'desliming', 'clay-flotation', 'substation', 'workshop', 'fuel-station'];
       for (const id of units.keys()) {
         const kind = kindOf(twins.get(id));
         if (order.includes(kind)) add(id, 2 + order.indexOf(kind) * 0.01);
       }
     }
+    // The machines near the camera: the nearest four (two beside a selection, which has its own).
+    const near = [];
     for (const id of machines) {
       const at = shown.get(id);
       if (!at) continue;
       const d = Math.hypot(at.x - O.x - camera.position.x, at.y - O.y - camera.position.y, at.z - O.z - camera.position.z);
-      if (d < 480) add(id, 3 + d / 1000);
+      if (d < 600) near.push([id, d]);
     }
+    near.sort((a, b) => a[1] - b[1]).slice(0, selectedId ? 2 : 4).forEach(([id, d]) => add(id, 3 + d / 1000));
     if (cam.distance > 1100) {
       // From afar, in short: the crusher, the stockpile and the grinding, the chain the mine feeds.
       for (const [kind, k] of [['crusher', 4], ['stockpile', 4.1], ['sag-mill', 4.2]]) {
@@ -2103,7 +2718,10 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       else if (kind === 'workshop') text = 'Мастерская';
       else if (kind === 'fuel-station') text = near ? 'Заправка' : null;
       else if (kind === 'conveyor') text = 'Конвейер';
-      const main = ['crusher', 'stockpile', 'sag-mill', 'ball-mill', 'mill', 'flotation'].includes(kind);
+      else if (kind === 'clay-plant') text = `ОФ-2${note}`;
+      else if (kind === 'desliming') text = near ? `Обесшламливание${note}` : null;
+      else if (kind === 'clay-flotation') text = near ? `Флотация ОФ-2${note}` : null;
+      const main = ['crusher', 'stockpile', 'sag-mill', 'ball-mill', 'mill', 'flotation', 'clay-plant'].includes(kind);
       push(id, main ? 2.5 : 5, text, unit.at.z, { color: main ? '#f1f3f4' : '#d5dadd', ...(kind === 'mill' && !near ? { size: 13 } : {}) });
       if (kind === 'crusher' && feature(twin, 'queue_len') > 0 && near && !panelIds.has(id)) {
         const at = toScreen(unit.at.x, unit.at.y, unit.at.z);
@@ -2111,6 +2729,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       }
     }
     for (const dump of byKind('waste-dump')) push(dump.thingId, 4.5, 'Отвал');
+    for (const pad of byKind('clay-stockpile')) push(pad.thingId, 4.7, near ? `Склад глинистой руды · ${formatNumber(feature(pad, 'level_t') ?? 0, 0)} т` : 'Склад глинистой руды');
     for (const pad of byKind('rom-pad')) push(pad.thingId, 4.6, near ? `${shortTitle('rom-pad', titleOf(pad))} · ${formatNumber(feature(pad, 'level_t') ?? 0, 0)} т` : shortTitle('rom-pad', titleOf(pad)));
     const pit = first('pit');
     if (pit && terrain?.pit) {
@@ -2314,8 +2933,18 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     marksState();
     if (holo()) stepPulses(now);
     updateFleet(now, dt);
+    stepPlantModels(dt);
+    stepRoof();
+    stepConveyor();
+    stepTowers();
     if (dust) particlesAlive = dust.step(dt);
-    if (weather) weather.step(dt, cam.target.x, cam.target.y, cam.target.z, clamp(cam.distance * 0.9, 160, 1600));
+    if (weather) {
+      weather.step(dt, cam.target.x, cam.target.y, cam.target.z, clamp(cam.distance * 0.9, 160, 1600));
+      // In the hologram the weather is a light touch: faint streaks near the camera, none from afar.
+      const fade = holo() ? 1 - clamp((cam.distance - 900) / 900, 0, 1) : 1;
+      weather.rain.material.opacity = holo() ? 0.22 * fade : 0.38;
+      weather.snow.material.opacity = holo() ? 0.5 * fade : 0.85;
+    }
     renderer.render(scene, camera);
     if (timing && gl) {
       const pixel = new Uint8Array(4);
@@ -2324,6 +2953,8 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     drawCaptions();
     const cost = performance.now() - started;
     if (!stats.first && terrain) stats.first = performance.now();
+    // The Blender models load once the first frame of the procedural scene is on the screen.
+    if (stats.first && libState === 'idle') setTimeout(startModels, 30);
     stats.frames += 1;
     stats.cost += cost;
     stats.worst = Math.max(stats.worst, cost);
@@ -2341,6 +2972,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   function busy() {
     if (motion.anyMoving() || anyAnimating() || particlesAlive) return true;
     if (holo() && pulses.length) return true;
+    if (plantTurning) return true;
     if (weather && weather.kind !== 'dry') return true;
     for (const id of fleetIds.loader) if (feature(twins.get(id), 'state') === 'loading') return true;
     for (const list of Object.values(fleetIds)) for (const id of list) if (feature(twins.get(id), 'state') === 'down') return true;
@@ -2580,6 +3212,8 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   // A change of look: every mesh changes its material, the marks are built again.
   function switchLook() {
     const hologram = holo();
+    stepConveyor(true);
+    insideKey = '';
     if (soft && hologram) for (const geometry of lit) holoRelight(geometry, geometry.userData.holoKind);
     styleAll();
     if (!hologram) whiteFleet();
@@ -2589,10 +3223,10 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     updatePlant();
     marksKey = '';
     updateSky(true);
-    if (canvas.parentElement) canvas.parentElement.dataset.style = style;
+    if (canvas.parentElement) canvas.parentElement.dataset.look = style;
     dirty = true;
   }
-  if (canvas.parentElement) canvas.parentElement.dataset.style = style;
+  if (canvas.parentElement) canvas.parentElement.dataset.look = style;
 
   // -- api ---------------------------------------------------------------------------------------
 
@@ -2613,6 +3247,8 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       buildWorld();
       buildBlocks();
       buildFleet();
+      // The clay-ore plant's model, when its twins have appeared since the models were loaded.
+      if (libState === 'ready' && byKind('clay-plant').length && !lib.models.clay_plant) loadMore(['clay_plant']);
       if (!pools && !soft) {
         pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), M.pool, POOLS);
         pools.frustumCulled = false;
@@ -2674,6 +3310,17 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       if (view) setCamera(view);
     },
     zoomBy(factor) { zoomBy(factor); },
+    // A camera looking at a point of the mine grid (for the screenshot scripts): from `distance`
+    // metres, `azimuth` and `elevation` in radians as the camera API has them; `follow` a machine.
+    look({ x, y, z, distance, azimuth = cam.azimuth, elevation = cam.elevation, follow: id = null, animate = false }) {
+      follow = id;
+      setCamera({ target: new THREE.Vector3(x - O.x, y - O.y, (z ?? heightAt(x, y)) - O.z), distance, azimuth, elevation }, animate);
+    },
+    // Where a machine stands now and where the plant's units are (for the screenshot scripts).
+    where(thingId) {
+      const at = shown.get(thingId) ?? units.get(thingId)?.at ?? null;
+      return at ? { x: at.x, y: at.y, z: at.z, bay: Boolean(at.bay), base: units.get(thingId)?.base ?? at.z } : null;
+    },
     reveal(thingId, closer = false) {
       const twin = twins.get(thingId);
       const anchor = anchorOf(twin);
@@ -2788,9 +3435,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         parts[name] = Math.round(n);
       }
       parts.machines = Math.round(Object.values(fleet).reduce((sum, mesh) => sum + (mesh.visible ? tris(mesh.geometry) * mesh.count : 0), 0));
+      // How many meshes each part of the world draws (visible ones; machines: one per part and level of detail).
+      const meshes = {};
+      for (const [name, group] of Object.entries(groups)) { let n = 0; group.traverse((node) => { if ((node.isMesh || node.isLine || node.isPoints) && node.visible && (!node.isInstancedMesh || node.count > 0)) n += 1; }); meshes[name] = n; }
+      meshes.machines = Object.values(fleet).filter((mesh) => mesh.visible && mesh.count > 0).length;
       return { filled: other / Math.max(1, total), soft, triangles: renderer.info.render.triangles, drawCalls: renderer.info.render.calls,
         trucks: counts.truck, loaders: counts.loader, rigs: counts['drill-rig'], blocks: blockRanges.length, roads: roadMeshes.size,
-        plantUnits: units.size, benches: terrain?.pit?.rings.length ?? 0, captions: captionCount, parts, lod: lodTriangles, towers: towers.length,
+        plantUnits: units.size, benches: terrain?.pit?.rings.length ?? 0, captions: captionCount, parts, meshes, lod: lodTriangles, towers: towers.length,
         sun: { elevation: skyState.elevation, night: skyState.night, weather: skyState.weather }, style, panels: placedPanels.length,
         camera: { x: cam.target.x + O.x, y: cam.target.y + O.y, z: cam.target.z + O.z, distance: cam.distance, azimuth: cam.azimuth, elevation: cam.elevation } };
     },
@@ -2799,7 +3450,12 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
         ...placedCaptions.map((item) => ({ ...item, rect: item.rect.map((v) => Math.round(v)) }))];
     },
     // The floating panels shown now, with what they say (hologram look).
-    panels() { return panels && holo() ? panels.shown() : []; },
+    // fresh: read the twins into the panels now and draw (the page check compares them with the twins).
+    panels(fresh = false) {
+      if (!panels || !holo()) return [];
+      if (fresh && width) { panels.stale(); render(performance.now()); }
+      return panels.shown();
+    },
     get style() { return style; },
     setStyle(next) {
       const wanted = next === 'realistic' ? 'realistic' : 'hologram';
@@ -2819,7 +3475,33 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     pose(thingId) {
       const at = shown.get(thingId);
       const a = anim.get(thingId);
-      return at ? { x: at.x, y: at.y, z: at.z, tilt: a?.tilt ?? 0, mast: a?.mast ?? 0, slew: a?.slew ?? null } : null;
+      return at ? { x: at.x, y: at.y, z: at.z, tilt: a?.tilt ?? 0, mast: a?.mast ?? 0, slew: a?.slew ?? null,
+        roll: a?.roll ?? 0, boom: a?.boom ?? null, stick: a?.stick ?? null, bucket: a?.bucket ?? null, lod: a?.lod ?? null } : null;
+    },
+    // The Blender models: whether they are loaded, which, what they draw (for the page check).
+    models() {
+      const kinds = {};
+      for (const [kind, entry] of Object.entries(gf)) kinds[kind] = entry ? entry.rigs.map((rig) => rig.triangles) : null;
+      return { state: libState, loadMs: libReadyAt ? Math.round(libReadyAt - libStarted) : null, loaded: lib ? Object.keys(lib.models) : [], failed: lib?.failed ?? [],
+        machines: kinds, plant: placed.map((entry) => entry.placement.model), conveyor: conveyorModel ? conveyorModel.segments.length : 0,
+        towers: towerMeshes.length && towerMeshes[0].isInstancedMesh && libState === 'ready' ? towers.length : 0, roofOpen,
+        turning: Object.fromEntries(placed.flatMap((entry) => entry.turning.map((t) => [`${entry.placement.model}/${t.name}`, entry.angles[t.name] ?? 0]))) };
+    },
+    // Where the parts of a machine drawn with its model are now (mine grid, metres), by node name.
+    nodes(thingId) {
+      const a = anim.get(thingId);
+      const kind = kindOf(twins.get(thingId));
+      const entry = gf[kind];
+      if (!a?.frame || !entry || !G) return null;
+      const rig = entry.rigs[0];
+      const mats = rig.parts.map(() => new THREE.Matrix4());
+      G.poseRig(rig, a.frame, a.angles, mats);
+      const out = {};
+      rig.parts.forEach((part, i) => {
+        const p = new THREE.Vector3().setFromMatrixPosition(mats[i]);
+        out[part.name] = [p.x + O.x, p.y + O.y, p.z + O.z].map((v) => Math.round(v * 100) / 100);
+      });
+      return out;
     },
     get hallAnchor() { return hallAnchor; },
     get renderer() { return gl ? gl.getParameter(gl.VERSION) : '2D canvas (no WebGL)'; },

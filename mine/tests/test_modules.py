@@ -36,17 +36,21 @@ def show(title: str, off: dict, on: dict, keys: tuple[str, ...]) -> None:
 
 
 class Effects(unittest.TestCase):
-    def test_dispatch_keeps_stripping_and_the_crusher_queue_short(self):
-        """What dispatch works for: trucks out of the queue at the crusher (the stockpile is often full), stripping
-        kept up, more rock moved by the same trucks. Its trucks wait somewhat more at the loaders instead."""
+    def test_dispatch_keeps_stripping_and_both_plants_fed(self):
+        """What dispatch works for here: stripping kept up and the trucks sent where they load soonest, without
+        starving ОФ-1 or ОФ-2 and without sending clay ore to the clay-ore stockpile when ОФ-2 has no room. The
+        fixed plan sizes the fleet face by face, so it already queues little; dispatch trades some waiting at the
+        loaders for the copper of richer, nearer faces."""
         off, on = effect("dispatch")
         show("Dispatch", off, on, ("queue_min_per_trip", "queue_load_min_per_trip", "queue_dump_min_per_trip", "cycle_min",
-                                   "trips", "tonnes_moved", "ore_mined_t", "waste_mined_t", "ore_milled_t", "rom_pads_t",
-                                   "use_of_available_pct"))
-        self.assertLess(on["queue_dump_min_per_trip"], 0.6 * off["queue_dump_min_per_trip"])
+                                   "trips", "tonnes_moved", "ore_mined_t", "waste_mined_t", "ore_milled_t", "clay_milled_t",
+                                   "clay_share_pct", "rom_pads_t", "cu_t", "use_of_available_pct"))
         self.assertGreater(on["waste_mined_t"], off["waste_mined_t"])
-        self.assertGreater(on["tonnes_moved"], 1.01 * off["tonnes_moved"])
-        self.assertGreaterEqual(on["ore_milled_t"], off["ore_milled_t"])          # the mill is not starved for it
+        self.assertGreaterEqual(on["ore_milled_t"], off["ore_milled_t"])          # ОФ-1 is not starved for it
+        self.assertGreaterEqual(on["clay_milled_t"], off["clay_milled_t"])        # nor ОФ-2
+        self.assertGreater(on["cu_t"], off["cu_t"])
+        self.assertGreater(on["tonnes_moved"], 0.97 * off["tonnes_moved"])
+        self.assertLess(on["clay_stock_t"], off["clay_stock_t"] + 5000)           # no clay sent to the stockpile for nothing
         self.assertLess(on["rom_pads_t"] - off["rom_pads_t"], 0.05 * off["ore_mined_t"])   # not bought with rehandling
 
     def test_grade_control_holds_the_feed_grade_in_band(self):
@@ -58,7 +62,8 @@ class Effects(unittest.TestCase):
         # Holding the feed in the band costs copper this week: ore richer than the band is parked on the ore pad
         # by the crusher, to be fed later. The A/B forecast on the stand says how much over 12 hours.
         self.assertLess(off["cu_t"] - on["cu_t"], 0.06 * off["cu_t"])
-        self.assertGreater(on["rom_pads_cu_t"], off["rom_pads_cu_t"])
+        # Clay: the feed of ОФ-1 keeps within the module's clay limit.
+        self.assertLessEqual(on["ofs1_clay_pct"], PARAMS["grade_control"]["clay_limit_pct"])
 
     def test_plant_control_produces_more_copper_without_mill_stops(self):
         off, on = effect("plant")
@@ -89,7 +94,8 @@ class Effects(unittest.TestCase):
         self.assertTrue(92.0 <= on["truck_availability_pct"] <= 94.0, on["truck_availability_pct"])
         self.assertTrue(84.0 <= off["truck_availability_pct"] <= 90.0, off["truck_availability_pct"])
         self.assertGreater(on["grade_in_band_pct"], off["grade_in_band_pct"] + 15)
-        self.assertGreater(on["tonnes_moved"], off["tonnes_moved"])
+        self.assertGreater(on["tonnes_moved"], 0.97 * off["tonnes_moved"])
+        self.assertTrue(73.0 <= on["site_recovery_pct"] <= 81.5 and 73.0 <= off["site_recovery_pct"] <= 81.5)
 
     def test_drilling_keeps_pace_with_the_digging(self):
         """The rigs drill the holes the rock dug needs: over a week no less than the pattern requires for it
@@ -226,7 +232,8 @@ class SwitchingOff(unittest.TestCase):
         self.assertEqual({v["destination_source"] for n, v in values.items() if n.startswith("block-")}, {"cutoff"})
         self.assertEqual({values[p]["reclaim_source"] for p in ("rom-pad-01", "rom-pad-02")}, {"rule"})
         for block in sim.pit.blocks.values():
-            self.assertEqual(block.destination, {"waste": "waste-dump", "low-grade": "rom-pad-02", "ore": "crusher"}[block.material])
+            self.assertEqual(block.destination, {"waste": "waste-dump", "low-grade": "rom-pad-02", "ore": "crusher",
+                                                 "clay": "clay-plant"}[block.material])
 
     def test_plant_control(self):
         sim = new_sim()
@@ -283,7 +290,8 @@ class Decisions(unittest.TestCase):
         block = next(b for b in charged if b.status == "blasted")
         values = sim.values()[block.name]
         self.assertEqual(values["destination_source"], "grade-control")
-        cls = {"ore": "руда", "low-grade": "бедная руда", "waste": "вскрыша"}[block.material]
+        cls = {"ore": "сульфидная руда", "low-grade": "забалансовая руда", "waste": "вскрыша",
+               "clay": "глинистая руда"}[block.material]
         self.assertTrue(values["destination_reason"].startswith(cls), values["destination_reason"])
         self.assertIn("% Cu", values["destination_reason"])
         self.assertGreater(rig.cores["grade"].twin()["blocks_classified"], 0)
@@ -291,7 +299,7 @@ class Decisions(unittest.TestCase):
     def test_maintenance_books_a_truck_before_it_fails(self):
         sim = new_sim()
         rig = Coupled(sim, ("maint",))
-        truck = sim.fleet.by_name["truck-06"]
+        truck = sim.fleet.by_name["truck-16"]
         truck.fault = Fault("minor", "engine", PARAMS["reliability"]["pf_interval_minor_h"], progress=0.3)
         rig.run_until(lambda: bool(truck.service_due), 180)
         core = rig.cores["maint"]

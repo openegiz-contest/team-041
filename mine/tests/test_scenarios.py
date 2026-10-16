@@ -13,7 +13,7 @@ from mine.sim.kpis import balance
 from mine.tests.coupled import Coupled
 from mine.tests.test_model import MAIN_RAMP_TOP, NS, PARAMS, UNITS, new_sim, run, run_until, texts
 
-WEST_RAMP = "road-segment-08"          # 10 %: the ramp heavy rain closes
+WEST_RAMP = "road-segment-09"          # 10 %: the top section of the west ramp, which heavy rain closes
 
 SCALARS = ("status", "target", "started_sim_time", "elapsed_min", "cancel_remaining_min", "baseline_feed_tph", "current_feed_tph",
            "baseline_cycle_min", "current_cycle_min", "baseline_margin_kzt_h", "current_margin_kzt_h", "kpi_label", "kpi_unit", "kpi_baseline", "kpi_current",
@@ -60,12 +60,12 @@ class ScenarioTwins(unittest.TestCase):
 
     def test_several_scenarios_at_once(self):
         sim = new_sim()
-        for name in ("scenario-road-closure", "scenario-heavy-rain", "scenario-hard-ore", "scenario-shovel-failure"):
+        for name in ("scenario-road-closure", "scenario-heavy-rain", "scenario-clay-face", "scenario-shovel-failure"):
             sim.handle_message(name, "activate", {"target": f"{NS}:road-segment-12"} if "road" in name else {})
         run(sim, 90)
         values = sim.values()
         self.assertEqual([values[n]["status"] for n in sim.scenarios],
-                         ["active", "active", "inactive", "active", "inactive", "active"])
+                         ["active", "active", "inactive", "active", "inactive", "active", "inactive"])
         self.assertEqual(values["road-segment-12"]["closed_by"], "scenario-road-closure")
         self.assertEqual(values[WEST_RAMP]["closed_by"], "scenario-heavy-rain")
         self.assertFalse(any(t.waiting_route for t in sim.fleet.trucks))
@@ -76,7 +76,8 @@ class ScenarioTwins(unittest.TestCase):
         values = sim.values()
         self.assertEqual({values[n]["status"] for n in sim.scenarios}, {"inactive"})
         self.assertEqual({v["status"] for n, v in values.items() if n.startswith("road-segment-")}, {"open"})
-        self.assertEqual((values["loader-01"]["state"] == "down", values["stockpile"]["hardness_bwi"] > 16), (False, False))
+        self.assertEqual(values["loader-01"]["state"] == "down", False)
+        self.assertLess(max(b.clay_pct - b.clay_plan_pct for b in sim.pit.blocks.values()), 1e-9)   # the clay face is gone
         b = balance(sim)
         self.assertAlmostEqual(b["rock_sources"], b["rock_sinks"], delta=0.01)
 
@@ -349,7 +350,7 @@ class HeavyRain(unittest.TestCase):
         self.assertGreater(len(routes), 20)
         for route in routes:
             nodes = route.split(">")
-            self.assertFalse(any({a, b} == {"road-node-08", "road-node-09"} for a, b in zip(nodes, nodes[1:])), route)
+            self.assertFalse(any({a, b} == {"road-node-09", "road-node-10"} for a, b in zip(nodes, nodes[1:])), route)
         self.assertFalse(any("отклонено" in e["text"] for e in sim.pop_events()))
 
 
@@ -478,77 +479,131 @@ class Blast(unittest.TestCase):
         self.assertNotIn(f"{NS}:{valid[0]}", sim.values()[self.NAME]["valid_targets"])   # blasted: no longer offered
 
 
-class HardOre(unittest.TestCase):
-    NAME = "scenario-hard-ore"
+class ClayFace(unittest.TestCase):
+    """A face the block model took for sulphide ore turns out clay-rich: clay in the ОФ-1 feed, its recovery and
+    throughput down; the grade-control module reroutes the face to ОФ-2 or the clay-ore stockpile."""
+    NAME = "scenario-clay-face"
+
+    def start(self, sim, target="loader-03"):
+        block = sim.pit.blocks[sim.fleet.loaders[target].block]
+        sim.handle_message(self.NAME, "activate", {"target": f"{NS}:{target}"})
+        return block
 
     def test_chain_and_recovery(self):
         sim = new_sim()
         run(sim, 30)
         before = sim.values()
-        sim.handle_message(self.NAME, "activate", {})
-        run(sim, PARAMS["scenario"]["hard_ore_ramp_min"] + 5)
+        block = self.start(sim)
+        clay_was = block.clay_plan_pct
+        self.assertEqual(block.clay_pct, PARAMS["scenario"]["clay_face_pct"])
+        self.assertEqual(block.material, "ore")                      # by the block model it is still sulphide ore
+        self.assertEqual(block.destination, "crusher")               # and without the module it goes on to ОФ-1
+        values = sim.values()[self.NAME]
+        self.assertEqual(values["status"], "active")
+        self.assertAlmostEqual(values["expected_duration_h"], PARAMS["scenario"]["clay_face_expected_h"])
+        self.assertIn("каолинизации", values["duration_basis"])
+        run(sim, 4 * 60)
         values = sim.values()
-        hard = PARAMS["scenario"]["hard_ore_bwi"]
-        self.assertAlmostEqual(values["stockpile"]["hardness_bwi"], hard, delta=0.3)
-        self.assertAlmostEqual(values["mill"]["feed_bwi"], hard, delta=0.4)
-        # Mill throughput falls, specific energy rises.
-        self.assertLess(values["mill"]["max_feed_tph"], before["mill"]["max_feed_tph"] * 0.85)
-        self.assertLess(values["mill"]["throughput_tph"], before["mill"]["throughput_tph"] * 0.92)
-        self.assertGreater(values["mill"]["specific_energy_kwh_t"], before["mill"]["specific_energy_kwh_t"] * 1.2)
-        self.assertAlmostEqual(values["mill"]["power_mw"], PARAMS["mill"]["installed_mw"], delta=0.3)
-        self.assertLess(values["flotation"]["recovery_pct"], before["flotation"]["recovery_pct"] - 3)
-        self.assertLess(values["flotation"]["cu_tph"], before["flotation"]["cu_tph"])
-        self.assertGreater(values[self.NAME]["kpi_current"], values[self.NAME]["kpi_baseline"] * 1.2)
-        self.assertEqual(set(names(values[self.NAME])) >= {"stockpile", "mill", "flotation"}, True)
-        # The chain at the mill: harder ore, a lower power limit, more energy a tonne, less copper; no truck figures.
+        self.assertGreater(values["stockpile"]["clay_pct"], before["stockpile"]["clay_pct"] + 3)
+        self.assertGreater(values["mill"]["feed_clay_pct"], PARAMS["flotation"]["clay_ref_pct"] + 3)
+        self.assertLess(values["mill"]["max_feed_tph"], before["mill"]["max_feed_tph"] * 0.95)
+        self.assertLess(values["flotation"]["recovery_pct"], before["flotation"]["recovery_pct"] - 1.5)
+        self.assertGreater(values["flotation"]["clay_loss_pct"], 1.5)
+        self.assertGreater(values["mine"]["ofs1_clay_pct"], before["mine"]["ofs1_clay_pct"])
         links = chain(values[self.NAME])
-        self.assertEqual([c[0] for c in links], ["Индекс Бонда питания мельницы", "Предел мельницы по мощности (среднее за окно)",
-                                                 "Удельный расход энергии измельчения", "Медь в концентрате"])
-        self.assertTrue(all(c[3] for c in links), links)
+        self.assertEqual([c[0] for c in links], ["Глинистость питания ОФ-1", "Извлечение меди на ОФ-1",
+                                                 "Предел мельницы ОФ-1 (среднее за окно)",
+                                                 "Глинистая руда на ОФ-2 и склад глинистой руды"])
+        self.assertTrue(all(c[3] for c in links[:3]), links)
         self.assertGreater(links[0][2], links[0][1])
         self.assertLess(links[1][2], links[1][1])
-        self.assertGreater(links[2][2], links[2][1])
-        self.assertLess(links[3][2], links[3][1])
-        self.assertNotIn("рейс", values[self.NAME]["impact_text"])
-        # The fixed setpoint overfeeds the mill: it overloads and stops.
-        run(sim, 150)
-        values = sim.values()
-        self.assertGreaterEqual(values["mill"]["stops_total"], 1)
-        self.assertLess(values[self.NAME]["current_feed_tph"], values[self.NAME]["baseline_feed_tph"] * 0.9)
-        self.assertIn("остановок мельницы из-за перегруза", values[self.NAME]["impact_text"])
+        self.assertLess(links[2][2], links[2][1])
+        self.assertIn("Глинистая руда в забое", values[self.NAME]["impact_text"])
+        self.assertTrue({"stockpile", "mill", "flotation"} <= set(names(values[self.NAME])))
+        b = balance(sim)
+        self.assertAlmostEqual(b["copper_sources"], b["copper_sinks"], delta=1e-4)
 
         sim.handle_message(self.NAME, "cancel", {})
-        self.assertEqual(sim.values()[self.NAME]["status"], "cancelling")
-        run(sim, PARAMS["scenario"]["hard_ore_ramp_min"] + 1)
-        after = sim.values()
-        self.assertEqual(after[self.NAME]["status"], "inactive")
-        self.assertAlmostEqual(after["stockpile"]["hardness_bwi"], sim.plant.stockpile.bwi, delta=0.01)
-        run_until(sim, lambda: sim.plant.mill.state == "running", 60)
-        stops = sim.plant.mill.stops
-        run(sim, 240)
-        after = sim.values()
-        self.assertEqual((after["mill"]["stops_total"], after["mill"]["feed_tph"]), (stops, PARAMS["mill"]["design_tph"]))
-        self.assertGreater(after["flotation"]["recovery_pct"], 83)
+        self.assertEqual(sim.values()[self.NAME]["status"], "inactive")
+        self.assertEqual(block.clay_pct, clay_was)
 
-    def test_plant_control_changes_the_feed_rate(self):
+    def test_grade_control_reroutes_the_face(self):
         sim = new_sim()
         rig = Coupled(sim)
         rig.run(60)
-        easy = sim.values()["mill"]
-        self.assertEqual(easy["setpoint_source"], "plant-control")
-        sim.handle_message(self.NAME, "activate", {"params": {"bwi": 18}})
-        rig.run(240)
+        tipped = sim.kpis.tipped_at.get("clay", 0.0) + sim.kpis.tipped_at.get("clay-stock", 0.0)
+        block = self.start(sim)
+        rig.run(30)
+        self.assertIn(block.destination, ("clay-plant", "clay-stockpile"))
+        self.assertEqual(block.destination_source, "grade-control")
+        self.assertIn("глинистая руда", block.destination_reason)
+        rig.run(4 * 60)
         values = sim.values()
-        self.assertLess(values["mill"]["feed_setpoint_tph"], easy["feed_setpoint_tph"] - 300)
-        self.assertLessEqual(values["mill"]["feed_setpoint_tph"], values["mill"]["max_feed_tph"])
-        self.assertEqual((values["mill"]["stops_total"], values["mill"]["state"]), (0, "running"))
-        self.assertIn("ведёт модуль управления фабрикой", values[self.NAME]["impact_text"])
-        twin_values = rig.cores["plant"].twin()
-        self.assertLess(twin_values["predicted_recovery_pct"], 83)
-        self.assertAlmostEqual(twin_values["predicted_recovery_pct"], values["flotation"]["recovery_pct"], delta=0.6)
+        # The face's ore goes to ОФ-2 or its stockpile: the clay of the ОФ-1 feed stays within the module's limit.
+        self.assertLessEqual(values["stockpile"]["clay_pct"], PARAMS["grade_control"]["clay_limit_pct"] + 0.5)
+        to_clay = sim.kpis.tipped_at.get("clay", 0.0) + sim.kpis.tipped_at.get("clay-stock", 0.0) - tipped
+        self.assertGreater(to_clay, 4.5 * 0.9 * PARAMS["clay_plant"]["design_tph"])  # more than the clay face alone brings
+        self.assertGreater(rig.cores["grade"].twin()["clay_blocks"], 0)
+        b = balance(sim)
+        self.assertAlmostEqual(b["rock_sources"], b["rock_sinks"], delta=0.01)
         sim.handle_message(self.NAME, "cancel", {})
-        rig.run(120)
-        self.assertGreater(sim.values()["mill"]["feed_setpoint_tph"], values["mill"]["feed_setpoint_tph"] + 300)
+        rig.run(30)
+        self.assertEqual(block.destination, "crusher")               # sulphide ore again: back to ОФ-1
+
+    def test_only_a_sulphide_face_can_turn_out_clay_rich(self):
+        sim = new_sim()
+        clay_loader = next(l for l in sim.fleet.loaders.values() if l.material == "clay")
+        sim.handle_message(self.NAME, "activate", {"target": f"{NS}:{clay_loader.name}"})
+        self.assertEqual(sim.values()[self.NAME]["status"], "inactive")
+        sim.handle_message(self.NAME, "activate", {"target": f"{NS}:loader-03", "params": {"clay_pct": 60}})
+        self.assertEqual(sim.values()[self.NAME]["status"], "inactive")
+        self.assertIn("глинистость", texts(sim))
+
+
+class ClayPlantStop(unittest.TestCase):
+    """ОФ-2 stops: its feed stockpile fills, then the clay ore goes to the clay-ore stockpile; no ОФ-2 copper."""
+    NAME = "scenario-clay-plant-stop"
+
+    def test_chain_and_restart(self):
+        sim = new_sim()
+        run(sim, 30)
+        clay = sim.plant.clay_plant
+        # The feed stockpile nearly full: the clay ore soon has to go to the clay-ore stockpile.
+        f = (clay.room_t() - 800.0) / clay.bin.t
+        added = (clay.bin.t * f, clay.bin.cu * f, clay.bin.bwi_t * f, clay.bin.p80_t * f, clay.bin.clay_t * f)
+        clay.bin.add(*added)
+        sim.plant.initial_stock_t += added[0]
+        sim.plant.initial_stock_cu += added[1]
+        bin_before = clay.bin.t
+        pile = sim.plant.clay_stock.stock.t
+        sim.handle_message(self.NAME, "activate", {"params": {"cause": "slurry"}})
+        values = sim.values()
+        self.assertEqual(values["clay-plant"]["state"], "stopped")
+        self.assertAlmostEqual(values[self.NAME]["expected_duration_h"], PARAMS["clay_plant"]["repair_slurry_h"])
+        self.assertTrue(values["clay-plant"]["restart_expected_sim_time"])
+        run(sim, 120)
+        values = sim.values()
+        self.assertEqual((values["clay-plant"]["feed_tph"], values["clay-plant"]["cu_tph"]), (0, 0.0))
+        self.assertEqual(values["mine"]["ofs2_feed_tph"], 0)
+        self.assertGreater(values["clay-plant"]["bin_t"], bin_before)
+        self.assertGreater(sim.plant.clay_stock.stock.t, pile + 500)      # the full feed stockpile sends trucks next door
+        links = chain(values[self.NAME])
+        self.assertEqual([c[0] for c in links], ["Переработка ОФ-2", "Запас приёмного склада ОФ-2",
+                                                 "Глинистая руда на склад глинистой руды", "Медь в концентрате ОФ-2"])
+        self.assertEqual((links[0][2], links[3][2]), (0.0, 0.0))
+        self.assertTrue(links[0][3] and links[3][3])
+        self.assertGreater(links[2][2], links[2][1])
+        self.assertIn("ОФ-2 стоит", values[self.NAME]["impact_text"])
+        self.assertIn(f"clay-stockpile", names(values[self.NAME]))
+        sim.handle_message(self.NAME, "cancel", {})
+        values = sim.values()
+        self.assertEqual((values[self.NAME]["status"], values["clay-plant"]["state"]), ("inactive", "starting"))
+        run(sim, PARAMS["clay_plant"]["restart_min"] + 2)
+        values = sim.values()
+        self.assertEqual(values["clay-plant"]["state"], "running")
+        self.assertGreater(values["clay-plant"]["cu_tph"], 0.5)
+        b = balance(sim)
+        self.assertAlmostEqual(b["copper_sources"], b["copper_sinks"], delta=1e-4)
 
 
 class Windows(unittest.TestCase):
@@ -639,17 +694,16 @@ class Cancelling(unittest.TestCase):
         v = twin(sim, "scenario-heavy-rain")
         self.assertEqual((v["status"], v["cancel_remaining_min"]), ("inactive", 0.0))
 
-    def test_hard_ore_passes_in_the_time_it_came(self):
+    def test_clay_plant_restarts_after_its_start_up_time(self):
         sim = new_sim()
-        sim.handle_message("scenario-hard-ore", "activate", {})
-        ramp = PARAMS["scenario"]["hard_ore_ramp_min"]
-        run(sim, ramp + 10)
-        sim.handle_message("scenario-hard-ore", "cancel", {})
-        v = twin(sim, "scenario-hard-ore")
-        self.assertEqual(v["status"], "cancelling")
-        self.assertAlmostEqual(v["cancel_remaining_min"], ramp, delta=0.5)
-        run(sim, ramp + 1)
-        self.assertEqual(twin(sim, "scenario-hard-ore")["status"], "inactive")
+        sim.handle_message("scenario-clay-plant-stop", "activate", {})
+        run(sim, 20)
+        sim.handle_message("scenario-clay-plant-stop", "cancel", {})
+        v = twin(sim, "scenario-clay-plant-stop")
+        self.assertEqual((v["status"], v["cancel_remaining_min"]), ("inactive", 0.0))
+        self.assertEqual(sim.values()["clay-plant"]["state"], "starting")
+        run(sim, PARAMS["clay_plant"]["restart_min"] + 1)
+        self.assertEqual(sim.values()["clay-plant"]["state"], "running")
 
 
 if __name__ == "__main__":

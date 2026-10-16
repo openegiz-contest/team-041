@@ -1,5 +1,5 @@
-"""Weather over the mine, from the climate normals of the Aktogay station
-(WMO 1991-2020) for the simulated date.
+"""Weather over the mine, from the climate normals of the Ekibastuz station
+(1991-2020, the nearest station, 73 km east of the mine) for the simulated date.
 
 Temperature: the normal daily mean, maximum and minimum of a month belong
 to its middle; between two middles they are interpolated by the day. Through
@@ -31,7 +31,8 @@ if TYPE_CHECKING:
 
 # Months whose normals params.yaml carries (group `weather`), with the prefix of their entries.
 MONTHS = ((10, "oct"), (11, "nov"))
-BASIS = "Нормы ВМО 1991–2020, станция Актогай (NOAA): средние температуры, максимум, минимум и осадки октября и ноября"
+BASIS = ("Нормы 1991–2020, станция Экибастуз (Pogoda.ru.net, NOAA), 73 км к востоку от рудника: средние температуры, "
+         "максимум, минимум и осадки октября и ноября")
 
 
 def normals(p: dict, moment: datetime) -> dict:

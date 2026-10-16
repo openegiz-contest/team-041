@@ -4,7 +4,7 @@
 
 // Order of the groups in the object list; kinds not named here follow in alphabetical order.
 export const KIND_ORDER = ['mine', 'truck', 'loader', 'drill-rig', 'crusher', 'conveyor', 'stockpile', 'mill',
-  'sag-mill', 'ball-mill', 'flotation', 'concentrate', 'tailings', 'rom-pad', 'waste-dump', 'substation', 'fuel-station', 'workshop', 'weather', 'pit', 'bench',
+  'sag-mill', 'ball-mill', 'flotation', 'clay-plant', 'desliming', 'clay-flotation', 'clay-stockpile', 'concentrate', 'tailings', 'rom-pad', 'waste-dump', 'substation', 'fuel-station', 'workshop', 'weather', 'pit', 'bench',
   'block', 'road-segment', 'road-node', 'scenario', 'module', 'forecast', 'journal'];
 
 // [group title in the list, name of one object]
@@ -25,6 +25,10 @@ const KINDS = {
   'sag-mill': ['Мельница полусамоизмельчения', 'Мельница полусамоизмельчения'],
   'ball-mill': ['Шаровые мельницы', 'Шаровые мельницы'],
   flotation: ['Флотация', 'Флотация'],
+  'clay-plant': ['ОФ-2: фабрика глинистых руд', 'Фабрика глинистых руд ОФ-2'],
+  desliming: ['Обесшламливание ОФ-2', 'Обесшламливание ОФ-2'],
+  'clay-flotation': ['Флотация ОФ-2', 'Флотация ОФ-2'],
+  'clay-stockpile': ['Склад глинистой руды', 'Склад глинистой руды'],
   concentrate: ['Концентрат', 'Склад концентрата'],
   tailings: ['Хвостохранилище', 'Хвостохранилище'],
   substation: ['Подстанция', 'Подстанция'],
@@ -68,6 +72,7 @@ const STATES = {
   blocked: 'склад полон',
   starved: 'нет руды',
   stopped: 'остановлена',
+  starting: 'запуск',
   overload: 'перегрузка',
   paused: 'пауза',
   // roads and scenarios
@@ -109,8 +114,8 @@ const STATE_FEATURES = new Set(['state', 'status', 'sim_state', 'shift', 'condit
 
 // Words specific to one feature.
 const ENUMS = {
-  material: { ore: 'руда', 'low-grade': 'бедная руда', waste: 'вскрыша', none: 'нет' },
-  role: { 'high-grade': 'богатая руда', 'low-grade': 'бедная руда', page: 'прогнозы страницы', advisor: 'прогнозы советника', module: 'замер эффекта модуля' },
+  material: { ore: 'сульфидная руда', clay: 'глинистая руда', 'low-grade': 'забалансовая руда', waste: 'вскрыша', none: 'нет' },
+  role: { 'high-grade': 'богатая руда', 'low-grade': 'забалансовая руда', page: 'прогнозы страницы', advisor: 'прогнозы советника', module: 'замер эффекта модуля' },
   setpoint_source: { constant: 'постоянная уставка', module: 'модуль управления фабрикой',
     'module-plant': 'модуль управления фабрикой', 'plant-control': 'модуль управления фабрикой', operator: 'указание оператора' },
   assignment_source: { static: 'закрепление за экскаватором', module: 'модуль диспетчеризации',
@@ -162,6 +167,42 @@ const FEATURES = {
   power_cost_kzt_h: 'Затраты на электроэнергию',
   margin_kzt_h: 'Переменная маржа',
   co2_t_h: 'Выбросы CO₂',
+  // both plants: ОФ-1 (sulphide ore) and ОФ-2 (clay ore)
+  processed_tph: 'Переработка обеих фабрик',
+  ofs1_head_grade_pct: 'Содержание Cu в питании ОФ-1',
+  ofs1_recovery_pct: 'Извлечение меди на ОФ-1',
+  ofs1_clay_pct: 'Глинистость питания ОФ-1',
+  ofs2_feed_tph: 'Переработка ОФ-2',
+  ofs2_head_grade_pct: 'Содержание Cu в питании ОФ-2',
+  ofs2_recovery_pct: 'Извлечение меди на ОФ-2',
+  ofs2_cu_tph: 'Медь в концентрате ОФ-2',
+  clay_mined_t: 'Добыто глинистой руды с запуска модели',
+  clay_share_pct: 'Доля глинистой руды в добыче',
+  clay_stock_t: 'На складе глинистой руды',
+  clay_pct: 'Глинистость',
+  feed_clay_pct: 'Глинистость питания',
+  clay_factor_pct: 'Снижение производительности от глины',
+  clay_loss_pct: 'Потери извлечения от глины',
+  bin_t: 'Приёмный склад',
+  bin_pct: 'Заполнение приёмного склада',
+  bin_hours: 'Запас приёмного склада',
+  room_t: 'Свободно',
+  slimes_pct: 'Доля шламов',
+  slimes_tph: 'Шламы',
+  sands_tph: 'Пески',
+  slimes_cu_pct: 'Доля меди в шламах',
+  sand_recovery_pct: 'Извлечение из песков',
+  slime_recovery_pct: 'Извлечение из шламов',
+  blend_clay_pct: 'Глинистость шихты',
+  clay_limit_pct: 'Предел глинистости для ОФ-1',
+  clay_blocks: 'Глинистых блоков в работе',
+  cancel_remaining_min: 'До отмены осталось',
+  replicas: 'Повторов прогноза',
+  delta_total_se_kzt: 'Разброс разницы итога',
+  delta_margin_se_kzt: 'Разброс разницы маржи',
+  delta_cu_se_t: 'Разброс разницы меди',
+  delta_total_replicas_kzt: 'Разница итога по повторам',
+  delta_cu_replicas_t: 'Разница меди по повторам',
   // pit, benches, blocks
   active_faces: 'Рабочих забоев',
   depth_m: 'Глубина',
@@ -435,12 +476,16 @@ const FEATURES_BY_KIND = {
   'road-segment': { grade_pct: 'Уклон', status: 'Проезд' },
   truck: { grade_pct: 'Содержание Cu в грузе', block: 'Блок' },
   loader: { material: 'Материал в забое' },
-  stockpile: { hardness_bwi: 'Крепость руды' },
-  'rom-pad': { hardness_bwi: 'Крепость руды' },
+  stockpile: { hardness_bwi: 'Крепость руды', clay_pct: 'Глинистость руды' },
+  'rom-pad': { hardness_bwi: 'Крепость руды', clay_pct: 'Глинистость руды' },
+  'clay-stockpile': { reclaim_tph: 'Отгрузка на ОФ-2', level_t: 'На складе', level_pct: 'Заполнение', clay_pct: 'Глинистость руды', grade_pct: 'Содержание Cu' },
+  'clay-plant': { reclaim_tph: 'Подача погрузчиком со склада глинистой руды', feed_tph: 'Переработка', recovery_pct: 'Извлечение меди', cu_tph: 'Медь в концентрате', conc_tph: 'Концентрат' },
+  'clay-flotation': { recovery_pct: 'Извлечение меди' },
+  desliming: { feed_tph: 'Питание' },
   mine: { recovery_pct: 'Извлечение меди' },
   flotation: { recovery_pct: 'Извлечение меди' },
   crusher: { tonnes_total: 'Переработано' },
-  mill: { tonnes_total: 'Переработано', load_pct: 'Перегруз: руда сверх измельчённой' },
+  mill: { tonnes_total: 'Переработано', load_pct: 'Перегруз: руда сверх измельчённой', power_limit_tph: 'Предел производительности по мощности' },
   concentrate: { level_t: 'На складе', level_pct: 'Заполнение склада', grade_pct: 'Содержание Cu' },
   tailings: { grade_pct: 'Содержание Cu в хвостах' },
   module: { hours_of_feed: 'Запас склада' },
@@ -457,6 +502,12 @@ const BRANCH = {
   rehandle_t: 'Перевалка руды со складов', rehandle_kzt: 'Затраты на перевалку', adjust_kzt: 'Поправка: запасы руды и вскрыша',
   total_kzt: 'Маржа с поправкой', resources_kzt: 'Ресурсы смены', queue_min: 'Ожидание в очередях', in_band_pct: 'Время в полосе содержания Cu',
   avail_pct: 'Готовность техники', breakdowns: 'Поломок', mill_stops: 'Остановок мельницы',
+  milled_cu_t: 'Медь в переработанной руде ОФ-1', from_stock_t: 'Руда со склада дроблёной руды', from_stock_cu_t: 'Медь в руде со склада',
+  from_pads_t: 'Руда с рудных складов', from_pads_cu_t: 'Медь в руде с рудных складов', from_pit_t: 'Руда из карьера', from_pit_cu_t: 'Медь в руде из карьера',
+  clay_milled_t: 'Руда переработана на ОФ-2', clay_milled_cu_t: 'Медь в руде ОФ-2', clay_cu_t: 'Медь в концентрате ОФ-2',
+  to_clay_stock_t: 'Глинистая руда на склад', ofs1_clay_pct: 'Глинистость питания ОФ-1', stock_end_h: 'Запас склада в конце',
+  grade_kzt: 'Стоимость содержания запасов руды', work_kzt: 'Работа парка в запасах руды', pads_kzt: 'Перевалка, нужная рудным складам',
+  overloads: 'Перегрузок мельницы',
 };
 const OPTION = {
   label: 'что сделать', actions: 'сообщения', delta_kzt: 'разница маржи', cu_delta_t: 'разница меди', rank: 'место',
@@ -464,7 +515,7 @@ const OPTION = {
   verdict: 'вывод', gain_se_kzt: 'разброс выигрыша', confidence: 'уверенность',
   split_revenue_kzt: 'вклад меди', split_inventory_kzt: 'вклад запасов руды и вскрыши', split_rehandle_kzt: 'вклад перевалки',
   split_diesel_kzt: 'вклад дизеля', split_power_kzt: 'вклад электроэнергии', split_resources_kzt: 'ресурсы смены',
-  cost_kzt: 'цена ресурсов смены', reason: 'почему окупается или нет',
+  cost_kzt: 'цена ресурсов смены', reason: 'почему окупается или нет', copper_text: 'откуда разница меди',
 };
 
 // Words for a feature name the page does not know yet, from its parts and unit.
@@ -494,6 +545,19 @@ export function featureLabel(name, kind) {
 const SPEC = {
   mill_design_tph: 'Проектная подача мельницы',
   causes: 'Причины и ожидаемая длительность',
+  licence_tph: 'Производительность по лицензии',
+  feed_bin_t: 'Ёмкость приёмного склада',
+  flowsheet: 'Схема переработки',
+  recovery_basis: 'Откуда извлечение',
+  recovery_check_pct: 'Извлечение для сверки',
+  slime_recovery_pct: 'Извлечение из шламов',
+  sand_recovery_ref_pct: 'Опорное извлечение из песков',
+  slimes_base_share: 'Базовая доля шламов',
+  slimes_cu_ratio: 'Содержание Cu в шламах к питанию',
+  clay_ref_pct: 'Опорная глинистость питания',
+  clay_loss_pct_per_pct: 'Потеря извлечения на 1 % глины',
+  clay_plant_design_tph: 'Проектная переработка ОФ-2',
+  annual_ore_mt: 'Переработка руды в год',
   trucks: 'Самосвалов',
   loaders: 'Экскаваторов',
   rim_elevation_m: 'Отметка борта',
@@ -719,6 +783,8 @@ const RELATIONS = {
   advisor: 'Советник',
   module: 'Модуль',
   units: 'Агрегаты',
+  clay_plant: 'Фабрика глинистых руд ОФ-2',
+  clay_stockpile: 'Склад глинистой руды',
 };
 export const relationLabel = (name) => RELATIONS[name] ?? 'Связь';
 
@@ -904,6 +970,7 @@ const SUBJECT_WORDS = {
   activate: 'запустить', cancel: 'отменить', release: 'вернуть в работу', 'set-reclaim': 'задать подачу со склада',
   'set-feed-rate': 'задать подачу на мельницу', 'set-destination': 'задать место разгрузки', 'move-to-block': 'перевести на блок',
   'set-speed': 'задать скорость модели', 'schedule-service': 'назначить обслуживание', 'cancel-service': 'отменить обслуживание',
+  'expedite-repair': 'ускорить ремонт (вторая бригада)', 'prioritise-repair': 'ремонт вне очереди', hold: 'придержать',
   assign: 'назначить', pause: 'поставить на паузу', resume: 'продолжить', apply: 'применить вариант', forecast: 'прогноз',
 };
 export function actionsText(text, nameOf = (name) => name) {

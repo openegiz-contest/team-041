@@ -1,4 +1,4 @@
-"""Discrete-time model of the Aktogay mine slice (part of the pit and sulphide line No. 1).
+"""Discrete-time model of the Bozshakol mine (the pit, the sulphide concentrator ОФ-1 and the clay-ore plant ОФ-2).
 
 The model owns the state of every twin the simulator writes. It knows
 nothing about MQTT or Ditto: the runner feeds it messages, advances it with
@@ -12,7 +12,7 @@ The subsystems live in their own modules and meet here:
     roads.py        road graph, closures, wet and dry surface, routing
     pit.py          blocks, drilling, charging, blasting, pushbacks, the short-term plan
     fleet.py        trucks, loaders, fuel station, the fixed dispatch plan
-    plant.py        dump points, crusher, conveyor, stockpile, mill, flotation, substation
+    plant.py        dump points, crusher, conveyor, stockpile, mill, flotation, ОФ-2, clay-ore stockpile, substation
     reliability.py  wear, failures, the workshop
     weather.py      air temperature and rain
     scenarios.py    what-if scenarios
@@ -267,6 +267,8 @@ class Simulation:
         # The shift's response resources (mine/sim/response.py).
         elif kind == "crusher" and subject == "expedite-repair":
             self.response.expedite_crusher()
+        elif kind == "clay-plant" and subject == "expedite-repair":
+            self.response.expedite_clay_plant()
         elif kind == "loader" and subject == "expedite-repair":
             self.response.expedite_loader(self.fleet.loaders[name])
         elif kind == "loader" and subject == "prioritise-repair":

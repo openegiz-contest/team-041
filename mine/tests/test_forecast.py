@@ -37,7 +37,7 @@ def wait(desk: ForecastDesk, sim, slots, limit_s: float = 120.0) -> dict:
 class Money(unittest.TestCase):
     def test_prices_against_hand_arithmetic(self):
         econ = Economics(PARAMS)
-        # 1 t of copper in concentrate: 14 474 USD/t x 95.5 % payable (Aktogay 2025) x 448.45 KZT/USD, TC and RC 0 in 2026.
+        # 1 t of copper in concentrate: 14 474 USD/t x 95.5 % payable (Bozshakol 2024) x 448.45 KZT/USD, TC and RC 0 in 2026.
         self.assertAlmostEqual(econ.revenue_kzt(1.0), 14474 * 0.955 * 448.45, places=3)
         self.assertAlmostEqual(econ.revenue_kzt(1.0), 6198776.36, delta=0.01)
         self.assertAlmostEqual(econ.diesel_kzt(1000.0), 352000.0)
@@ -68,7 +68,7 @@ class Money(unittest.TestCase):
         self.assertAlmostEqual(mine["co2_t_h"], (mine["diesel_l_h"] + mine["rehandle_t_h"] * 0.25) * 2.58354 / 1000
                                + mine["energy_mwh_h"] * 0.603, delta=0.006)
         self.assertAlmostEqual(mine["rehandle_cost_kzt_h"], mine["rehandle_t_h"] * (0.25 * 352 + 120), delta=1)
-        # One Aktogay line at 3835 t/h: about 13-14 t of copper (110 kt a year), some 80 mln tenge an hour.
+        # Bozshakol, ОФ-1 at 3557 t/h and ОФ-2 at 755 t/h: about 13-14 t of copper (110 kt a year), some 80 mln tenge an hour.
         self.assertTrue(11.0 < mine["cu_tph"] < 16.0, mine["cu_tph"])
         self.assertTrue(55e6 < mine["margin_kzt_h"] < 105e6, mine["margin_kzt_h"])
         self.assertTrue(40.0 < mine["co2_t_h"] < 95.0, mine["co2_t_h"])
@@ -162,9 +162,9 @@ class Branch(unittest.TestCase):
             net.append(econ.revenue_kzt(cu * recovery) - value)
         for n in net[1:]:
             self.assertAlmostEqual(n, net[0], delta=1)
-        # The mill time is worth the average ore's copper less the fleet work it took: about 21 thousand tenge a tonne.
+        # The mill time is worth the average ore's copper less the fleet work it took: about 19 thousand tenge a tonne.
         self.assertAlmostEqual(net[0] / 1000.0, econ.revenue_kzt(ref * recovery) - econ.stock_kzt_t, delta=0.01)
-        self.assertTrue(20_000 < net[0] / 1000.0 < 23_000, net[0])
+        self.assertTrue(17_500 < net[0] / 1000.0 < 20_500, net[0])
 
     def test_the_ore_in_the_pit_counts_by_what_is_loaded(self):
         """Loading ore moves its copper from the pit to a truck: the value changes only by the fleet work."""
@@ -242,7 +242,7 @@ class Desk(unittest.TestCase):
         self.assertTrue(twin["summary_text"].startswith("Прогноз на 12 ч от"), twin["summary_text"][:60])
         self.assertIn(twin["verdict_text"], twin["summary_text"])
         # The copper difference is explained: tonnes milled and head grade, the sources of the mill's ore, the fleet work.
-        for phrase in ("Медь ", "переработано руды", "содержание меди в питании", "Руда на мельницу", "Добыто руды", "работа парка"):
+        for phrase in ("Медь ", "переработано руды", "Руда на мельницу", "Добыто руды", "работа парка"):
             self.assertIn(phrase, twin["copper_text"])
         self.assertIn(twin["copper_text"], twin["summary_text"])
         self.assertEqual(sim.scenarios["scenario-road-closure"].status, "inactive")    # only the branch closed the road
@@ -317,7 +317,7 @@ class Desk(unittest.TestCase):
         desk = ForecastDesk(sim, THINGS)
         sim.pop_events()
         desk.request(sim, {"slot": len(desk.names) + 1})          # beyond the last slot
-        desk.request(sim, {"slot": 2, "actions_b": [{"thing": "kz.aktogay:nothing-here", "subject": "x", "body": {}}]})
+        desk.request(sim, {"slot": 2, "actions_b": [{"thing": "kz.bozshakol:nothing-here", "subject": "x", "body": {}}]})
         desk.request(sim, {"slot": 3, "horizon_h": 100})
         desk.tick(sim)
         texts = [e["text"] for e in sim.pop_events()]

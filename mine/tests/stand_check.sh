@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# End-to-end check of the running Aktogay mine slice stand (`make mine-check`):
+# End-to-end check of the running Bozshakol mine model stand (`make mine-check`):
 #   twins      every twin of the model exists in Ditto, every kind in the right number
 #   simulation the clock runs, trucks move, the plant works, the journal is written
 #   history    telemetry of a truck, a block and the mill reaches InfluxDB through Telegraf
@@ -303,7 +303,7 @@ round_trip road-closure   target                 status       '^closed$'        
 round_trip shovel-failure target                 state        '^down$'              '^(waiting|loading)$'
 round_trip crusher-stop   "$NS:crusher"          state        '^stopped$'           '^(running|idle|blocked)$'
 # Heavy rain closes the steep west ramp (10 %); the main ramp (8 %) stays open.
-round_trip heavy-rain     "$NS:road-segment-08"  status       '^closed$'            '^open$'
+round_trip heavy-rain     "$NS:road-segment-09"  status       '^closed$'            '^open$'
 valid="$(value "$NS:scenario-blast" valid_targets || true)"
 if [ -n "$valid" ]; then
   pass "blast targets offered: ${valid//$NS:/}"
@@ -311,7 +311,9 @@ else
   fail "scenario-blast offers no valid target (valid_targets is empty)"
 fi
 round_trip blast          "$NS:pit"              blast_state  '^clearing$'          '^idle$'
-round_trip hard-ore       "$NS:stockpile"        hardness_bwi '^(1[6-9]|2[0-9])'    '^1[0-5]([.]|$)'
+# A face turns out clay-rich: the scenario's card tells the chain; ОФ-2 stops and starts again.
+round_trip clay-face      "$NS:scenario-clay-face" impact_text '^Глинистая руда в забое' '^Сценарий не активен'
+round_trip clay-plant-stop "$NS:clay-plant"      state        '^stopped$'           '^(running|starting|idle)$'
 
 echo "Response resources"
 # The crusher jams: the scenario says when it is expected back and why; a second repair crew, sent as a live
@@ -465,7 +467,7 @@ elif [ "$(value "$NS:scenario-shovel-failure" status || true)" != inactive ] || 
 else
   # The failure is put on a loader at an ore face: that is the case the advisor has levers for.
   ore_loader=""
-  for l in loader-01 loader-02 loader-03 loader-04 loader-05; do
+  for l in loader-01 loader-02 loader-03 loader-04 loader-05 loader-06; do
     if [ "$(value "$NS:$l" material || true)" = ore ] && value "$NS:$l" state 2>/dev/null | grep -Eq '^(loading|waiting)$'; then
       ore_loader="$l"; break
     fi

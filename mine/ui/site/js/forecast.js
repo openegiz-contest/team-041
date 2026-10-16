@@ -54,6 +54,7 @@ export function readForecast(twin) {
     const total = num(`${x}_total_kzt`) ?? (typeof plain === 'number' && typeof adjust === 'number' ? plain + adjust : undefined);
     return { cu: num(`${x}_cu_t`), ore: num(`${x}_ore_t`), milled: num(`${x}_milled_t`), margin: plain, adjust, total,
       revenue, grade: num(`${x}_grade_kzt`), stockEnd: num(`${x}_stock_end_h`), overloads: num(`${x}_overloads`),
+      clayMilled: num(`${x}_clay_milled_t`), clayCu: num(`${x}_clay_cu_t`), toClayStock: num(`${x}_to_clay_stock_t`), ofs1Clay: num(`${x}_ofs1_clay_pct`),
       co2: num(`${x}_co2_t`), mill: parseSeries(f(`${x}_series_mill_tph`)), stockpile: parseSeries(f(`${x}_series_stockpile_pct`)) };
   };
   const a = branch('a');
@@ -85,6 +86,10 @@ export function readForecast(twin) {
       // The copper's own worth: the revenue less the copper above the mine's average grade that the stocks gave up.
       cuNet: typeof diff(a.revenue, b.revenue) === 'number' && typeof diff(a.grade, b.grade) === 'number' ? diff(a.revenue, b.revenue) + diff(a.grade, b.grade) : undefined,
       stockEnd: diff(a.stockEnd, b.stockEnd),
+      clayMilled: diff(a.clayMilled, b.clayMilled),
+      clayCu: diff(a.clayCu, b.clayCu),
+      toClayStock: diff(a.toClayStock, b.toClayStock),
+      ofs1Clay: diff(a.ofs1Clay, b.ofs1Clay),
       co2: num('delta_co2_t') ?? diff(a.co2, b.co2),
     },
   };
@@ -208,6 +213,10 @@ const ROWS = [
   ['cu', 'Медь в концентрате, т', (s) => s.cu, (v) => formatFixed(v, 1), (v) => formatDelta(v, 1), 'copper'],
   ['ore', 'Руда добыта, т', (s) => s.ore, (v) => formatFixed(v, 0), (v) => formatDelta(v, 0), 'up'],
   ['milled', 'Руда переработана, т', (s) => s.milled, (v) => formatFixed(v, 0), (v) => formatDelta(v, 0), 'up'],
+  ['clayMilled', 'Переработано на ОФ-2, т', (s) => s.clayMilled, (v) => formatFixed(v, 0), (v) => formatDelta(v, 0), 'up'],
+  ['clayCu', 'Медь ОФ-2 в концентрате, т', (s) => s.clayCu, (v) => formatFixed(v, 1), (v) => formatDelta(v, 1), ''],
+  ['toClayStock', 'Глинистая руда на склад, т', (s) => s.toClayStock, (v) => formatFixed(v, 0), (v) => formatDelta(v, 0), ''],
+  ['ofs1Clay', 'Глинистость питания ОФ-1, %', (s) => s.ofs1Clay, (v) => formatFixed(v, 1), (v) => formatDelta(v, 1), 'down'],
   ['stockEnd', 'Запас склада к концу, ч', (s) => s.stockEnd, (v) => formatFixed(v, 1), (v) => formatDelta(v, 1), 'up'],
   ['margin', 'Переменная маржа, млн ₸', (s) => s.margin, (v) => formatMillions(v), (v) => formatMillions(v, { sign: true }), ''],
   ['adjust', 'Поправка: запасы руды и вскрыша, млн ₸', (s) => s.adjust, (v) => formatMillions(v), (v) => formatMillions(v, { sign: true }), ''],
@@ -217,6 +226,9 @@ const ROWS = [
 const ROW_NOTES = {
   total: 'По этой цифре сравниваются варианты: маржа за срок прогноза плюс поправка на то, что срок оставляет следующей смене',
   cu: 'Цвет — по меди сверх той, что взята из запасов: богатая руда со склада даёт медь сейчас, но склад теряет столько же',
+  clayCu: 'Медь, полученная на фабрике глинистых руд ОФ-2 (входит в медь в концентрате выше)',
+  toClayStock: 'Сколько глинистой руды легло на её склад за срок прогноза (минус — взято со склада)',
+  ofs1Clay: 'Средняя глинистость руды в питании ОФ-1: глина снижает производительность мельницы и извлечение флотации',
   stockEnd: 'На сколько часов питания мельницы хватит склада дроблёной руды к концу срока, при уставке мельницы на тот момент',
   margin: 'Выручка за оплачиваемую медь минус затраты на дизельное топливо и электроэнергию за срок прогноза',
   adjust: 'Не деньги за срок прогноза, а задел на потом: руда везде оценена одинаково — медь сверх средней руды месторождения плюс работа парка, уже вложенная в добытую руду и снятую вскрышу, минус перевалка, которая ещё нужна руде на рудных складах',
@@ -433,9 +445,19 @@ export async function request({ key, holder, button, title, heading = `Прог�
   }
 }
 
-// The card that owns the open panel was rebuilt: the panel went with it.
-export function forget() {
-  if (active && !active.panel.isConnected) closePanel();
+// The card that owns the open panel was rebuilt (the page loads every twin
+// again when the model grows or the link comes back): the panel moves into the
+// new card, its request still open, so its answer is shown when it comes.
+// `holderOf(key)` finds the new card's place for it; without one it closes.
+export function forget(holderOf = null) {
+  if (!active || active.panel.isConnected) return;
+  const holder = holderOf?.(active.request.key);
+  if (!holder) { closePanel(); return; }
+  holder.append(active.panel);
+  active.request.holder = holder;
+  const button = holder.closest('.card')?.querySelector('.fc-open') ?? null;
+  active.request.button = button;
+  button?.setAttribute('aria-expanded', 'true');
 }
 
 export const openKey = () => active?.request.key ?? null;

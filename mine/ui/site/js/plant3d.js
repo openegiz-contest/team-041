@@ -7,7 +7,7 @@
 // each triangle naming the twin it belongs to, for picking.
 
 import * as THREE from 'three';
-import { byKind, first } from './store.js';
+import { byKind, first, twins, resolveRef } from './store.js';
 import { Builder, ribbon, densify, rgb, scale, mix, clamp, convexHull, centroid } from './geom3d.js';
 import { TEXTURE_MEAN } from './textures3d.js';
 import { plantLayout } from './plant.js';
@@ -81,13 +81,67 @@ function clad(b, cx, cy, z0, sx, sy, sz, wall, roof, { panel = 4, band = null, w
   }
 }
 
+// A state band round the top of a building: a frame of four strips (sx by sy, centre cx, cy, at z).
+function frame(b, cx, cy, z, sx, sy, w = 1.4) {
+  b.box(cx, cy - sy / 2 + w / 2, z, sx, w, 0.8, P.white);
+  b.box(cx, cy + sy / 2 - w / 2, z, sx, w, 0.8, P.white);
+  b.box(cx - sx / 2 + w / 2, cy, z, w, sy - 2 * w, 0.8, P.white);
+  b.box(cx + sx / 2 - w / 2, cy, z, w, sy - 2 * w, 0.8, P.white);
+}
+
 // A lattice pylon or lighting mast: a tapered beam with a head.
 function mast(b, x, y, z0, h, color = P.steel) {
   b.beam([x, y, z0], [x, y, z0 + h], 0.6, 0.6, color);
   b.box(x, y, z0 + h, 2.4, 0.6, 0.5, P.dark);
 }
 
-export function buildPlant({ L, terrain, detail }) {
+// A plant model seen from afar (more than a kilometre and a half away, where
+// it is a few dozen pixels): its silhouette in a few hundred triangles, in
+// the model's own axes (metres, Z up, origin as the model's). One draw call
+// instead of a dozen, lit like the rest of the plant.
+export function modelProxy(model) {
+  const b = new Builder();
+  const wall = rgb('#d3d6d2');
+  if (model === 'crusher') {
+    b.box(-15, 0, 0, 30, 34, 4.4, P.concrete);
+    b.quad([-8.2, -10.2, 4.45], [0.2, -10.2, 4.45], [0.2, 10.2, 4.45], [-8.2, 10.2, 4.45], scale(P.dark, 0.35), false, null, null, [0, 0, 1]);
+    clad(b, 16.4, 0, 0, 31.2, 24, 34, wall, P.roof, { panel: 6 });
+    b.box(-4.5, 0, 13.5, 10.5, 25, 2.7, P.roof);
+    b.box(22, -8, 0, 6, 4, 18, P.tank);
+  } else if (model === 'mill_hall') {
+    clad(b, 0, 0, 0, 160, 46, 30, wall, null, { panel: 8, noRoof: true });
+    for (const x of [-80, 80]) b.tri([x, -23, 30], [x, 23, 30], [x, 0, 37], wall, wall, wall, false, null, null, [Math.sign(x), 0, 0]);
+    b.quad([-81, -24.2, 29.6], [81, -24.2, 29.6], [81, 0, 38], [-81, 0, 38], P.roof, false, null, null, [0, -0.6, 1]);
+    b.quad([-81, 0, 38], [81, 0, 38], [81, 24.2, 29.6], [-81, 24.2, 29.6], P.roof, false, null, null, [0, 0.6, 1]);
+  } else if (model === 'flotation') {
+    b.box(0, 0, 0, 70, 22.4, 1.2, P.concrete);
+    for (const y of [-5.6, 5.6]) for (let i = 0; i < 7; i += 1) b.cylinder([(i - 3) * 9.43, y, 1.2], [(i - 3) * 9.43, y, 8.1], 3.6, P.tank, 10, P.froth);
+    b.box(0, 0, 8.6, 76, 2.6, 0.8, P.steel);
+  } else if (model === 'thickener_tailings' || model === 'thickener_concentrate') {
+    const r = model === 'thickener_tailings' ? 38 : 13;
+    b.cylinder([0, 0, 0], [0, 0, 5], r + 1.4, P.concrete, 32, P.water);
+    b.cylinder([0, 0, 0], [0, 0, 11], 2.5, P.clad, 8, P.roof);
+    b.box(0, 0, 5.3, 2 * r, 2, 1.2, P.steel);
+    b.box(r + 6, -4, 0, 6, 5, 4, P.cladWarm);
+  } else if (model === 'clay_plant') {
+    b.box(4, 2, 0, 110, 64, 0.3, scale(P.concrete, 0.85));
+    clad(b, 0, 0, 0.3, 64, 30, 20, P.cladWarm, P.roof, { panel: 8 });
+    clad(b, -41, -4, 0.3, 18, 18, 10, P.clad, rgb('#2f5878'), { panel: 6 });
+    b.box(42, -2, 0, 9, 9, 19, P.steel);
+    for (let i = 0; i < 5; i += 1) b.cylinder([-18 + i * 6.6, 22, 0], [-18 + i * 6.6, 22, 6], 2.5, P.tank, 8, P.froth);
+    for (const x of [-38, -20]) b.cylinder([x, 20, 0], [x, 20, 10], 4.5, P.tank, 10, P.tank);
+    b.beam([0, -15, 18], [0, -62, 2], 3.2, 3, P.clad);
+  }
+  return b;
+}
+
+// `models`: the ids of the Blender models that are loaded (gltf3d.js). Where
+// one stands for a piece of the plant (the crusher, the mill hall, the
+// flotation, the thickeners, the conveyor, the clay-ore plant), that piece is
+// not built here: its placement is returned in `placements` for the scene to
+// draw the model there, and the units take the model's anchors.
+export function buildPlant({ L, terrain, detail, models = null }) {
+  const has = (id) => Boolean(models?.has(id));
   const opaque = new Builder();
   const glass = new Builder();
   const win = new Builder();
@@ -100,13 +154,15 @@ export function buildPlant({ L, terrain, detail }) {
   const pos = layout.pos;
   const placeOf = (twin) => (twin ? pos.get(twin.thingId) ?? (typeof twin.attributes?.geo?.x === 'number' ? twin.attributes.geo : null) : null);
   const put = (local, x, y, angle, tag, z = groundZ(x, y)) => opaque.append(local, angle, L(x, y, z), tag);
-  const out = { units, lamps, opaque, glass, win, water, bands, stockpile: null, belt: null, hallAnchor: null, places: [] };
+  const out = { units, lamps, opaque, glass, win, water, bands, stockpile: null, belt: null, hallAnchor: null, places: [], placements: [], conveyorDeck: null, crusherBays: null };
+  // A point of a model placed at (x, y) and turned by `angle`: its local (lx, ly) in the mine grid.
+  const at = (x, y, angle, lx, ly) => [x + Math.cos(angle) * lx - Math.sin(angle) * ly, y + Math.sin(angle) * lx + Math.cos(angle) * ly];
 
   // -- the crusher --------------------------------------------------------------
   const crusher = first('crusher');
   const atCrusher = placeOf(crusher);
   if (atCrusher) {
-    // The dump pocket faces the road the trucks come by.
+    // The dump pocket faces the road the trucks come by: its access node, else the nearest point of a road.
     let toward = { x: atCrusher.x - 60, y: atCrusher.y };
     let best = Infinity;
     for (const segment of byKind('road-segment')) {
@@ -115,7 +171,33 @@ export function buildPlant({ L, terrain, detail }) {
         if (d < best && d > 15) { best = d; toward = { x: p[0], y: p[1] }; }
       }
     }
+    const access = twins.get(resolveRef(crusher.attributes?.links?.access_node))?.attributes?.geo;
+    if (typeof access?.x === 'number' && Math.hypot(access.x - atCrusher.x, access.y - atCrusher.y) > 15) toward = { x: access.x, y: access.y };
     const angle = Math.atan2(toward.y - atCrusher.y, toward.x - atCrusher.x) + Math.PI;  // local -x to the road
+    if (has('crusher')) {
+      // The model's dump pocket faces the road the trucks come by. Its two bays are at local
+      // x = -15.5, y = -5 and +5 (a truck's centre, its tail over the hopper): the model stands
+      // with the bays at the end of the road and the building behind them.
+      const ox = toward.x + Math.cos(angle) * 15.5;
+      const oy = toward.y + Math.sin(angle) * 15.5;
+      const z = groundZ(ox, oy);
+      out.placements.push({ model: 'crusher', id: crusher.thingId, x: ox, y: oy, z, angle, owners: {} });
+      out.crusherBays = [-5, 5].map((ly) => {
+        const [bx, by] = at(ox, oy, angle, -15.5, ly);
+        return { x: bx, y: by, z, angle };
+      });
+      // The scene lifts the models 0.3 m off the ground; the hopper, sunk below it, shows as a dark void.
+      const hole = new Builder();
+      hole.quad([-8.2, -10.2, 0.22], [0.2, -10.2, 0.22], [0.2, 10.2, 0.22], [-8.2, 10.2, 0.22], scale(P.dark, 0.35), false, null, null, [0, 0, 1]);
+      put(hole, ox, oy, angle, crusher.thingId, z);
+      const [cx, cy] = at(ox, oy, angle, 16, 0);
+      units.set(crusher.thingId, { at: { x: cx, y: cy, z: z + 38 }, r: 30, base: z });
+      const band = new Builder();
+      frame(band, 16.4, 0, 34.6, 31.8, 24.8);
+      bands.push({ id: crusher.thingId, builder: band, angle, at: L(ox, oy, z) });
+      lamps.push([...at(ox, oy, angle, -20, 0), z + 18], [...at(ox, oy, angle, 20, 14), z + 34]);
+      out.places.push([ox, oy]);
+    } else {
     const b = new Builder();
     const w = new Builder();
     clad(b, 6, 0, 0, 22, 20, 12, P.concrete, P.concrete, { panel: 6 });             // concrete base
@@ -140,6 +222,7 @@ export function buildPlant({ L, terrain, detail }) {
     bands.push({ id: crusher.thingId, builder: band, angle, at: L(atCrusher.x, atCrusher.y, z) });
     lamps.push([atCrusher.x - 20, atCrusher.y, z + 18], [atCrusher.x + 20, atCrusher.y + 14, z + 34]);
     out.places.push([atCrusher.x, atCrusher.y]);
+    }
   }
 
   // -- the conveyor --------------------------------------------------------------
@@ -166,8 +249,11 @@ export function buildPlant({ L, terrain, detail }) {
     });
     const g = new Builder();
     const topRibbon = [];
+    // With the model of the truss the scene tiles it along the deck; only the ore stripe is built here.
+    if (has('conveyor')) out.conveyorDeck = deck;
     for (let i = 1; i < deck.length; i += 1) {
       const a = deck[i - 1]; const c = deck[i];
+      if (out.conveyorDeck) { topRibbon.push([a[0], a[1], a[2] + 0.45]); continue; }
       const dx = c[0] - a[0]; const dy = c[1] - a[1];
       const len = Math.hypot(dx, dy) || 1;
       const nx = (-dy / len) * 1.25; const ny = (dx / len) * 1.25;
@@ -199,7 +285,7 @@ export function buildPlant({ L, terrain, detail }) {
     }
     const last = deck[deck.length - 1];
     topRibbon.push([last[0], last[1], last[2] + 0.45]);
-    opaque.append(g, 0, [0, 0, 0], belt.thingId);
+    if (g.triangles) opaque.append(g, 0, [0, 0, 0], belt.thingId);
     // The ore on the belt: a stripe in the colour of ore while it runs.
     const stripe = new Builder();
     ribbon(stripe, topRibbon.map(([x, y, z]) => L(x, y, z)), 1.5, P.white, 0, false);
@@ -241,6 +327,35 @@ export function buildPlant({ L, terrain, detail }) {
     const cx = (a.x + c.x) / 2; const cy = (a.y + c.y) / 2;
     const length = span + 70; const width = 46; const height = 30;
     const z = groundZ(cx, cy);
+    if (has('mill_hall')) {
+      // The model's SAG mill stands at local x = -45, its ball mills at 15 and 42: the middle
+      // of the SAG and the ball mills goes to the middle of their twins.
+      const ox = cx + ux * 8.25; const oy = cy + uy * 8.25;
+      const zo = groundZ(ox, oy);
+      const circuitId = circuit?.thingId ?? sag?.thingId ?? ball?.thingId;
+      const sagId = sag?.thingId ?? circuitId; const ballId = ball?.thingId ?? circuitId;
+      out.placements.push({ model: 'mill_hall', id: circuitId, x: ox, y: oy, z: zo, angle,
+        owners: { hall: circuitId, roof: circuitId, crane: circuitId, sag_mill: sagId, sag_shell: sagId, ball_mill_1: ballId, ball_shell_1: ballId, ball_mill_2: ballId, ball_shell_2: ballId },
+        turning: { sag_shell: sag?.thingId ?? circuitId, ball_shell_1: ball?.thingId ?? circuitId, ball_shell_2: ball?.thingId ?? circuitId } });
+      // The mills' captions and panels stay where their twins are (within the hall, a few metres
+      // from the model's mills), so they are laid out as before.
+      const millAt = (twin, where, lx, dia, len, offsets) => {
+        if (!twin) return;
+        const [mx, my] = at(ox, oy, angle, lx, 0);
+        const band = new Builder();
+        for (const off of offsets) band.box(off, 0, 38.6, dia + 4, 2.9, 0.7, P.white);
+        bands.push({ id: twin.thingId, builder: band, angle, at: L(mx, my, zo), roof: true });
+        const p = where ?? { x: mx, y: my };
+        units.set(twin.thingId, { at: { x: p.x, y: p.y, z: zo + dia + 8 }, r: Math.max(dia, len) / 2 + 6, base: zo, rotating: true });
+      };
+      millAt(sag, atSag, -45, 12.2, 7.9, [0]);
+      millAt(ball, atBall, 28.5, 8.5, 13.4, [-13.5, 13.5]);
+      if (circuit) units.set(circuit.thingId, { at: { x: ox, y: oy, z: zo + 44 }, r: 82, base: zo });
+      out.hallAnchor = { x: ox, y: oy, z: zo + 36, corners: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => [ox + ux * i * 80 - uy * j * 23, oy + uy * i * 80 + ux * j * 23]) };
+      for (const i of [-1, 1]) lamps.push([ox + ux * i * 80, oy + uy * i * 80, zo + 32]);
+      out.places.push([ox, oy]);
+      out.hallAngle = angle;
+    } else {
     // Walls: a concrete plinth, light profiled cladding with two bands of
     // windows, gable ends; a pitched metal roof with eaves, a ridge vent and
     // strips of roof lights (they glow at night, as the hall is lit inside).
@@ -307,13 +422,24 @@ export function buildPlant({ L, terrain, detail }) {
     for (const i of [-1, 1]) lamps.push([cx + ux * i * length / 2, cy + uy * i * length / 2, z + height + 2]);
     out.places.push([cx, cy]);
     out.hallAngle = angle;
+    }
   }
 
   // -- flotation ---------------------------------------------------------------------
   const flotation = first('flotation');
   const atFlot = placeOf(flotation);
   const angle = out.hallAngle ?? 0;
-  if (atFlot) {
+  if (atFlot && has('flotation')) {
+    const z = groundZ(atFlot.x, atFlot.y);
+    out.placements.push({ model: 'flotation', id: flotation.thingId, x: atFlot.x, y: atFlot.y, z, angle, owners: {} });
+    // The state band: a ring round the top of every cell (two rows of seven, 9.43 m apart).
+    const band = new Builder();
+    for (const y of [-5.6, 5.6]) for (let i = 0; i < 7; i += 1) band.cylinder([(i - 3) * 9.43, y, 7.45], [(i - 3) * 9.43, y, 8.05], 3.78, P.white, 16, P.white, false);
+    bands.push({ id: flotation.thingId, builder: band, angle, at: L(atFlot.x, atFlot.y, z) });
+    units.set(flotation.thingId, { at: { x: atFlot.x, y: atFlot.y, z: z + 20 }, r: 40, base: z });
+    lamps.push([atFlot.x, atFlot.y, z + 17]);
+    out.places.push([atFlot.x, atFlot.y]);
+  } else if (atFlot) {
     const z = groundZ(atFlot.x, atFlot.y);
     const f = new Builder();
     const band = new Builder();
@@ -347,7 +473,8 @@ export function buildPlant({ L, terrain, detail }) {
     units.set(flotation.thingId, { at: { x: atFlot.x, y: atFlot.y, z: z + 20 }, r: 40, base: z });
     lamps.push([atFlot.x, atFlot.y, z + 17]);
     out.places.push([atFlot.x, atFlot.y]);
-
+  }
+  if (atFlot) {
     // The tailings thickener, between the flotation and the pond.
     const pond = first('tailings')?.attributes?.geo;
     const pc = pond?.polygon ? areaCentroid(pond.polygon) : { x: atFlot.x, y: atFlot.y + 400 };
@@ -360,6 +487,13 @@ export function buildPlant({ L, terrain, detail }) {
 
   function thickener(x, y, r, tag) {
     const z = groundZ(x, y);
+    const model = r > 20 ? 'thickener_tailings' : 'thickener_concentrate';
+    if (has(model)) {
+      out.placements.push({ model, id: tag, x, y, z, angle: 0.6, owners: {}, turning: { rake: tag } });
+      lamps.push([x, y, z + 12]);
+      out.places.push([x, y]);
+      return;
+    }
     const t = new Builder();
     t.cylinder([0, 0, 0], [0, 0, 5], r, P.concrete, 40, P.concrete, false, r, true);
     t.cylinder([0, 0, 4.2], [0, 0, 5.4], r + 1.4, scale(P.concrete, 1.08), 40, P.concrete, false, r + 1.4, true);   // overflow launder
@@ -460,6 +594,63 @@ export function buildPlant({ L, terrain, detail }) {
       opaque.append(pipe, 0, [0, 0, 0], tailings.thingId);
     }
     units.set(tailings.thingId, { at: { x: c.x, y: c.y, z: zPond + 4 }, r: 40, base: zPond });
+  }
+
+  // -- the clay-ore plant (ОФ-2) -------------------------------------------------------
+  // Its building with the desliming cyclones and the flotation cells, the feed
+  // conveyor gallery turned towards the feed stockpile where the trucks tip.
+  const clay = first('clay-plant');
+  const clayGeo = clay?.attributes?.geo;
+  if (clay && typeof clayGeo?.x === 'number') {
+    const z = groundZ(clayGeo.x, clayGeo.y);
+    const spec = clay.attributes?.spec ?? {};
+    const feed = clayGeo.polygon?.length >= 3 ? centroid(clayGeo.polygon) : { x: spec.tip_x ?? clayGeo.x, y: spec.tip_y ?? clayGeo.y - 100 };
+    const dx = feed.x - clayGeo.x; const dy = feed.y - clayGeo.y;
+    const angle = Math.hypot(dx, dy) > 1 ? Math.atan2(dx, -dy) : 0;            // local -y towards the feed stockpile
+    const desliming = first('desliming');
+    const cells = first('clay-flotation');
+    if (has('clay_plant')) {
+      out.placements.push({ model: 'clay_plant', id: clay.thingId, x: clayGeo.x, y: clayGeo.y, z, angle, owners: {} });
+    } else {
+      const b = new Builder();
+      const w = new Builder();
+      clad(b, 0, 0, 0, 64, 30, 20, P.cladWarm, P.roof, { panel: 3.4, band: [6, 8], win: w });
+      clad(b, -41, -4, 0, 18, 18, 10, P.clad, P.roof, { panel: 3, band: [4, 5.5], win: w });
+      // The cyclone tower with its ten cyclones.
+      b.box(42, -2, 0, 9, 9, 16, P.steel);
+      for (let i = 0; i < 10; i += 1) {
+        const a = (i / 10) * Math.PI * 2;
+        const cx = 42 + Math.cos(a) * 2.6; const cy = -2 + Math.sin(a) * 2.6;
+        b.cylinder([cx, cy, 16], [cx, cy, 19.5], 0.5, P.white, 8, P.white);
+      }
+      // Five flotation cells in front of the building, the feed gallery to the stockpile.
+      for (let i = 0; i < 5; i += 1) b.cylinder([-18 + i * 6.6, 22, 0], [-18 + i * 6.6, 22, 6], 2.5, P.tank, 14, P.froth, false, 2.5, true);
+      b.beam([0, -15, 18], [0, -62, 2], 3.2, 3, P.clad);
+      opaque.append(b, angle, L(clayGeo.x, clayGeo.y, z), clay.thingId);
+      win.append(w, angle, L(clayGeo.x, clayGeo.y, z), clay.thingId);
+    }
+    const anchor = (twin, lx, ly, top, r) => {
+      if (!twin) return;
+      const [ax, ay] = at(clayGeo.x, clayGeo.y, angle, lx, ly);
+      units.set(twin.thingId, { at: { x: ax, y: ay, z: z + top }, r, base: z });
+    };
+    anchor(clay, 0, 0, 28, 40);
+    anchor(desliming, 42, -2, 24, 12);
+    anchor(cells, -6, 22, 12, 18);
+    const band = new Builder();
+    frame(band, 0, 0, 20.1, 64.4, 30.4);
+    bands.push({ id: clay.thingId, builder: band, angle, at: L(clayGeo.x, clayGeo.y, z) });
+    lamps.push([clayGeo.x, clayGeo.y, z + 26]);
+    // (Not in out.places: the gravel apron is round the units of ОФ-1; the model brings its own slab.)
+  }
+  // The clay-ore stockpile (drawn by the scene like a ROM pad): its captions and panel over its middle.
+  for (const pile of byKind('clay-stockpile')) {
+    const polygon = pile.attributes?.geo?.polygon;
+    if (!polygon?.length) continue;
+    const c = centroid(polygon);
+    const r = Math.max(...polygon.map(([x, y]) => Math.hypot(x - c.x, y - c.y)));
+    const z = groundZ(c.x, c.y);
+    units.set(pile.thingId, { at: { x: c.x, y: c.y, z: z + 14 }, r: Math.min(60, r * 0.4), base: z });
   }
 
   // -- services -----------------------------------------------------------------------

@@ -1,10 +1,12 @@
-"""Sizing of the fleet from the concentrator line.
+"""Sizing of the fleet from the two plants.
 
-The line takes ore at its operating rate (KAZ Minerals, Sulphide 1, 2025);
-with every tonne of it the pit also yields low-grade ore and waste in the
-proportions of KAZ Minerals' reports. Each loader's face is given the rate
-it must deliver, and its trucks follow from the cycle the model computes for
-that face on the roads as built:
+ОФ-1 and ОФ-2 take ore at their operating rates (KAZ Minerals, 2024); with
+every tonne of it the pit also yields low-grade (sub-economic) ore and waste,
+together `geology.design_strip_ratio` tonnes (the 2014 design). Each loader's
+face is given the rate it must deliver (the sulphide faces share the ОФ-1 ore
+and the low-grade ore, the clay faces the ОФ-2 ore, the waste faces the
+waste), and its trucks follow from the cycle the model computes for that face
+on the roads as built:
 
     trucks at a face = rate x (1 + reserve) x cycle / 60 / (payload x availability x use of availability)
 
@@ -53,15 +55,19 @@ def design_basis(world: dict | None = None, params: dict | None = None) -> dict:
     sim = Simulation(build_things(world, params), world, params)
     plan, truck, geo = params["plan"], params["truck"], params["geology"]
     mill_tph = params["mill"]["design_tph"]
-    low_tph = mill_tph * geo["low_grade_share"]
-    waste_tph = (mill_tph + low_tph) * geo["strip_ratio"]
-    rock_tph = mill_tph + low_tph + waste_tph
+    clay_tph = params["clay_plant"]["design_tph"]
+    low_tph = (mill_tph + clay_tph) * geo["low_grade_share"]
+    rock_tph = (mill_tph + clay_tph) * (1.0 + geo["design_strip_ratio"])
+    waste_tph = rock_tph - mill_tph - clay_tph - low_tph
     faces = face_cycles(sim)
-    ore_faces = [n for n, f in faces.items() if f["material"] != "waste"]
+    ore_faces = [n for n, f in faces.items() if f["material"] not in ("waste", "clay")]
+    clay_faces = [n for n, f in faces.items() if f["material"] == "clay"]
     waste_faces = [n for n, f in faces.items() if f["material"] == "waste"]
-    # The ore faces share the ore and the low-grade ore, the waste faces the waste.
+    # The sulphide faces share the ОФ-1 ore and the low-grade ore, the clay faces the ОФ-2 ore, the waste faces the waste.
     for name in ore_faces:
         faces[name]["rate_tph"] = (mill_tph + low_tph) / len(ore_faces)
+    for name in clay_faces:
+        faces[name]["rate_tph"] = clay_tph / len(clay_faces)
     for name in waste_faces:
         faces[name]["rate_tph"] = waste_tph / len(waste_faces)
     per_truck_tph = lambda cycle_s: truck["payload_t"] * 3600.0 / cycle_s * plan["availability"] * plan["use_of_availability"]
@@ -79,10 +85,11 @@ def design_basis(world: dict | None = None, params: dict | None = None) -> dict:
     journeys = HOURS_PER_YEAR * plan["availability"] * plan["use_of_availability"] * 3600.0 / cycle_s
     return {
         "mill_tph": mill_tph,
+        "clay_tph": clay_tph,
         "low_grade_tph": low_tph,
         "waste_tph": waste_tph,
         "rock_tph": rock_tph,
-        "ore_share": (mill_tph + low_tph) / rock_tph,
+        "ore_share": (mill_tph + clay_tph + low_tph) / rock_tph,
         "faces": faces,
         "allocation": allocation,
         "trucks": trucks,
@@ -91,10 +98,10 @@ def design_basis(world: dict | None = None, params: dict | None = None) -> dict:
         "journeys_per_truck": journeys,
         "yearly_rock_mt": yearly_rock_t / 1e6,
         "shovels": math.ceil(yearly_rock_t / (plan["shovel_rate_mtpa"] * 1e6) - 1e-9),
-        "ore_faces": round(len(world["loaders"]) * (mill_tph + low_tph) / rock_tph),
+        "ore_faces": round(len(world["loaders"]) * (mill_tph + clay_tph + low_tph) / rock_tph),
         "drill_metres_per_year": metres,
         "drills": math.ceil(metres / per_rig_m - 1e-9),
-        "annual_ore_mt": mill_tph * HOURS_PER_YEAR * plan["plant_availability"] / 1e6,
+        "annual_ore_mt": (mill_tph + clay_tph) * HOURS_PER_YEAR * plan["plant_availability"] / 1e6,
     }
 
 
@@ -103,7 +110,7 @@ def main() -> None:
     plan, truck, mill = params["plan"], params["truck"], params["mill"]
     world = load_world(params=params)
     d = design_basis(world, params)
-    print(f"line No. 1 at work            {d['mill_tph']:.0f} t/h x 8760 h x {plan['plant_availability']} = {d['annual_ore_mt']:.2f} Mt/yr")
+    print(f"ОФ-1 + ОФ-2 at work           ({d['mill_tph']:.0f} + {d['clay_tph']:.0f}) t/h x 8760 h x {plan['plant_availability']} = {d['annual_ore_mt']:.2f} Mt/yr")
     print(f"low-grade ore / waste         {d['low_grade_tph']:.0f} / {d['waste_tph']:.0f} t/h; rock {d['rock_tph']:.0f} t/h "
           f"(params: {plan['rock_tph']}), {d['yearly_rock_mt']:.1f} Mt/yr")
     print(f"per truck                     {truck['payload_t']} t x {plan['availability']} x {plan['use_of_availability']} per cycle")

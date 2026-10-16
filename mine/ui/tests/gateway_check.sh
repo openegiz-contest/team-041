@@ -11,7 +11,7 @@
 #   - the namespace of the twins comes from the gateway's /config.json
 #     (MINE_NAMESPACE in mine/compose.yml): messages and history are allowed
 #     for the namespaces it names and refused for any other;
-#   - the page's link opens the Grafana dashboard «Актогай — история» without a
+#   - the page's link opens the Grafana dashboard «Бозшаколь — история» without a
 #     login; a visitor may read it and query the history, but not save, delete,
 #     write an annotation, take a snapshot, use the admin API, enter the
 #     platform's organisation, use the OpenEgiz app's proxy to Ditto, or write
@@ -147,8 +147,8 @@ G="http://127.0.0.1:${GRAFANA_PORT:-3000}"
 location=$(curl -s -o /dev/null -m 15 -w '%{redirect_url}' "$UI/grafana")
 if [[ "$location" == */d/aktogay-history ]]; then pass "the page's link leads to the dashboard ($location)"; else fail "the page's link leads to «$location»"; fi
 meta=$(curl -s -m 15 "$G/api/dashboards/uid/aktogay-history")
-if [[ "$meta" == *'"title":"Актогай — история"'* && "$meta" == *'"canSave":false'* && "$meta" == *'"canEdit":false'* ]]; then
-  pass "a visitor without a login reads «Актогай — история» and may not save or edit it"
+if [[ "$meta" == *'"title":"Бозшаколь — история"'* && "$meta" == *'"canSave":false'* && "$meta" == *'"canEdit":false'* ]]; then
+  pass "a visitor without a login reads «Бозшаколь — история» and may not save or edit it"
 else
   fail "a visitor without a login does not get the dashboard: ${meta:0:160}"
 fi

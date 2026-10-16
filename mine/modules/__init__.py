@@ -1,4 +1,4 @@
-"""The decision modules of the Aktogay mine slice.
+"""The decision modules of the Bozshakol mine model.
 
 Each module is a service of its own (compose services `mine-dispatch`,
 `mine-grade`, `mine-plant`, `mine-maint`, `mine-advisor`) built from two parts:

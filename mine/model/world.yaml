@@ -1,21 +1,25 @@
-# A slice of the Aktogay copper mine (KAZ Minerals, Abai Region): part of the
-# open pit and the sulphide concentrator line No. 1. Geometry, topology, names
-# and initial state; equipment and process numbers live in params.yaml, the
-# pit geometry is built from this description by mine/model/layout.py.
+# A simplified model of the whole Bozshakol copper mine (KAZ Minerals, Pavlodar
+# Region, 73 km west of Ekibastuz): the open pit, the sulphide concentrator
+# ОФ-1 and the clay-ore plant ОФ-2. Geometry, topology, names and initial
+# state; equipment and process numbers live in params.yaml, the pit geometry
+# is built from this description by mine/model/layout.py.
 #
 # Coordinates are metres on the local mine grid: x grows east, y grows north,
-# z is the elevation above sea level. build_twins.py turns this file into the
-# Ditto things; the simulator and the modules read the things, never this
-# file, so nothing here is typed twice.
+# z is the elevation of the pit marks (the +40 m mark lies 190 m below the
+# surface, so the surface is at about +230 m). build_twins.py turns this file
+# into the Ditto things; the simulator and the modules read the things, never
+# this file, so nothing here is typed twice.
 #
 # The layout is a model: KAZ Minerals publishes no pit survey, haul distances
-# or site coordinates (docs/mine/parameters.md, group «Карьер»). Where a public
+# or plant positions (docs/mine/parameters.md, group «Карьер»). The pit's plan
+# size (4,070 × 880 m at the top) and the stages of its deepening come from the
+# 2023 application for the mining allocation (ecoportal 29174); where a public
 # figure exists it is used and named in params.yaml.
 
 # The namespace of every twin. The environment variable MINE_NAMESPACE, when
 # set, takes precedence (mine/model/build_twins.py, load_world), so that the
 # page and the services read one setting.
-namespace: kz.aktogay
+namespace: kz.bozshakol
 policy: default:basic_policy
 
 clock:
@@ -29,72 +33,83 @@ clock:
   extra_blast_times: ["16:30"]
 
 mine:
-  name: "Актогай — модель участка карьера и сульфидной линии №1"
-  surface_z: 375
-  boundary: [[-1700, -1800], [6600, -1800], [6600, 1900], [-1700, 1900]]
+  name: "Бозшаколь — модель рудника: карьер, сульфидная фабрика ОФ-1 и глинистая фабрика ОФ-2 (упрощённо)"
+  surface_z: 230
+  boundary: [[-2600, -2400], [3400, -2400], [3400, 4800], [-2600, 4800]]
   about:
-    object: "Медный рудник Актогай (KAZ Minerals), Абайская область, Казахстан: часть карьера и сульфидная обогатительная линия №1 (Sulphide 1)"
-    slice: "Парк этого участка возит руду на одну линию; вторую линию (Sulphide 2) и её забои модель не воспроизводит"
-    data_basis: "Производительность, содержание и извлечение — отчёт KAZ Minerals о добыче за 2025 год (Sulphide 1: 30,9 млн т руды, 0,41 % Cu, извлечение 87,2 %); дробилка, мельницы, конвейер и модели техники — обзор проектов KAZ Minerals 2014 года; климат — нормы NOAA 1991–2020 по станции Актогай; коэффициент вскрыши — расчёт по отчётам KAZ за 2024 год. Источник каждого числа — docs/mine/parameters.md"
-    disclaimer: "Модель построена по открытым данным; геометрия карьера, расстановка забоев и состояние техники условны. Проект не связан с KAZ Minerals и не использует её внутренних данных"
+    object: "Модель рудника Бозшаколь: карьер, сульфидная фабрика ОФ-1 и глинистая фабрика ОФ-2 (упрощённо). Медный рудник KAZ Minerals в Павлодарской области Казахстана, в 73 км к западу от Экибастуза"
+    slice: "Упрощения: карьер — по размерам 2023 года (4070 × 880 м), с шестью рабочими уступами, остальные уступы — борта; фабрики — на производительности 2024 года (ОФ-1 3557 т/ч, ОФ-2 755 т/ч, вместе 34,7 млн т в год); горная масса — по проектному коэффициенту 0,7 т на тонну руды (59 млн т в год, план горных работ 2024 года — 60,4 млн т); глубина карьера, положение фабрик и дорог условны"
+    data_basis: "Производительность, содержание и извлечение — отчёты KAZ Minerals о добыче за 2024 год (переработано 34,8 млн т руды, 0,40 % Cu, извлечение 78,1 %; добыто глинистой руды 6,1 млн т) и разрешения на эмиссии ОФ-1 и ОФ-2 (28 и 7 млн т в год); дробилка, мельницы, конвейер, коэффициент вскрыши 0,7 и модели техники — обзор проектов KAZ Minerals 2014 года; размеры карьера — заявление о намечаемой деятельности 2023 года; климат — нормы 1991–2020 станции Экибастуз. Извлечение ОФ-2 и пороги глинистости не опубликованы: это допущения модели. Источник каждого числа — docs/mine/parameters.md"
+    disclaimer: "Модель построена по открытым данным; геометрия карьера, положение фабрик, расстановка забоев и состояние техники условны. Проект не связан с KAZ Minerals и не использует её внутренних данных"
     operator: "KAZ Minerals (Nova Resources B.V.)"
 
-# The pit. The rim is an ellipse around `centre`; benches and their floors
+# The pit. The rim is a stadium (two half-circles joined by straight walls)
+# of the size of the Bozshakol pit top in 2023; benches and their floors
 # follow from params.yaml (`drill.bench_height_m`, `pit.face_angle_deg`,
 # `pit.berm_m`). `working` lists the benches where a pushback is under way:
 # their floor is widened by `sector.width_m` over an arc of the wall
 # (`centre_deg` ± `core_deg`, fading out over `taper_deg`; angles count
-# counter-clockwise from east on the rim ellipse), and the blast blocks sit on
-# it. The lowest bench is the pit floor; its blocks form a straight grid.
+# counter-clockwise from the east end, evenly along the rim: 90° is the middle
+# of the north wall, 180° the west end, 270° the middle of the south wall),
+# and the blast blocks sit on it. The lowest bench is the pit floor; its
+# blocks form a straight grid.
 pit:
-  name: "Карьер Актогай (участок модели)"
+  name: "Карьер Бозшаколь"
   centre: [0, 0]
-  rim_z: 375
-  floor_z: 120
-  rim: {ellipse: {a: 1150, b: 700}}
+  rim_z: 230
+  floor_z: 5
+  rim: {stadium: {length: 4070, width: 880}}
   working:
-    - elevation_m: 300
-      name: "Уступ 300 м (разноска юго-восточного борта)"
+    - elevation_m: 215
+      name: "Уступ 215 м (разноска восточного торца, вскрыша)"
       access_node: road-node-02
       grade_trend: -3.0
-      sector: {centre_deg: -45, core_deg: 18, taper_deg: 14, width_m: 130}
-      blocks: {start_deg: -63, direction: ccw, columns: 5, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
-               initial: [{status: mining, remaining_pct: 55}, blasted, charged, drilled, insitu, insitu, insitu, insitu, insitu, insitu]}
-    - elevation_m: 240
-      name: "Уступ 240 м (южный борт)"
-      access_node: road-node-03
-      grade_trend: 0.4
-      sector: {centre_deg: -92, core_deg: 12, taper_deg: 14, width_m: 130}
-      blocks: {start_deg: -80, direction: cw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
-               initial: [{status: mining, remaining_pct: 70}, blasted, drilled, insitu, insitu, insitu, insitu, insitu]}
-    - elevation_m: 195
-      name: "Уступ 195 м (юго-западный борт)"
-      access_node: road-node-04
+      sector: {centre_deg: 14, core_deg: 10, taper_deg: 6, width_m: 130}
+      blocks: {start_deg: 4, direction: ccw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
+               initial: [{status: mining, remaining_pct: 55}, blasted, charged, drilled, insitu, insitu, insitu, insitu]}
+    - elevation_m: 200
+      name: "Уступ 200 м (западный торец, каолинизированная руда)"
+      access_node: road-node-09
       grade_trend: 0.8
-      sector: {centre_deg: -130, core_deg: 18, taper_deg: 14, width_m: 130}
-      blocks: {start_deg: -112, direction: cw, columns: 5, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
-               initial: [{status: mining, remaining_pct: 40}, blasted, charged, insitu, insitu, insitu, insitu, insitu, insitu, insitu]}
-    - elevation_m: 150
-      name: "Уступ 150 м (южный борт)"
-      access_node: road-node-05
+      sector: {centre_deg: 198, core_deg: 10, taper_deg: 6, width_m: 130}
+      blocks: {start_deg: 189, direction: ccw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
+               initial: [blasted, {status: mining, remaining_pct: 85}, drilled, insitu, insitu, insitu, insitu, insitu]}
+    - elevation_m: 155
+      name: "Уступ 155 м (юго-западный борт, вскрыша)"
+      access_node: road-node-08
+      grade_trend: -3.0
+      sector: {centre_deg: 224, core_deg: 10, taper_deg: 6, width_m: 130}
+      blocks: {start_deg: 213, direction: ccw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
+               initial: [{status: mining, remaining_pct: 60}, blasted, insitu, insitu, insitu, insitu, insitu, insitu]}
+    - elevation_m: 140
+      name: "Уступ 140 м (северный борт)"
+      access_node: road-node-03
       grade_trend: 0.6
-      sector: {centre_deg: -95, core_deg: 12, taper_deg: 14, width_m: 130}
-      blocks: {start_deg: -81, direction: cw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
-               initial: [{status: mining, remaining_pct: 85}, blasted, drilled, insitu, insitu, insitu, insitu, insitu]}
-    - elevation_m: 120
-      name: "Дно карьера, горизонт 120 м"
-      access_node: road-node-07
-      grade_trend: 3.0
+      sector: {centre_deg: 52, core_deg: 10, taper_deg: 6, width_m: 130}
+      blocks: {start_deg: 44, direction: ccw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
+               initial: [{status: mining, remaining_pct: 70}, blasted, drilled, insitu, insitu, insitu, insitu, insitu]}
+    - elevation_m: 95
+      name: "Уступ 95 м (северный борт)"
+      access_node: road-node-04
+      grade_trend: 0.4
+      sector: {centre_deg: 80, core_deg: 10, taper_deg: 6, width_m: 130}
+      blocks: {start_deg: 71, direction: ccw, columns: 4, rows: 2, cell_m: [115, 50], gap_m: 5, strip_m: 30, face_offset_m: 15,
+               initial: [{status: mining, remaining_pct: 40}, blasted, charged, insitu, insitu, insitu, insitu, insitu]}
+    - elevation_m: 5
+      name: "Дно карьера, горизонт +5 м"
+      access_node: road-node-06
+      grade_trend: 1.5
       sector: {centre_deg: 0, core_deg: 0, taper_deg: 1, width_m: 0}
-      blocks: {centre: [230, 150], rotation_deg: 195, reverse_columns: true, columns: 4, rows: 3, cell_m: [115, 50], face_offset_m: 15,
+      blocks: {centre: [-340, 20], rotation_deg: 0, reverse_columns: false, columns: 4, rows: 3, cell_m: [115, 50], face_offset_m: 15,
                initial: [{status: mining, remaining_pct: 65}, blasted, blasted, charged, insitu, drilled, insitu, insitu, insitu, insitu, insitu, insitu]}
 
 # Ramps down the walls. `exit_deg` is where the ramp leaves the pit at the
 # rim, `legs_deg` the angles where it turns back (a switchback) and, last,
-# beyond where it reaches the floor.
+# beyond where it reaches the floor. On the long walls of the Bozshakol pit a
+# ramp reaches the floor without a switchback.
 ramps:
-  - {id: east, name: "Главный (восточный) съезд", grade_pct: 8.0, exit_deg: 0, legs_deg: [-125, 40]}
-  - {id: west, name: "Западный съезд", grade_pct: 10.0, exit_deg: 180, legs_deg: [110, 178, 100]}
+  - {id: east, name: "Главный (восточный) съезд вдоль северного борта", grade_pct: 8.0, exit_deg: 0, legs_deg: [135]}
+  - {id: west, name: "Западный съезд вдоль южного борта", grade_pct: 10.0, exit_deg: 180, legs_deg: [300]}
 
 geology:
   seed: 77
@@ -102,63 +117,69 @@ geology:
 
 # Road graph. Every node lies on a loop, so closing any one segment leaves a
 # way between any two nodes: the pit is one loop (main ramp — floor — west
-# ramp — the surface roads round the pit), the surface roads form two more
-# (the crusher and stockyard loop, the services and dump loop). A node `on`
-# a ramp sits where the ramp reaches elevation `z`; a `floor` node on the pit
-# floor; the rest are surface points.
+# ramp — the surface roads round the pit), the surface roads form more (the
+# crusher and stockyard loop, the services and dump loop, the north road to
+# the plant site past ОФ-2). A node `on` a ramp sits where the ramp reaches
+# elevation `z`; a `floor` node on the pit floor; the rest are surface points.
 road_nodes:
-  - {id: road-node-01, name: "Восточный выезд из карьера, +375 м",       ramp: east, z: 375}
-  - {id: road-node-02, name: "Главный съезд, горизонт 300 м",            ramp: east, z: 300}
-  - {id: road-node-03, name: "Главный съезд, горизонт 240 м",            ramp: east, z: 240}
-  - {id: road-node-04, name: "Главный съезд, горизонт 195 м",            ramp: east, z: 195}
-  - {id: road-node-05, name: "Главный съезд, горизонт 150 м",            ramp: east, z: 150}
-  - {id: road-node-06, name: "Главный съезд, дно карьера 120 м",         ramp: east, z: 120}
-  - {id: road-node-07, name: "Дно карьера, рабочая площадка",            floor: [-20, 60]}
-  - {id: road-node-08, name: "Западный съезд, дно карьера 120 м",        ramp: west, z: 120}
-  - {id: road-node-09, name: "Западный выезд из карьера, +375 м",        ramp: west, z: 375}
-  - {id: road-node-10, name: "Площадка первичной дробилки",              xyz: [1600, 130, 380]}
-  - {id: road-node-11, name: "Рудный двор: склад богатой руды и склад бедной руды", xyz: [1780, -380, 378]}
-  - {id: road-node-12, name: "Юго-восточная развилка",                   xyz: [1180, -640, 376]}
-  - {id: road-node-13, name: "Ремонтная мастерская",                     xyz: [1500, -760, 377]}
-  - {id: road-node-14, name: "Заправочная станция",                      xyz: [1370, -990, 377]}
-  - {id: road-node-15, name: "Въезд на отвал",                           xyz: [930, -1100, 380]}
-  - {id: road-node-16, name: "Юго-западная развилка",                    xyz: [-950, -900, 378]}
-  - {id: road-node-17, name: "Северная объездная дорога",                xyz: [100, 980, 378]}
+  - {id: road-node-01, name: "Восточный выезд из карьера, +230 м",        ramp: east, z: 230}
+  - {id: road-node-02, name: "Главный съезд, горизонт 215 м",             ramp: east, z: 215}
+  - {id: road-node-03, name: "Главный съезд, горизонт 140 м",             ramp: east, z: 140}
+  - {id: road-node-04, name: "Главный съезд, горизонт 95 м",              ramp: east, z: 95}
+  - {id: road-node-05, name: "Главный съезд, дно карьера +5 м",           ramp: east, z: 5}
+  - {id: road-node-06, name: "Дно карьера, рабочая площадка",             floor: [-340, 150]}
+  - {id: road-node-07, name: "Западный съезд, дно карьера +5 м",          ramp: west, z: 5}
+  - {id: road-node-08, name: "Западный съезд, горизонт 155 м",            ramp: west, z: 155}
+  - {id: road-node-09, name: "Западный съезд, горизонт 200 м",            ramp: west, z: 200}
+  - {id: road-node-10, name: "Западный выезд из карьера, +230 м",         ramp: west, z: 230}
+  - {id: road-node-11, name: "Площадка первичной дробилки ОФ-1",          xyz: [2380, 230, 233]}
+  - {id: road-node-12, name: "Рудный двор: склад богатой руды и склад забалансовой руды", xyz: [2620, -330, 232]}
+  - {id: road-node-13, name: "Юго-восточная развилка",                    xyz: [2330, -720, 231]}
+  - {id: road-node-14, name: "Ремонтная мастерская",                      xyz: [2760, -860, 232]}
+  - {id: road-node-15, name: "Заправочная станция",                       xyz: [2560, -1110, 232]}
+  - {id: road-node-16, name: "Въезд на отвал",                            xyz: [300, -1300, 234]}
+  - {id: road-node-17, name: "Двор ОФ-2: приёмный склад фабрики и склад глинистой руды", xyz: [-760, 2620, 236]}
+  - {id: road-node-18, name: "Северная развилка (дорога на промплощадку)", xyz: [1500, 1350, 233]}
+  - {id: road-node-19, name: "Юго-западная развилка",                      xyz: [-1650, -900, 232]}
 
 # `ramp` segments follow the ramp's centreline between their nodes; the rest
 # run straight between their nodes through the bends in `via`. Length and
 # grade are computed from the geometry; `class` selects the speed limit and
 # the rolling resistance in params.yaml.
 road_segments:
-  - {id: road-segment-01, name: "Главный съезд: выезд — горизонт 300 м",     class: ramp, ramp: east, from: road-node-01, to: road-node-02}
-  - {id: road-segment-02, name: "Главный съезд: горизонты 300 — 240 м",      class: ramp, ramp: east, from: road-node-02, to: road-node-03}
-  - {id: road-segment-03, name: "Главный съезд: горизонты 240 — 195 м",      class: ramp, ramp: east, from: road-node-03, to: road-node-04}
-  - {id: road-segment-04, name: "Главный съезд: горизонты 195 — 150 м",      class: ramp, ramp: east, from: road-node-04, to: road-node-05}
-  - {id: road-segment-05, name: "Главный съезд: горизонт 150 м — дно",       class: ramp, ramp: east, from: road-node-05, to: road-node-06}
-  - {id: road-segment-06, name: "Дорога по дну карьера, восточная часть",    class: bench, from: road-node-06, to: road-node-07}
-  - {id: road-segment-07, name: "Дорога по дну карьера, западная часть",     class: bench, from: road-node-07, to: road-node-08}
-  - {id: road-segment-08, name: "Западный съезд",                            class: ramp, ramp: west, from: road-node-09, to: road-node-08}
-  - {id: road-segment-09, name: "Дорога к дробилке",                         class: surface, from: road-node-01, to: road-node-10,
-     via: [[1350, 40, 377]]}
-  - {id: road-segment-10, name: "Дорога дробилка — рудный двор",             class: surface, from: road-node-10, to: road-node-11,
-     via: [[1760, -100, 379]]}
-  - {id: road-segment-11, name: "Дорога рудный двор — юго-восточная развилка", class: surface, from: road-node-11, to: road-node-12,
-     via: [[1450, -560, 377]]}
-  - {id: road-segment-12, name: "Дорога выезд — юго-восточная развилка",     class: surface, from: road-node-01, to: road-node-12,
-     via: [[1240, -300, 376]]}
-  - {id: road-segment-13, name: "Дорога к мастерской",                       class: surface, from: road-node-12, to: road-node-13}
-  - {id: road-segment-14, name: "Дорога мастерская — заправка",              class: surface, from: road-node-13, to: road-node-14}
-  - {id: road-segment-15, name: "Дорога заправка — отвал",                   class: surface, from: road-node-14, to: road-node-15}
-  - {id: road-segment-16, name: "Дорога развилка — отвал",                   class: surface, from: road-node-12, to: road-node-15,
-     via: [[1060, -880, 378]]}
-  - {id: road-segment-17, name: "Южная объездная дорога",                    class: surface, from: road-node-15, to: road-node-16,
-     via: [[0, -1020, 379], [-560, -960, 378]]}
-  - {id: road-segment-18, name: "Западная объездная дорога",                 class: surface, from: road-node-16, to: road-node-09,
-     via: [[-1260, -520, 377]]}
-  - {id: road-segment-19, name: "Северная объездная дорога, западная часть", class: surface, from: road-node-09, to: road-node-17,
-     via: [[-1200, 520, 377], [-700, 900, 378]]}
-  - {id: road-segment-20, name: "Северная объездная дорога, восточная часть", class: surface, from: road-node-17, to: road-node-10,
-     via: [[800, 900, 378], [1400, 560, 379]]}
+  - {id: road-segment-01, name: "Главный съезд: выезд — горизонт 215 м",     class: ramp, ramp: east, from: road-node-01, to: road-node-02}
+  - {id: road-segment-02, name: "Главный съезд: горизонты 215 — 140 м",      class: ramp, ramp: east, from: road-node-02, to: road-node-03}
+  - {id: road-segment-03, name: "Главный съезд: горизонты 140 — 95 м",       class: ramp, ramp: east, from: road-node-03, to: road-node-04}
+  - {id: road-segment-04, name: "Главный съезд: горизонт 95 м — дно",        class: ramp, ramp: east, from: road-node-04, to: road-node-05}
+  - {id: road-segment-05, name: "Дорога по дну карьера, северная часть",     class: bench, from: road-node-05, to: road-node-06}
+  - {id: road-segment-06, name: "Дорога по дну карьера, южная часть",        class: bench, from: road-node-06, to: road-node-07}
+  - {id: road-segment-07, name: "Западный съезд: дно — горизонт 155 м",      class: ramp, ramp: west, from: road-node-07, to: road-node-08}
+  - {id: road-segment-08, name: "Западный съезд: горизонты 155 — 200 м",     class: ramp, ramp: west, from: road-node-08, to: road-node-09}
+  - {id: road-segment-09, name: "Западный съезд: горизонт 200 м — выезд",    class: ramp, ramp: west, from: road-node-09, to: road-node-10}
+  - {id: road-segment-10, name: "Дорога к дробилке ОФ-1",                    class: surface, from: road-node-01, to: road-node-11,
+     via: [[2200, 120, 231]]}
+  - {id: road-segment-11, name: "Дорога дробилка — рудный двор",             class: surface, from: road-node-11, to: road-node-12,
+     via: [[2600, -60, 233]]}
+  - {id: road-segment-12, name: "Дорога рудный двор — юго-восточная развилка", class: surface, from: road-node-12, to: road-node-13,
+     via: [[2480, -560, 232]]}
+  - {id: road-segment-13, name: "Дорога выезд — юго-восточная развилка",     class: surface, from: road-node-01, to: road-node-13,
+     via: [[2180, -360, 231]]}
+  - {id: road-segment-14, name: "Дорога к мастерской",                       class: surface, from: road-node-13, to: road-node-14}
+  - {id: road-segment-15, name: "Дорога мастерская — заправка",              class: surface, from: road-node-14, to: road-node-15}
+  - {id: road-segment-16, name: "Дорога заправка — отвал",                   class: surface, from: road-node-15, to: road-node-16,
+     via: [[1400, -1260, 233]]}
+  - {id: road-segment-17, name: "Дорога развилка — отвал",                   class: surface, from: road-node-13, to: road-node-16,
+     via: [[1500, -1020, 232]]}
+  - {id: road-segment-18, name: "Южная объездная дорога",                    class: surface, from: road-node-16, to: road-node-19,
+     via: [[-700, -1180, 233]]}
+  - {id: road-segment-19, name: "Западная объездная дорога",                 class: surface, from: road-node-19, to: road-node-10,
+     via: [[-2250, -480, 231]]}
+  - {id: road-segment-20, name: "Дорога западный выезд — двор ОФ-2",         class: surface, from: road-node-10, to: road-node-17,
+     via: [[-2000, 900, 233], [-1300, 2000, 235]]}
+  - {id: road-segment-21, name: "Северная дорога: двор ОФ-2 — северная развилка", class: surface, from: road-node-17, to: road-node-18,
+     via: [[300, 2100, 235]]}
+  - {id: road-segment-22, name: "Северная дорога: развилка — дробилка",      class: surface, from: road-node-18, to: road-node-11,
+     via: [[2150, 800, 233]]}
 
 # Equipment models of the 2014 design basis (KAZ Minerals Projects Update, 2014; params.yaml).
 equipment:
@@ -171,43 +192,46 @@ equipment:
 
 # The shovels; `block` is "<bench elevation>/<number in mining order>".
 loaders:
-  - {id: loader-01, name: "Экскаватор №1", block: 120/1, hours_since_service: 140}
-  - {id: loader-02, name: "Экскаватор №2", block: 150/1, hours_since_service: 60}
-  - {id: loader-03, name: "Экскаватор №3", block: 195/1, hours_since_service: 210}
-  - {id: loader-04, name: "Экскаватор №4", block: 240/1, hours_since_service: 20}
-  - {id: loader-05, name: "Экскаватор №5", block: 300/1, hours_since_service: 175}
+  - {id: loader-01, name: "Экскаватор №1", block: 5/1, hours_since_service: 140}
+  - {id: loader-02, name: "Экскаватор №2", block: 95/1, hours_since_service: 60}
+  - {id: loader-03, name: "Экскаватор №3", block: 140/1, hours_since_service: 210}
+  - {id: loader-04, name: "Экскаватор №4", block: 200/2, hours_since_service: 20}
+  - {id: loader-05, name: "Экскаватор №5", block: 215/1, hours_since_service: 175}
+  - {id: loader-06, name: "Экскаватор №6", block: 155/1, hours_since_service: 100}
 
 drill_rigs:
-  - {id: drill-rig-01, name: "Буровой станок №1", block: 120/5, holes_done: 40}
-  - {id: drill-rig-02, name: "Буровой станок №2", block: 195/4, holes_done: 12}
-  - {id: drill-rig-03, name: "Буровой станок №3", block: 300/5, holes_done: 75}
+  - {id: drill-rig-01, name: "Буровой станок №1", block: 5/5, holes_done: 40}
+  - {id: drill-rig-02, name: "Буровой станок №2", block: 140/4, holes_done: 12}
+  - {id: drill-rig-03, name: "Буровой станок №3", block: 215/5, holes_done: 75}
+  - {id: drill-rig-04, name: "Буровой станок №4", block: 200/4, holes_done: 30}
 
 # The haul trucks: how many work for each loader under the fixed plan (the
 # fleet sizing in params.yaml, group `plan`, and mine/sim/design_basis.py), and
 # the road nodes they start from. Their starting fuel and hours since service
 # are spread evenly (mine/model/layout.py, `trucks`).
 fleet:
-  allocation: {loader-01: 8, loader-02: 7, loader-03: 6, loader-04: 5, loader-05: 6}
+  allocation: {loader-01: 8, loader-02: 6, loader-03: 4, loader-04: 3, loader-05: 4, loader-06: 6}
   service_spread_h: 240
   start_nodes:
-    loader-01: [road-node-06, road-node-04, road-node-01, road-node-10, road-node-02]
-    loader-02: [road-node-05, road-node-03, road-node-01, road-node-10]
-    loader-03: [road-node-04, road-node-02, road-node-10, road-node-01]
-    loader-04: [road-node-03, road-node-01, road-node-11, road-node-10]
-    loader-05: [road-node-02, road-node-01, road-node-12, road-node-15]
+    loader-01: [road-node-05, road-node-04, road-node-01, road-node-11, road-node-03]
+    loader-02: [road-node-04, road-node-03, road-node-01, road-node-11]
+    loader-03: [road-node-03, road-node-02, road-node-11, road-node-01]
+    loader-04: [road-node-09, road-node-10, road-node-17, road-node-10]
+    loader-05: [road-node-02, road-node-01, road-node-13, road-node-16]
+    loader-06: [road-node-08, road-node-10, road-node-19, road-node-16]
 
 crusher:
-  name: "Первичная гирационная дробилка"
-  xyz: [1640, 150, 381]
-  access_node: road-node-10
+  name: "Первичная гирационная дробилка ОФ-1"
+  xyz: [2420, 250, 234]
+  access_node: road-node-11
 
 conveyor:
-  name: "Конвейер дроблёной руды до фабрики"
-  path: [[1660, 160, 372], [3500, 260, 382], [5380, 390, 392]]
+  name: "Конвейер дроблёной руды до ОФ-1"
+  path: [[2440, 262, 226], [2200, 2050, 232], [440, 3000, 240]]
 
 stockpile:
-  name: "Склад дроблёной руды"
-  xyz: [5420, 400, 392]
+  name: "Склад дроблёной руды ОФ-1"
+  xyz: [400, 3020, 240]
   radius_m: 75
   initial_level_pct: 60
 
@@ -216,69 +240,97 @@ rom_pads:
     name: "Склад богатой руды у дробилки"
     role: high-grade
     initial_level_t: 60000
-    initial_grade_pct: 0.44
-    access_node: road-node-11
-    tip_xyz: [1840, -260, 379]
-    outline: [[1800, -160], [2100, -160], [2100, -330], [1800, -330]]
+    initial_grade_pct: 0.42
+    access_node: road-node-12
+    tip_xyz: [2680, -220, 233]
+    outline: [[2640, -120], [2940, -120], [2940, -290], [2640, -290]]
     stack_height_m: 6
   - id: rom-pad-02
-    name: "Склад бедной сульфидной руды"
+    name: "Склад забалансовой сульфидной руды"
     role: low-grade
     initial_level_t: 900000
     initial_grade_pct: 0.24
-    access_node: road-node-11
-    tip_xyz: [1900, -470, 379]
-    outline: [[1820, -420], [2450, -420], [2450, -820], [1820, -820]]
+    access_node: road-node-12
+    tip_xyz: [2700, -420, 233]
+    outline: [[2660, -370], [3290, -370], [3290, -770], [2660, -770]]
     stack_height_m: 12
 
 waste_dump:
-  name: "Юго-восточный отвал вскрышных пород"
-  access_node: road-node-15
-  tip_xyz: [860, -1200, 385]
-  outline: [[300, -1150], [1300, -1150], [1500, -1450], [1100, -1700], [200, -1650]]
+  name: "Южный отвал вскрышных пород"
+  access_node: road-node-16
+  tip_xyz: [240, -1420, 240]
+  outline: [[-800, -1380], [1300, -1380], [1500, -1750], [1000, -2150], [-600, -2100]]
 
-# The concentrator line, 3.8 km east of the crusher along the conveyor.
+# The sulphide concentrator ОФ-1, 3.8 km north-west of the crusher along the conveyor.
 mill:
-  name: "Измельчение линии №1 (МПСИ и две шаровые мельницы)"
-  xyz: [5600, 470, 392]
+  name: "Измельчение ОФ-1 (МПСИ и две шаровые мельницы)"
+  xyz: [600, 3080, 240]
 
 mill_sag:
   name: "Мельница полусамоизмельчения 40 × 26 футов (МПСИ)"
-  xyz: [5560, 450, 392]
+  xyz: [560, 3060, 240]
 
 mill_ball:
   name: "Шаровые мельницы 28 × 44 фута (2 шт.)"
-  xyz: [5650, 500, 392]
+  xyz: [650, 3110, 240]
 
 flotation:
-  name: "Флотация"
-  xyz: [5800, 560, 392]
+  name: "Флотация ОФ-1"
+  xyz: [800, 3170, 240]
 
 concentrate:
-  name: "Сгущение, фильтрация и склад медного концентрата"
-  xyz: [5950, 640, 392]
+  name: "Сгущение, фильтрация и склад медного концентрата (ОФ-1 и ОФ-2)"
+  xyz: [950, 3240, 240]
+
+# The clay-ore plant ОФ-2 beside ОФ-1 on the same site (ecoportal 66983). Trucks tip on its feed stockpile;
+# a wheel loader feeds it from the clay-ore stockpile next to it when the feed stockpile runs low.
+clay_plant:
+  name: "ОФ-2 — фабрика глинистых руд (приёмный склад, дробление, МПСИ)"
+  xyz: [-560, 2860, 238]
+  access_node: road-node-17
+  tip_xyz: [-680, 2700, 237]
+  outline: [[-760, 2680], [-600, 2680], [-600, 2780], [-760, 2780]]
+  initial_level_pct: 60
+
+desliming:
+  name: "Обесшламливание ОФ-2 (гидроциклоны)"
+  xyz: [-470, 2920, 238]
+
+clay_flotation:
+  name: "Флотация ОФ-2: песковая и шламовая"
+  xyz: [-370, 2980, 238]
+
+clay_stockpile:
+  name: "Склад глинистой (каолинизированной) руды"
+  access_node: road-node-17
+  tip_xyz: [-900, 2560, 237]
+  outline: [[-1500, 2440], [-960, 2440], [-960, 2760], [-1500, 2760]]
+  stack_height_m: 6
+  initial_level_t: 900000
+  initial_grade_pct: 0.45
+  initial_clay_pct: 34
 
 tailings:
-  name: "Хвостохранилище"
-  discharge_xyz: [5900, 1150, 395]
-  outline: [[5300, 1000], [6500, 1000], [6500, 1850], [5300, 1850]]
+  name: "Хвостохранилище ОФ-1 и ОФ-2"
+  discharge_xyz: [0, 3700, 242]
+  outline: [[-1900, 3700], [1700, 3700], [1700, 4650], [-1900, 4650]]
 
 substation:
   name: "Главная понизительная подстанция 220 кВ"
-  xyz: [5450, 700, 392]
+  xyz: [300, 3300, 240]
 
 fuel_station:
   name: "Заправочная станция"
-  xyz: [1395, -1010, 377]
-  access_node: road-node-14
+  xyz: [2585, -1130, 232]
+  access_node: road-node-15
 
 workshop:
   name: "Ремонтная мастерская карьерной техники"
-  xyz: [1530, -790, 377]
-  access_node: road-node-13
+  xyz: [2790, -890, 232]
+  access_node: road-node-14
 
 weather:
-  name: "Погода (метеостанция Актогай)"
+  name: "Погода (метеостанция Экибастуз)"
 
 modules:
   - {id: module-dispatch, name: "Модуль диспетчеризации"}
@@ -302,12 +354,13 @@ forecasts:
 
 # `targets` names the kinds or twins a scenario may be aimed at.
 scenarios:
-  - {id: scenario-road-closure,   name: "Закрытие дороги",                  targets: road-segment, default_target: road-segment-01}
-  - {id: scenario-shovel-failure, name: "Отказ экскаватора",                targets: loader,       default_target: loader-01}
-  - {id: scenario-crusher-stop,   name: "Остановка дробилки",               targets: crusher,      default_target: crusher}
-  - {id: scenario-heavy-rain,     name: "Сильный дождь с мокрым снегом",    targets: weather,      default_target: weather}
-  - {id: scenario-blast,          name: "Взрыв блока",                      targets: block,        default_target: block-01}
-  - {id: scenario-hard-ore,       name: "Зона крепкой руды",                targets: stockpile,    default_target: stockpile}
+  - {id: scenario-road-closure,     name: "Закрытие дороги",                  targets: road-segment, default_target: road-segment-01}
+  - {id: scenario-shovel-failure,   name: "Отказ экскаватора",                targets: loader,       default_target: loader-01}
+  - {id: scenario-crusher-stop,     name: "Остановка дробилки",               targets: crusher,      default_target: crusher}
+  - {id: scenario-heavy-rain,       name: "Сильный дождь с мокрым снегом",    targets: weather,      default_target: weather}
+  - {id: scenario-blast,            name: "Взрыв блока",                      targets: block,        default_target: block-01}
+  - {id: scenario-clay-face,        name: "Глинистая руда в забое",           targets: loader,       default_target: loader-03}
+  - {id: scenario-clay-plant-stop,  name: "Остановка глинистой фабрики",      targets: clay-plant,   default_target: clay-plant}
 
 journal:
   name: "Журнал событий"

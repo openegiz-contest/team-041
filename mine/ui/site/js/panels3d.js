@@ -37,7 +37,7 @@ const trucks = (n) => `${num(n)}${NB}${plural(n, 'самосвал', 'самос
 const TITLES = {
   crusher: 'Дробилка', conveyor: 'Конвейер', stockpile: 'Склад руды', 'sag-mill': 'МПСИ', 'ball-mill': 'Шаровые мельницы', mill: 'Мельницы',
   flotation: 'Флотация', concentrate: 'Склад концентрата', tailings: 'Хвостохранилище', workshop: 'Мастерская', 'fuel-station': 'Заправка',
-  substation: 'Подстанция',
+  substation: 'Подстанция', 'clay-plant': 'ОФ-2 (глинистая руда)', desliming: 'Обесшламливание ОФ-2', 'clay-flotation': 'Флотация ОФ-2', 'clay-stockpile': 'Склад глинистой руды',
 };
 
 // What a panel says about a twin: {title, rows: [{label, value, tone, feature, raw}]}.
@@ -112,6 +112,33 @@ export function panelContent(twin, compact = false) {
       row('Концентрат', `${num(f('conc_tph'), 1)}${NB}т/ч`, 'ok', 'conc_tph');
       break;
     }
+    case 'clay-plant': {
+      state();
+      row('Переработка', `${num(f('feed_tph'))}${NB}т/ч`, 'ok', 'feed_tph');
+      const bin = Number(f('bin_pct'));
+      row('Приёмный склад', `${num(bin)}${NB}% · ${num(f('bin_hours'), 1)}${NB}ч`, bin < 10 ? 'warn' : 'ok', 'bin_pct');
+      row('Извлечение', `${num(f('recovery_pct'), 1)}${NB}%`, 'ok', 'recovery_pct');
+      row('Медь', `${num(f('cu_tph'), 1)}${NB}т/ч`, 'ok', 'cu_tph');
+      break;
+    }
+    case 'clay-stockpile': {
+      row('На складе', `${num(f('level_t'))}${NB}т · ${num(f('level_pct'))}${NB}%`, 'ok', 'level_t');
+      row('Медь', `${num(f('grade_pct'), 2)}${NB}%`, 'ok', 'grade_pct');
+      row('Глина', `${num(f('clay_pct'))}${NB}%`, 'ok', 'clay_pct');
+      break;
+    }
+    case 'desliming': {
+      state();
+      row('Питание', `${num(f('feed_tph'))}${NB}т/ч`, 'ok', 'feed_tph');
+      row('Шламы', `${num(f('slimes_pct'), 1)}${NB}%`, 'ok', 'slimes_pct');
+      break;
+    }
+    case 'clay-flotation': {
+      state();
+      row('Извлечение', `${num(f('recovery_pct'), 1)}${NB}%`, 'ok', 'recovery_pct');
+      row('Медь', `${num(f('cu_tph'), 1)}${NB}т/ч`, 'ok', 'cu_tph');
+      break;
+    }
     case 'concentrate': {
       row('На складе', `${num(f('level_t'), 1)}${NB}т`, 'ok', 'level_t');
       row('Поступление', `${num(f('inflow_tph'), 1)}${NB}т/ч`, 'ok', 'inflow_tph');
@@ -151,7 +178,7 @@ export function panelContent(twin, compact = false) {
 }
 
 export const PANEL_KINDS = new Set(['truck', 'loader', 'drill-rig', 'crusher', 'conveyor', 'stockpile', 'sag-mill', 'ball-mill', 'flotation',
-  'concentrate', 'tailings', 'workshop', 'fuel-station', 'substation']);
+  'concentrate', 'tailings', 'workshop', 'fuel-station', 'substation', 'clay-plant', 'desliming', 'clay-flotation', 'clay-stockpile']);
 
 const overlap = (a, b, m = 0) => a[0] < b[2] + m && a[2] > b[0] - m && a[1] < b[3] + m && a[3] > b[1] - m;
 
@@ -243,6 +270,7 @@ export function createPanels(container, measureCtx) {
   function layout(requests, { width, height, avoid = [], max = 10, now = performance.now(), onStale = () => {} }) {
     const taken = [];
     const out = [];
+    const anchors = [];
     let soonest = Infinity;
     const wake = (ms) => { soonest = Math.min(soonest, ms); };
     for (const request of requests) {
@@ -265,11 +293,16 @@ export function createPanels(container, measureCtx) {
         if (r[0] < 4 || r[1] < 4 || r[2] > width - 4 || r[3] > height - 4) continue;
         if (taken.some((t) => overlap(r, t, 6))) continue;
         if (avoid.some((t) => overlap(r, t, 2))) continue;
+        // Not over the point another panel stands on, nor over its own object.
+        if (anchors.some((p) => overlap(r, [p.x - 5, p.y - 5, p.x + 5, p.y + 5]))) continue;
+        if (request.box && overlap(r, request.box)) continue;
         rect = r;
         break;
       }
       if (!rect) continue;
       taken.push(rect);
+      anchors.push(request.at);
+      if (request.box) taken.push(request.box);
       out.push({ id: request.twin.thingId, kind: kindOf(request.twin), title: entry.content.title, rect, at: { x: ax, y: ay }, accent: request.accent ?? null, forced: Boolean(request.forced), entry });
     }
     const keep = new Set(out.map((p) => p.id));
@@ -295,6 +328,9 @@ export function createPanels(container, measureCtx) {
     return out;
   }
 
+  // Read every panel's figures again at the next layout.
+  function stale() { for (const entry of entries.values()) entry.at = -Infinity; }
+
   function hide() {
     for (const entry of entries.values()) entry.node.hidden = true;
     placed = [];
@@ -312,5 +348,5 @@ export function createPanels(container, measureCtx) {
     placed = [];
   }
 
-  return { layout, hide, shown, clear, get placed() { return placed; } };
+  return { layout, hide, shown, clear, stale, get placed() { return placed; } };
 }

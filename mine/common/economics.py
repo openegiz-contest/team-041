@@ -11,16 +11,28 @@ A forecast over a horizon compares its branches by that margin plus an
 adjustment for what the horizon leaves behind (mine/sim/forecast.py). Every
 tonne of ore, wherever it lies between the face and the flotation (broken in
 the pit, in a truck, in the crusher's pocket, on the belt, on the coarse-ore
-stockpile, on a ROM pad, in the mill), is valued on one basis: the copper
-it will yield at the reference recovery and the copper price, net of what
-it still costs to turn it into concentrate. The mill is the plant's
-bottleneck, so the largest of those costs is the mill time the tonne will
-take: in that time the mill would grind a tonne of the mine's average ore
-(`geology.mean_head_grade_pct`) instead. A tonne of ore is therefore worth
+stockpile, on a ROM pad, in the mill, on the feed stockpile of ОФ-2 or on the
+clay-ore stockpile), is valued on the basis of the plant whose chain holds it:
+the copper it will yield at that plant's reference recovery and the copper
+price, net of what it still costs to turn it into concentrate. Each plant is
+its own bottleneck, so the largest of those costs is the plant time the tonne
+will take: in that time the plant would process a tonne of its average ore
+(`geology.mean_head_grade_pct` for ОФ-1, `clay_plant.mean_feed_grade_pct` for
+ОФ-2) instead; and clay above the plant's reference clay costs the recovery it
+takes from the copper of the feed (`flotation.clay_loss_pct` for ОФ-1, the
+slope of the desliming model for ОФ-2). A tonne of ore is therefore worth
 
-    copper value x (its copper - average grade x its tonnes)      everywhere
+    copper value x (its copper - average grade x its tonnes)
+      - clay value x (its clay - reference clay x its tonnes)      everywhere, on its plant's basis
   + `economics.stock_kzt_t`                                        once it is dug: the fleet work it saves
-  - `rom.rehandle_kzt_t`                                           while it lies on a ROM pad
+  - `rom.rehandle_kzt_t`                                           while it lies on a ROM pad or the clay-ore stockpile
+
+Ore on its way to a plant (in the ОФ-1 chain, on the ОФ-2 feed stockpile, on the
+clay-ore stockpile) counts on that plant's basis; ore in a truck and ore still in
+the pit count by what the rock is at the face (clay ore on the ОФ-2 basis,
+sulphide and low-grade ore on the ОФ-1 basis). Sending clay ore to ОФ-1 thus
+changes its basis when it is tipped: the difference is what blending it there
+costs or gains in the plant that will process it.
 
 The value is linear in tonnes and copper, so mixing two heaps changes
 nothing, and the same tonne is worth the same in a truck, in the pocket, on
@@ -57,6 +69,11 @@ class Economics:
         self.stock_kzt_t = float(e["stock_kzt_t"])
         self.recovery = float(params["flotation"]["recovery_ref_pct"]) / 100.0
         self.ref_grade = float(params["geology"]["mean_head_grade_pct"]) / 100.0
+        clay = params["clay_plant"]
+        self.clay_recovery = float(clay["recovery_check_pct"]) / 100.0
+        self.clay_ref_grade = float(clay["mean_feed_grade_pct"]) / 100.0
+        self.clay_ref = float(params["flotation"]["clay_ref_pct"])
+        self.clay_plant_ref = float(clay["ref_clay_pct"])
         rom = params["rom"]
         self.rehandle_l_t = float(rom["rehandle_diesel_l_t"])
         self.rehandle_kzt_t = self.rehandle_l_t * self.diesel_kzt_l + float(rom["rehandle_other_kzt_t"])
@@ -95,35 +112,82 @@ class Economics:
         """What a tonne of copper contained in ore is worth: payable at the reference recovery."""
         return self.revenue_kzt(self.recovery)
 
-    def grade_value_kzt(self, tonnes: float, cu_t: float) -> float:
-        """The copper of `tonnes` of ore above (or below) the same tonnes of the mine's average ore, valued."""
-        return self.cu_value_kzt_t * (cu_t - self.ref_grade * tonnes)
+    @property
+    def clay_cu_value_kzt_t(self) -> float:
+        """What a tonne of copper contained in clay ore is worth at ОФ-2: payable at its reference recovery."""
+        return self.revenue_kzt(self.clay_recovery)
+
+    @property
+    def clay_value_kzt(self) -> float:
+        """What a percent of clay above the reference costs a tonne of ОФ-1 feed: the recovery it takes."""
+        p = self.params["flotation"]
+        return self.revenue_kzt(1.0) * float(p["clay_loss_pct"]) / 100.0 * self.ref_grade
+
+    @property
+    def clay_plant_clay_value_kzt(self) -> float:
+        """The same for ОФ-2: the slope of its desliming model at its reference feed."""
+        from mine.common.process import clay_plant_recovery_pct
+        g = 100.0 * self.clay_ref_grade
+        slope = (clay_plant_recovery_pct(self.params, g, self.clay_plant_ref - 1.0)
+                 - clay_plant_recovery_pct(self.params, g, self.clay_plant_ref + 1.0)) / 2.0
+        return self.revenue_kzt(1.0) * slope / 100.0 * self.clay_ref_grade
+
+    def grade_value_kzt(self, tonnes: float, cu_t: float, clay_t: float | None = None, basis: str = "ofs1") -> float:
+        """The copper of `tonnes` of ore above (or below) the same tonnes of the plant's average ore, less what its
+        clay above the reference costs (with `clay_t`, % x t), valued on the basis of the plant (ofs1 / ofs2)."""
+        if basis == "ofs2":
+            value = self.clay_cu_value_kzt_t * (cu_t - self.clay_ref_grade * tonnes)
+            if clay_t is not None:
+                value -= self.clay_plant_clay_value_kzt * (clay_t - self.clay_plant_ref * tonnes)
+            return value
+        value = self.cu_value_kzt_t * (cu_t - self.ref_grade * tonnes)
+        if clay_t is not None:
+            value -= self.clay_value_kzt * (clay_t - self.clay_ref * tonnes)
+        return value
 
     def ore_held(self, sim) -> dict:
-        """Ore dug and not yet milled, in tonnes and copper: `mined` between the faces and the mill
-        (truck bodies, the crusher's pocket, the belt, the coarse-ore stockpile, the ore in the mill above its
-        normal load) and `pads` on the ROM pads."""
+        """Ore dug and not yet processed, as [tonnes, copper, clay % x t] by basis: `ofs1` between the faces and
+        the ОФ-1 mill (truck bodies with sulphide ore, the crusher's pocket, the belt, the coarse-ore stockpile, the
+        ore in the mill above its normal load), `ofs2` truck bodies with clay ore and the feed stockpile of ОФ-2,
+        `pads` the ROM pads (ОФ-1 basis) and `clay_pile` the clay-ore stockpile (ОФ-2 basis)."""
         plant = sim.plant
-        trucks = [t for t in sim.fleet.trucks if t.payload_t > 1e-6 and t.material not in ("waste", "none")]
-        heaps = [(plant.crusher.hopper.t, plant.crusher.hopper.cu), (plant.conveyor.load_t, plant.conveyor.load_cu),
-                 (plant.stockpile.t, plant.stockpile.cu), (plant.mill.charge.t, plant.mill.charge.cu)]
-        mined_t = sum(t.payload_t for t in trucks) + sum(h[0] for h in heaps)
-        mined_cu = sum(t.payload_cu_t for t in trucks) + sum(h[1] for h in heaps)
-        pads_t = sum(pad.stock.t for pad in plant.rom_pads.values())
-        pads_cu = sum(pad.stock.cu for pad in plant.rom_pads.values())
-        return {"mined_t": mined_t, "mined_cu": mined_cu, "pads_t": pads_t, "pads_cu": pads_cu}
+        threshold = float(self.params["clay"]["clay_ore_min_pct"])
+        out = {key: [0.0, 0.0, 0.0] for key in ("ofs1", "ofs2", "pads", "clay_pile")}
+
+        def put(key, t, cu, clay_t):
+            out[key][0] += t
+            out[key][1] += cu
+            out[key][2] += clay_t
+
+        for truck in sim.fleet.trucks:
+            if truck.payload_t > 1e-6 and truck.material not in ("waste", "none"):
+                clay = truck.payload_clay / truck.payload_t
+                put("ofs2" if clay >= threshold else "ofs1", truck.payload_t, truck.payload_cu_t, truck.payload_clay)
+        for heap in (plant.crusher.hopper, plant.stockpile, plant.mill.charge):
+            put("ofs1", heap.t, heap.cu, heap.clay_t)
+        put("ofs1", plant.conveyor.load_t, plant.conveyor.load_cu, plant.conveyor.load_clay_t)
+        for pad in plant.rom_pads.values():
+            put("pads", pad.stock.t, pad.stock.cu, pad.stock.clay_t)
+        put("ofs2", plant.clay_plant.bin.t, plant.clay_plant.bin.cu, plant.clay_plant.bin.clay_t)
+        pile = plant.clay_stock.stock
+        put("clay_pile", pile.t, pile.cu, pile.clay_t)
+        return out
 
     def stock_parts_kzt(self, sim) -> dict:
         """The value of the ore between the faces and the flotation, in its three parts (the module
-        docstring): `grade` the copper above the average grade, of the ore dug and of the ore still in
-        the pit, which counts by what was loaded from it (minus the copper loaded since the start);
-        `work` the fleet work held in the ore dug; `pads` the rehandling the ore on the ROM pads still needs
-        (negative). Only differences between two moments mean something."""
+        docstring): `grade` the copper above the average grade and the clay, of the ore dug and of the ore still
+        in the pit, which counts by what was loaded from it (minus the value loaded since the start, by the class
+        of the rock at the face); `work` the fleet work held in the ore dug; `pads` the rehandling the ore on the
+        ROM pads and the clay-ore stockpile still needs (negative). Only differences between two moments mean
+        something."""
         held, kpis = self.ore_held(sim), sim.kpis
-        dug = self.grade_value_kzt(held["mined_t"] + held["pads_t"], held["mined_cu"] + held["pads_cu"])
-        in_pit = -self.grade_value_kzt(kpis.ore_mined_t, kpis.ore_cu_mined_t)
-        return {"grade": dug + in_pit, "work": self.stock_kzt_t * (held["mined_t"] + held["pads_t"]),
-                "pads": -self.rehandle_kzt_t * held["pads_t"]}
+        v = lambda key, basis: self.grade_value_kzt(*held[key], basis=basis)
+        dug = v("ofs1", "ofs1") + v("pads", "ofs1") + v("ofs2", "ofs2") + v("clay_pile", "ofs2")
+        in_pit = -(self.grade_value_kzt(*kpis.loaded["ofs1"], basis="ofs1")
+                   + self.grade_value_kzt(*kpis.loaded["ofs2"], basis="ofs2"))
+        tonnes = sum(h[0] for h in held.values())
+        rehandled = held["pads"][0] + held["clay_pile"][0]
+        return {"grade": dug + in_pit, "work": self.stock_kzt_t * tonnes, "pads": -self.rehandle_kzt_t * rehandled}
 
     def stock_value_kzt(self, sim) -> float:
         return sum(self.stock_parts_kzt(sim).values())
@@ -135,6 +199,8 @@ class Economics:
     def basis(self) -> dict:
         """The prices and factors, for the `spec` of the mine twin."""
         e = self.params["economics"]
+        # The same parameter the valuation uses (`self.ref_grade`), so the note cannot disagree with it.
+        ref_grade = f"{self.ref_grade * 100.0:.2f}".replace(".", ",")
         return {"copper_usd_t": e["copper_usd_t"], "usd_kzt": e["usd_kzt"], "payable_cu_pct": e["payable_cu_pct"],
                 "tc_usd_t": e["tc_usd_t"], "rc_usc_lb": e["rc_usc_lb"], "diesel_kzt_l": e["diesel_kzt_l"],
                 "power_kzt_kwh": e["power_kzt_kwh"], "diesel_co2_kg_l": e["diesel_co2_kg_l"],
@@ -147,7 +213,7 @@ class Economics:
                                "труд и постоянные затраты не учитываются. Перевалка руды с рудных складов погрузчиком "
                                "показана отдельно (rehandle_cost_kzt_h).",
                 "stock_note": "Прогноз оценивает руду везде одинаково: медь сверх средней руды месторождения "
-                              "(0,41 %) по цене меди при опорном извлечении, плюс работа парка, уже вложенная в "
+                              f"({ref_grade} %) по цене меди при опорном извлечении, плюс работа парка, уже вложенная в "
                               "добытую руду, минус перевалка, которая ещё нужна руде на рудных складах. Мельница — "
                               "узкое место: богатая руда, взятая со склада, даёт медь, но склад теряет столько же, "
                               "так что перекладывание руды из кучи в кучу выигрыша не даёт."}

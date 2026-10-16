@@ -1,0 +1,26 @@
+three.js r170 addons (npm package three@0.170.0, examples/jsm/), unmodified, the same release as
+../three.module.min.js. Paths keep the package layout, so the relative imports work as published.
+Source: https://registry.npmjs.org/three/-/three-0.170.0.tgz (https://github.com/mrdoob/three.js/tree/r170)
+
+  loaders/GLTFLoader.js              examples/jsm/loaders/GLTFLoader.js
+  loaders/DRACOLoader.js             examples/jsm/loaders/DRACOLoader.js
+  utils/BufferGeometryUtils.js       examples/jsm/utils/BufferGeometryUtils.js (imported by GLTFLoader)
+  libs/draco/gltf/*                  examples/jsm/libs/draco/gltf/ (Draco decoder, glTF build)
+  libs/draco/README.md               examples/jsm/libs/draco/README.md
+
+Licences: three.js is MIT (LICENSE, copied from the package). The Draco decoder is Google's Draco,
+Apache License 2.0 (libs/draco/LICENSE, from https://github.com/google/draco/blob/main/LICENSE).
+
+Use: new DRACOLoader().setDecoderPath('<site>/vendor/three/addons/libs/draco/gltf/'), then
+gltfLoader.setDRACOLoader(dracoLoader). Nothing is fetched from a CDN.
+
+sha256:
+4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454  LICENSE
+d3709b0fb4b8a94bbb1d02b8a2e484f258b0d9c5c5a01f940391f3fe662cd1a4  libs/draco/LICENSE
+8b9d277bf5743f4ce8d85d63c16690071b53f81796e877d4d395af943bde02a0  libs/draco/README.md
+8625489da79a805f4f2a7d511c3e52d8b4085608a9d2a4d5f4f9de5db0aea04f  libs/draco/gltf/draco_decoder.js
+a680d927bed9cb864ddbd63521868891af2bfbe755092761b4837487618df8ac  libs/draco/gltf/draco_decoder.wasm
+8bb2952d2ba7d67e1414f8df819410cb0434a666be53f671fff75f68843d76f6  libs/draco/gltf/draco_wasm_wrapper.js
+8a90b39b6c0d7faa70410cdd19348029a83a9f2d5f71e11b665a5f48330a4c72  loaders/DRACOLoader.js
+45139faddd5aaf48ed2d62203d976e5cbd703db1a592de40527f9f6cf58abd44  loaders/GLTFLoader.js
+c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6  utils/BufferGeometryUtils.js

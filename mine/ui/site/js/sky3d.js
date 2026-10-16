@@ -1,5 +1,5 @@
 // Sky, light and air of the 3D view: where the sun stands at the mine's
-// simulated time (Aktogay, 46.9° N 79.6° E, UTC+5), the colours of the sky,
+// simulated time (Bozshakol, 51.847° N 74.279° E, UTC+5), the colours of the sky,
 // of the sunlight and of the haze for that sun, a sky dome with the sun or
 // the moon and stars, rain and snow when the weather twin says so, and dust:
 // behind trucks on the haul roads and over a blast.
@@ -8,8 +8,8 @@ import * as THREE from 'three';
 import { clamp, mix, scale } from './geom3d.js';
 import { textures } from './textures3d.js';
 
-const LAT = (46.9 * Math.PI) / 180;
-const LON = 79.6;
+const LAT = (51.847 * Math.PI) / 180;
+const LON = 74.279;
 const UTC_OFFSET = 5;
 
 // Direction to the sun (x east, y north, z up) and its elevation in degrees,

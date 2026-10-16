@@ -7,7 +7,7 @@
 #   2. in it, an InfluxDB data source with the same UID as the platform's, but
 #      with a token that may only read the bucket of the twin history (made
 #      here once; kept while the data source answers);
-#   3. the dashboard «Актогай — история» from mine/grafana/dashboards, also the
+#   3. the dashboard «Бозшаколь — история» from mine/grafana/dashboards, also the
 #      home page of that organisation.
 #
 # The platform's organisation gets the same dashboard from the provisioning
@@ -73,7 +73,7 @@ ensure_datasource() {
   token=$(read_token)
   [ -n "$token" ] || { log "no read-only InfluxDB token yet"; return 1; }
   cat > "$WORK/ds.json" <<EOF
-{"uid": "$DS_UID", "name": "Актогай: история (только чтение)", "type": "influxdb", "access": "proxy",
+{"uid": "$DS_UID", "name": "Бозшаколь: история (только чтение)", "type": "influxdb", "access": "proxy",
  "url": "$INFLUX", "isDefault": true,
  "jsonData": {"version": "Flux", "organization": "opentwins", "defaultBucket": "default"},
  "secureJsonData": {"token": "$token"}}
@@ -102,7 +102,7 @@ attempt=0
 while [ "$attempt" -lt 90 ]; do
   attempt=$((attempt + 1))
   if curl -sf -m 5 -o /dev/null "$GRAFANA/api/health" && ensure_org && ensure_datasource && ensure_dashboard; then
-    log "dashboard «Актогай — история» ready for visitors (organisation $org)"
+    log "dashboard «Бозшаколь — история» ready for visitors (organisation $org)"
     exit 0
   fi
   sleep 10

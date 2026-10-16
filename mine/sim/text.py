@@ -1,7 +1,7 @@
 """Wording shared by the journal and scenario texts."""
 from __future__ import annotations
 
-MATERIALS = {"ore": "руда", "low-grade": "бедная руда", "waste": "вскрыша"}
+MATERIALS = {"ore": "сульфидная руда", "clay": "глинистая руда", "low-grade": "забалансовая руда", "waste": "вскрыша"}
 
 
 def num(value: float, digits: int = 1) -> str:

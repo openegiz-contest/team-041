@@ -1,4 +1,4 @@
-"""Generate the Ditto things of the Aktogay mine slice from world.yaml and params.yaml.
+"""Generate the Ditto things of the Bozshakol mine model from world.yaml and params.yaml.
 
 This module is the one place where a twin is defined: its ID, attributes,
 links, feature names, units and initial values. The setup job creates the
@@ -24,9 +24,9 @@ from pathlib import Path
 import yaml
 
 from mine.common.economics import Economics
-from mine.common.process import wear_pct
+from mine.common.process import clay_plant_split, wear_pct
 from mine.model.geology import BlockModel
-from mine.model.layout import expand
+from mine.model.layout import Rim, expand
 from mine.sim.durations import causes as scenario_causes
 from mine.sim.weather import BASIS as CLIMATE_BASIS, air_c, normals
 
@@ -34,9 +34,10 @@ MODEL_DIR = Path(__file__).resolve().parent
 ADVISOR_OPTIONS = 4                 # response options the advisor publishes at most: one per advisor forecast slot
 SCENARIO_KPIS = 4                   # indicators along the causal chain of a scenario
 HOME_LABEL = "Место на начало работы модели; текущее положение — признаки pos_x, pos_y"
-PIT_DEPTH_BASIS = ("Глубина рабочего дна 255 м — допущение модели: текущая глубина карьера Актогай не опубликована; "
-                   "конечная глубина 340 м и длина карьера 2,5 км известны только из дипломной работы "
-                   "(Satbayev University, Толеуханова Ж.), не из данных KAZ Minerals")
+PIT_DEPTH_BASIS = ("Глубина рабочего дна 225 м (отметка +5 м) — допущение модели по плану горных работ: второй этап "
+                   "углубки (2018–2024) — до отметки 0 м, третий (2021–2033) — до −40 м; горный отвод — 8,19 км², "
+                   "глубина 430 м; карьер по верху 4070 × 880 м на 2023 год (заявление о намечаемой деятельности, "
+                   "ecoportal 29174)")
 # Contributions to the advisor's difference against «change nothing», in the order they are published.
 # "resources": what the shift's response resources of the option cost (mine/sim/response.py).
 MARGIN_SPLIT = ("revenue", "grade", "work", "rehandle", "diesel", "power", "resources")
@@ -103,12 +104,10 @@ def path_length(path: list) -> float:
 
 
 def outline(shape, centre: list, points: int = 36) -> list:
-    """A polygon as written, or the polygon of an `ellipse` around `centre`."""
+    """A polygon as written, or the polygon of an `ellipse` or a `stadium` around `centre`."""
     if isinstance(shape, list):
         return shape
-    a, b = shape["ellipse"]["a"], shape["ellipse"]["b"]
-    return [[round(centre[0] + a * math.cos(2 * math.pi * i / points)),
-             round(centre[1] + b * math.sin(2 * math.pi * i / points))] for i in range(points)]
+    return Rim(shape).polygon(centre, points)
 
 
 # -- derived quantities --------------------------------------------------------------
@@ -243,8 +242,22 @@ class TwinBuilder:
             "waste_mined_t": (0.0, T),
             "strip_ratio": (0.0, "t/t"),
             "mill_feed_tph": (0.0, TPH),
+            # Both plants together, as KAZ Minerals reports the mine.
+            "processed_tph": (0.0, TPH),
             "head_grade_pct": (0.0, CU),
             "recovery_pct": (0.0, PCT),
+            # Each plant on its own, and the clay in the feed of ОФ-1.
+            "ofs1_head_grade_pct": (0.0, CU),
+            "ofs1_recovery_pct": (0.0, PCT),
+            "ofs1_clay_pct": (0.0, PCT),
+            "ofs2_feed_tph": (0.0, TPH),
+            "ofs2_head_grade_pct": (0.0, CU),
+            "ofs2_recovery_pct": (0.0, PCT),
+            "ofs2_cu_tph": (0.0, TPH),
+            # Clay ore dug since the model started, its share of the ore, and what lies on the clay-ore stockpile.
+            "clay_mined_t": (0, T),
+            "clay_share_pct": (0.0, PCT),
+            "clay_stock_t": (0, T),
             "cu_produced_t": (0.0, T),
             "avg_cycle_min": (0.0, MIN),
             "avg_queue_min": (0.0, MIN),
@@ -269,12 +282,16 @@ class TwinBuilder:
             # What the shift's response resources (second crews, a grader, a road crew) cost since the model started.
             "response_cost_kzt": (0, KZT),
         }, links={"pit": self.tid("pit"), "crusher": self.tid("crusher"), "mill": self.tid("mill"),
+                  "clay_plant": self.tid("clay-plant"), "clay_stockpile": self.tid("clay-stockpile"),
                   "concentrate": self.tid("concentrate"), "tailings": self.tid("tailings"),
                   "substation": self.tid("substation"), "weather": self.tid("weather"),
                   "journal": self.tid("journal"), "modules": self.tids(self.names("modules")),
                   "scenarios": self.tids(self.names("scenarios")), "forecasts": self.tids(self.forecast_names())},
             geo={"polygon": w["boundary"], "z": w["surface_z"]}, extra={"about": w["about"]},
             spec={"mill_design_tph": self.params["mill"]["design_tph"],
+                  "clay_plant_design_tph": self.params["clay_plant"]["design_tph"],
+                  "annual_ore_mt": round((self.params["mill"]["design_tph"] + self.params["clay_plant"]["design_tph"])
+                                         * 8760 * self.params["plan"]["plant_availability"] / 1e6, 1),
                   "trucks": len(self.world["trucks"]), "loaders": len(self.world["loaders"]),
                   **Economics(self.params).basis()})
 
@@ -294,9 +311,9 @@ class TwinBuilder:
             "next_blast_sim_time": ("", ""),
         }, links={"mine": self.tid("mine"), "benches": self.tids(b["id"] for b in benches),
                   "loaders": self.tids(self.names("loaders")), "drill_rigs": self.tids(self.names("drill_rigs"))},
-            geo={"polygon": outline(w["rim"], self.centre), "z": w["rim_z"]},
+            geo={"polygon": outline(w["rim"], self.centre, 72), "z": w["rim_z"]},
             spec={"rim_elevation_m": w["rim_z"], "floor_elevation_m": floor, "depth_m": info["depth_m"],
-                  "rim_length_m": 2 * w["rim"]["ellipse"]["a"], "rim_width_m": 2 * w["rim"]["ellipse"]["b"],
+                  "rim_length_m": Rim(w["rim"]).length_m, "rim_width_m": Rim(w["rim"]).width_m,
                   "benches": info["benches"], "bench_height_m": self.params["drill"]["bench_height_m"],
                   "face_angle_deg": self.params["pit"]["face_angle_deg"], "berm_m": info["berm_m"],
                   "final_wall_angle_deg": info["overall_angle_deg"],
@@ -348,6 +365,8 @@ class TwinBuilder:
                 "status": (status, ""),
                 "grade_pct": (float(k["grade_pct"]), CU),
                 "hardness_bwi": (float(k["hardness_bwi"]), BWI),
+                # Clay minerals in the rock, %: the block model's estimate until the face shows otherwise.
+                "clay_pct": (float(k["clay_pct"]), PCT),
                 "tonnes_remaining": (remaining, T),
                 "material": (k["material"], ""),
                 "frag_p80_mm": (float(blast["p80_ref_mm"]) if broken else 0.0, MM),
@@ -372,7 +391,7 @@ class TwinBuilder:
         for bench in w["benches"]:
             if bench.get("access_node"):
                 serves.setdefault(bench["access_node"], []).append(bench["id"])
-        for key in ("crusher", "waste_dump", "fuel_station", "workshop"):
+        for key in ("crusher", "waste_dump", "fuel_station", "workshop", "clay_plant", "clay_stockpile"):
             serves.setdefault(w[key]["access_node"], []).append(key.replace("_", "-"))
         for pad in w["rom_pads"]:
             serves.setdefault(pad["access_node"], []).append(pad["id"])
@@ -414,7 +433,7 @@ class TwinBuilder:
     def substation(self):
         w = self.world["substation"]
         x, y, z = w["xyz"]
-        consumers = [*self.names("loaders"), "crusher", "conveyor", "mill-sag", "mill-ball", "flotation"]
+        consumers = [*self.names("loaders"), "crusher", "conveyor", "mill-sag", "mill-ball", "flotation", "clay-plant"]
         self.add("substation", "substation", w["name"], "mine", {
             "load_mw": (0.0, MW),
             "plant_mw": (0.0, MW),
@@ -575,6 +594,7 @@ class TwinBuilder:
             "level_pct": (float(w["stockpile"]["initial_level_pct"]), PCT),
             "grade_pct": (float(p["geology"]["mean_head_grade_pct"]), CU),
             "hardness_bwi": (float(p["mill"]["bwi_ref_kwh_t"]), BWI),
+            "clay_pct": (float(p["flotation"]["clay_ref_pct"]), PCT),
             "hours_of_feed": (round(level / p["mill"]["design_tph"], 1), H),
         }, links={"fed_by": self.tid("conveyor"), "feeds": self.tid("mill-sag"), "circuit": self.tid("mill")},
             geo={"x": x, "y": y, "z": z},
@@ -592,7 +612,11 @@ class TwinBuilder:
             "feed_setpoint_tph": (float(mill["design_tph"]), TPH),
             "setpoint_source": ("constant", ""),
             "setpoint_hold_until": ("", ""),
+            # What the circuit can grind: the power limit at the hardness of the feed, less what its clay takes.
             "max_feed_tph": (float(round(mill["installed_mw"] * 1000.0 / mill["specific_energy_kwh_t"])), TPH),
+            "power_limit_tph": (float(round(mill["installed_mw"] * 1000.0 / mill["specific_energy_kwh_t"])), TPH),
+            "clay_factor_pct": (100.0, PCT),
+            "feed_clay_pct": (float(p["flotation"]["clay_ref_pct"]), PCT),
             "throughput_tph": (0.0, TPH),
             "power_mw": (0.0, MW),
             "specific_energy_kwh_t": (0.0, "kWh/t"),
@@ -644,6 +668,9 @@ class TwinBuilder:
             "state": ("running", ""),
             "feed_grade_pct": (0.0, CU),
             "recovery_pct": (0.0, PCT),
+            # Clay in the feed and the points of recovery it takes (mine/common/process.py).
+            "feed_clay_pct": (float(flotation["clay_ref_pct"]), PCT),
+            "clay_loss_pct": (0.0, PCT),
             "conc_grade_pct": (float(flotation["conc_grade_pct"]), CU),
             "conc_tph": (0.0, TPH),
             "cu_tph": (0.0, TPH),
@@ -653,7 +680,8 @@ class TwinBuilder:
         }, links={"fed_by": self.tid("mill-ball"), "circuit": self.tid("mill"), "power": self.tid("substation"),
                   "feeds": self.tids(["concentrate", "tailings"])},
             geo={"x": x, "y": y, "z": z},
-            spec={"recovery_ref_pct": flotation["recovery_ref_pct"], "conc_grade_pct": flotation["conc_grade_pct"]})
+            spec={"recovery_ref_pct": flotation["recovery_ref_pct"], "conc_grade_pct": flotation["conc_grade_pct"],
+                  "clay_ref_pct": flotation["clay_ref_pct"], "clay_loss_pct_per_pct": flotation["clay_loss_pct"]})
 
         x, y, z = w["concentrate"]["xyz"]
         conc = p["concentrate"]
@@ -667,7 +695,7 @@ class TwinBuilder:
             "shipped_t": (0.0, T),
             "shipments_total": (0, ""),
             "last_shipment_sim_time": ("", ""),
-        }, links={"fed_by": self.tid("flotation")}, geo={"x": x, "y": y, "z": z},
+        }, links={"fed_by": self.tids(["flotation", "clay-flotation"])}, geo={"x": x, "y": y, "z": z},
             spec={"capacity_t": conc["store_capacity_t"], "shipment_t": conc["shipment_t"],
                   "grade_pct": flotation["conc_grade_pct"]})
 
@@ -679,9 +707,103 @@ class TwinBuilder:
             "stored_t": (0.0, T),
             "stored_m3": (0.0, "m3"),
             "cu_lost_t": (0.0, T),
-        }, links={"fed_by": self.tid("flotation")}, geo={"polygon": w_t["outline"], "z": z},
+        }, links={"fed_by": self.tids(["flotation", "clay-flotation"])}, geo={"polygon": w_t["outline"], "z": z},
             spec={"discharge_x": x, "discharge_y": y, "density_t_m3": conc["tails_density_t_m3"],
                   "area_m2": round(polygon_area(w_t["outline"]))})
+        self.clay_plant()
+
+    def clay_plant(self):
+        """The clay-ore plant ОФ-2: its feed stockpile (where trucks tip) and plant, the desliming cyclones, the
+        sands and slime flotation; and the clay-ore stockpile beside it."""
+        w, p = self.world, self.params
+        c, rock = p["clay_plant"], p["rock"]
+        wc = w["clay_plant"]
+        x, y, z = wc["xyz"]
+        tip = wc["tip_xyz"]
+        level = c["feed_bin_t"] * wc["initial_level_pct"] / 100.0
+        grade = float(c["mean_feed_grade_pct"])
+        clay = float(c["ref_clay_pct"])
+        split = clay_plant_split(p, grade, clay)
+        self.add("clay-plant", "clay-plant", wc["name"], "mine", {
+            "state": ("running", ""),
+            "feed_tph": (0.0, TPH),
+            "feed_setpoint_tph": (float(c["design_tph"]), TPH),
+            "capacity_tph": (float(c["licence_tph"]), TPH),
+            # The feed stockpile trucks tip on.
+            "bin_t": (round(level), T),
+            "bin_pct": (float(wc["initial_level_pct"]), PCT),
+            "bin_hours": (round(level / c["design_tph"], 1), H),
+            "room_t": (round(c["feed_bin_t"] - level), T),
+            "feed_grade_pct": (grade, CU),
+            "feed_clay_pct": (clay, PCT),
+            "recovery_pct": (0.0, PCT),
+            "cu_tph": (0.0, TPH),
+            "conc_tph": (0.0, TPH),
+            "power_mw": (0.0, MW),
+            "queue_len": (0, ""),
+            # The wheel loader feeding the feed stockpile from the clay-ore stockpile.
+            "reclaim_tph": (0.0, TPH),
+            "tonnes_total": (0.0, T),
+            "cu_total_t": (0.0, T),
+            "stops_total": (0, ""),
+            # While stopped: when it is expected back, and how many crews repair it.
+            "restart_expected_sim_time": ("", ""),
+            "repair_crews": (0, ""),
+        }, links={"access_node": self.tid(wc["access_node"]), "feeds": self.tid("desliming"),
+                  "fed_by": self.tid("clay-stockpile"), "power": self.tid("substation")},
+            geo={"x": x, "y": y, "z": z, "polygon": wc["outline"]},
+            spec={"tip_x": tip[0], "tip_y": tip[1], "design_tph": c["design_tph"], "licence_tph": c["licence_tph"],
+                  "feed_bin_t": c["feed_bin_t"], "annual_mt": round(c["design_tph"] * 8760 * p["plan"]["plant_availability"] / 1e6, 2),
+                  "flowsheet": "приёмный склад → дробление → МПСИ (частичное измельчение) → гидроциклоны обесшламливания → "
+                               "шаровая мельница → песковая и шламовая флотация → общий склад концентрата; хвосты — "
+                               "в общее хвостохранилище",
+                  "recovery_basis": "извлечение ОФ-2 не публикуется; модель обесшламливания откалибрована на 66,5 % за "
+                                    "2024 год (доля меди ОФ-2 в IV квартале 2024 года, отчёт KAZ Minerals)"})
+        x, y, z = w["desliming"]["xyz"]
+        self.add("desliming", "desliming", w["desliming"]["name"], "clay-plant", {
+            "state": ("running", ""),
+            "feed_tph": (0.0, TPH),
+            "feed_clay_pct": (clay, PCT),
+            "slimes_pct": (round(100 * split["slimes_share"], 1), PCT),
+            "slimes_tph": (0.0, TPH),
+            "sands_tph": (0.0, TPH),
+            "slimes_cu_pct": (round(100 * split["slimes_cu_share"], 1), PCT),
+        }, links={"fed_by": self.tid("clay-plant"), "feeds": self.tid("clay-flotation"), "circuit": self.tid("clay-plant")},
+            geo={"x": x, "y": y, "z": z},
+            spec={"slimes_base_share": c["slimes_base_share"], "slimes_cu_ratio": c["slimes_cu_ratio"]})
+        x, y, z = w["clay_flotation"]["xyz"]
+        self.add("clay-flotation", "clay-flotation", w["clay_flotation"]["name"], "clay-plant", {
+            "state": ("running", ""),
+            "feed_grade_pct": (grade, CU),
+            "recovery_pct": (0.0, PCT),
+            "sand_recovery_pct": (round(split["sand_recovery_pct"], 1), PCT),
+            "slime_recovery_pct": (round(split["slime_recovery_pct"], 1), PCT),
+            "conc_grade_pct": (float(p["flotation"]["conc_grade_pct"]), CU),
+            "conc_tph": (0.0, TPH),
+            "cu_tph": (0.0, TPH),
+            "tails_tph": (0.0, TPH),
+            "tails_grade_pct": (0.0, CU),
+            "cu_total_t": (0.0, T),
+        }, links={"fed_by": self.tid("desliming"), "circuit": self.tid("clay-plant"),
+                  "feeds": self.tids(["concentrate", "tailings"])},
+            geo={"x": x, "y": y, "z": z},
+            spec={"recovery_check_pct": c["recovery_check_pct"], "slime_recovery_pct": c["slime_recovery_pct"],
+                  "sand_recovery_ref_pct": c["sand_recovery_ref_pct"]})
+        s = w["clay_stockpile"]
+        x, y, z = s["tip_xyz"]
+        capacity = round(polygon_area(s["outline"]) * s["stack_height_m"] * rock["loose_density_t_m3"])
+        self.add("clay-stockpile", "clay-stockpile", s["name"], "mine", {
+            "level_t": (float(s["initial_level_t"]), T),
+            "level_pct": (round(100.0 * s["initial_level_t"] / capacity, 1), PCT),
+            "room_t": (round(capacity - s["initial_level_t"]), T),
+            "grade_pct": (float(s["initial_grade_pct"]), CU),
+            "clay_pct": (float(s["initial_clay_pct"]), PCT),
+            "queue_len": (0, ""),
+            "reclaim_tph": (0.0, TPH),
+        }, links={"access_node": self.tid(s["access_node"]), "feeds": self.tid("clay-plant")},
+            geo={"polygon": s["outline"], "z": z},
+            spec={"tip_x": x, "tip_y": y, "capacity_t": capacity, "stack_height_m": s["stack_height_m"],
+                  "reclaim_rate_tph": c["reclaim_tph"]})
 
     def dumps(self):
         rom, rock = self.params["rom"], self.params["rock"]
@@ -694,6 +816,7 @@ class TwinBuilder:
                 "level_pct": (round(100.0 * pad["initial_level_t"] / capacity, 1), PCT),
                 "grade_pct": (float(pad["initial_grade_pct"]), CU),
                 "hardness_bwi": (float(self.params["mill"]["bwi_ref_kwh_t"]), BWI),
+                "clay_pct": (float(self.params["flotation"]["clay_ref_pct"]), PCT),
                 "role": (pad["role"], ""),
                 "queue_len": (0, ""),
                 "reclaim_tph": (0.0, TPH),
@@ -751,7 +874,7 @@ class TwinBuilder:
             "normal_min_c": (round(n["min_c"], 1), DEG_C),
             "wet_day_chance_pct": (round(100.0 * n["wet_chance"], 1), PCT),
         }, links={"affects": self.tids(self.names("road_segments"))},
-            spec={"climate_basis": CLIMATE_BASIS, "station": "Aqtogay-36619, 46°54′ с. ш., 79°36′ в. д.",
+            spec={"climate_basis": CLIMATE_BASIS, "station": "Экибастуз (около 51°43′ с. ш., 75°19′ в. д.), 73 км к востоку от рудника",
                   "heavy_rain_mm_h": p["rain_heavy_mm_h"]})
 
     def modules(self):
@@ -760,12 +883,14 @@ class TwinBuilder:
         slots = self.world["forecasts"]
         controls = {
             "module-dispatch": [*self.names("trucks"), *self.names("loaders"), "crusher"],
-            "module-grade": [*(b["id"] for b in self.block_defs), "crusher", *self.names("rom_pads"), "waste-dump", "stockpile"],
+            "module-grade": [*(b["id"] for b in self.block_defs), "crusher", *self.names("rom_pads"), "waste-dump", "stockpile",
+                             "clay-plant", "clay-stockpile"],
             "module-plant": ["mill", "stockpile", "flotation"],
             "module-maint": ["workshop", *self.names("trucks"), *self.names("loaders")],
             # The advisor asks for forecasts and, on `apply`, sends the levers of its options.
             "module-advisor": ["mine", *(f"forecast-{n}" for n in slots["advisor_slots"]), *self.names("loaders"), "mill",
-                               *self.names("rom_pads"), *self.names("trucks"), "crusher", "workshop",
+                               *self.names("rom_pads"), *self.names("trucks"), "crusher", "workshop", "clay-plant",
+                               *(b["id"] for b in self.block_defs),
                                *(s["id"] for s in self.world["road_segments"]),
                                *(m["id"] for m in self.world["modules"] if m["id"] != "module-advisor"), "journal"],
         }
@@ -840,6 +965,10 @@ class TwinBuilder:
                 "band_high_pct": (round(self.params["grade_control"]["target_pct"] + self.params["grade_control"]["band_pct"], 3), CU),
                 "in_band_pct": (0.0, PCT),
                 "blend_grade_pct": (0.0, CU),
+                # The clay expected in the ОФ-1 feed, the limit the module keeps it within, the faces it found clay.
+                "blend_clay_pct": (0.0, PCT),
+                "clay_limit_pct": (float(self.params["grade_control"]["clay_limit_pct"]), PCT),
+                "clay_blocks": (0, ""),
                 "blocks_classified": (0, ""),
                 "reclaim_tph": (0.0, TPH),
             },
@@ -965,6 +1094,13 @@ class TwinBuilder:
                 f"{branch}_from_pads_cu_t": (0.0, T),
                 f"{branch}_from_pit_t": (0, T),
                 f"{branch}_from_pit_cu_t": (0.0, T),
+                # The clay-ore plant ОФ-2: ore processed, the copper in it and recovered, and the clay-ore stockpile
+                # built up (negative: drawn down) over the horizon.
+                f"{branch}_clay_milled_t": (0.0, T),
+                f"{branch}_clay_milled_cu_t": (0.0, T),
+                f"{branch}_clay_cu_t": (0.0, T),
+                f"{branch}_to_clay_stock_t": (0, T),
+                f"{branch}_ofs1_clay_pct": (0.0, PCT),
                 f"{branch}_stock_end_h": (0.0, H),
                 f"{branch}_diesel_l": (0.0, "l"),
                 f"{branch}_energy_mwh": (0.0, "MWh"),

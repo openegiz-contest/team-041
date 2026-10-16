@@ -1,9 +1,12 @@
-"""Everything downstream of the trucks: dump points, primary crusher, conveyor,
-coarse-ore stockpile, ROM pads, waste dump, mill, flotation and the substation.
+"""Everything downstream of the trucks: dump points, the primary crusher of ОФ-1,
+conveyor, coarse-ore stockpile, ROM pads, waste dump, mill, flotation, the
+clay-ore plant ОФ-2 with its feed stockpile, the clay-ore stockpile beside it,
+the shared concentrate store and tailings, and the substation.
 
 Rock moves as parcels that carry their tonnes, their copper and their
-tonne-weighted hardness and fragment size, so that grade and hardness arrive
-at the mill with the ore they belong to and the mass balance closes.
+tonne-weighted hardness, fragment size and clay content, so that grade,
+hardness and clay arrive at the plants with the ore they belong to and the
+mass balance closes.
 
 Two modules act here through live messages. Plant control sets the mill feed
 rate (`set-feed-rate`); grade control orders reclaim from the ROM pads
@@ -17,7 +20,7 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 from mine.common.physics import G
-from mine.common.process import recovery_pct
+from mine.common.process import clay_handling, clay_plant_split, recovery_pct
 from mine.sim.text import num
 
 if TYPE_CHECKING:
@@ -31,30 +34,33 @@ def short(thing_id: str) -> str:
 
 class Stock:
     """A fully mixed heap: tonnes, contained copper, and the tonne-weighted
-    sums of hardness and fragment size."""
-    __slots__ = ("t", "cu", "bwi_t", "p80_t")
+    sums of hardness, fragment size and clay content (% x t)."""
+    __slots__ = ("t", "cu", "bwi_t", "p80_t", "clay_t")
 
-    def __init__(self, t: float = 0.0, grade_pct: float = 0.0, bwi: float = 0.0, p80: float = 0.0):
+    def __init__(self, t: float = 0.0, grade_pct: float = 0.0, bwi: float = 0.0, p80: float = 0.0, clay: float = 0.0):
         self.t, self.cu, self.bwi_t, self.p80_t = t, t * grade_pct / 100.0, t * bwi, t * p80
+        self.clay_t = t * clay
 
-    def add(self, t: float, cu: float, bwi_t: float, p80_t: float) -> None:
+    def add(self, t: float, cu: float, bwi_t: float, p80_t: float, clay_t: float = 0.0) -> None:
         self.t += t
         self.cu += cu
         self.bwi_t += bwi_t
         self.p80_t += p80_t
+        self.clay_t += clay_t
 
-    def take(self, t: float) -> tuple[float, float, float, float]:
-        """Remove `t` tonnes of the mix; return what left as (t, cu, bwi_t, p80_t)."""
+    def take(self, t: float) -> tuple[float, float, float, float, float]:
+        """Remove `t` tonnes of the mix; return what left as (t, cu, bwi_t, p80_t, clay_t)."""
         if t >= self.t - 1e-9:
-            out = (self.t, self.cu, self.bwi_t, self.p80_t)
-            self.t = self.cu = self.bwi_t = self.p80_t = 0.0
+            out = (self.t, self.cu, self.bwi_t, self.p80_t, self.clay_t)
+            self.t = self.cu = self.bwi_t = self.p80_t = self.clay_t = 0.0
             return out
         share = t / self.t
-        out = (t, self.cu * share, self.bwi_t * share, self.p80_t * share)
+        out = (t, self.cu * share, self.bwi_t * share, self.p80_t * share, self.clay_t * share)
         self.t -= out[0]
         self.cu -= out[1]
         self.bwi_t -= out[2]
         self.p80_t -= out[3]
+        self.clay_t -= out[4]
         return out
 
     @property
@@ -68,6 +74,11 @@ class Stock:
     @property
     def p80(self) -> float:
         return self.p80_t / self.t if self.t > 1e-6 else 0.0
+
+    @property
+    def clay(self) -> float:
+        """Clay content of the mix, %."""
+        return self.clay_t / self.t if self.t > 1e-6 else 0.0
 
 
 class DumpPoint:
@@ -97,8 +108,8 @@ class DumpPoint:
     def room_for(self, truck: "Truck") -> bool:
         return True
 
-    def receive(self, t: float, cu: float, bwi_t: float, p80_t: float) -> None:
-        self.stock.add(t, cu, bwi_t, p80_t)
+    def receive(self, t: float, cu: float, bwi_t: float, p80_t: float, clay_t: float = 0.0) -> None:
+        self.stock.add(t, cu, bwi_t, p80_t, clay_t)
 
     def step(self, dt: float) -> None:
         if self.truck is None and self.queue and self.is_open() and self.room_for(self.queue[0]):
@@ -119,11 +130,13 @@ class DumpPoint:
         share = tipped / truck.payload_t if truck.payload_t > 0 else 1.0
         if truck.payload_t - tipped <= 1e-6:
             tipped, share = truck.payload_t, 1.0
-        self.receive(tipped, truck.payload_cu_t * share, truck.payload_bwi * share, truck.payload_p80 * share)
+        self.receive(tipped, truck.payload_cu_t * share, truck.payload_bwi * share, truck.payload_p80 * share,
+                     truck.payload_clay * share)
         self.sim.kpis.tipped(tipped, self.sink_kind)
         truck.payload_cu_t -= truck.payload_cu_t * share
         truck.payload_bwi -= truck.payload_bwi * share
         truck.payload_p80 -= truck.payload_p80 * share
+        truck.payload_clay -= truck.payload_clay * share
         truck.payload_t -= tipped
         if share >= 1.0:
             self.truck = None
@@ -195,27 +208,27 @@ class Crusher(DumpPoint):
         ref = self.sim.params["blast"]["p80_ref_mm"]
         return min(1.0, max(self.p["size_factor_min"], 1.0 - self.p["size_slope"] * (p80_mm - ref) / ref))
 
-    def draw(self, dt: float, room_downstream_t: float) -> tuple[float, float, float]:
+    def draw(self, dt: float, room_downstream_t: float) -> tuple[float, float, float, float]:
         """Crush what the rating, the feed size and the space downstream allow;
-        return the parcel put on the conveyor as (t, cu, bwi_t)."""
+        return the parcel put on the conveyor as (t, cu, bwi_t, clay_t)."""
         hopper = self.hopper
         self.rate_tph, self.limited = 0.0, False
         if self.stopped_by or hopper.t <= 1e-6:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
         self.capacity_tph = self.p["rated_tph"] * self.size_factor(hopper.p80)
         wanted = min(hopper.t, self.capacity_tph / 3600.0 * dt)
         amount = min(wanted, room_downstream_t)
         # The stockpile is full and lets through only what the mill takes out of it.
         self.limited = amount < wanted
         if amount <= 1e-9:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
         self.feed_grade_pct, self.feed_p80_mm = hopper.grade_pct, hopper.p80
-        t, cu, bwi_t, _ = hopper.take(amount)
+        t, cu, bwi_t, _, clay_t = hopper.take(amount)
         self.rate_tph = t / dt * 3600.0
         self.total_t += t
         self.total_cu += cu
         self.sim.kpis.crushed(t, cu)
-        return t, cu, bwi_t
+        return t, cu, bwi_t, clay_t
 
     def state(self, belt_tph: float) -> str:
         """`running` while rock it crushed is still on the belt, so that the
@@ -243,23 +256,25 @@ class Conveyor:
         self.length_m, self.lift_m = spec["length_m"], spec["lift_m"]
         self.transport_s = self.length_m / self.p["belt_speed_ms"]
         self.steps = max(1, round(self.transport_s))        # the model advances in 1 s steps
-        self.belt: deque[tuple[float, float, float]] = deque()
-        self.load_t = self.load_cu = 0.0
+        self.belt: deque[tuple[float, float, float, float]] = deque()
+        self.load_t = self.load_cu = self.load_clay_t = 0.0
         self.feed_tph = 0.0
 
-    def step(self, parcel: tuple[float, float, float], dt: float) -> tuple[float, float, float]:
+    def step(self, parcel: tuple[float, float, float, float], dt: float) -> tuple[float, float, float, float]:
         """Put `parcel` on the belt; return the parcel that falls off its far end."""
         self.belt.append(parcel)
         self.load_t += parcel[0]
         self.load_cu += parcel[1]
+        self.load_clay_t += parcel[3]
         self.feed_tph = parcel[0] / dt * 3600.0
         if len(self.belt) <= self.steps:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
         out = self.belt.popleft()
         self.load_t -= out[0]
         self.load_cu -= out[1]
+        self.load_clay_t -= out[3]
         if self.load_t < 1e-9:
-            self.load_t = self.load_cu = 0.0                # an empty belt, free of rounding residue
+            self.load_t = self.load_cu = self.load_clay_t = 0.0      # an empty belt, free of rounding residue
         return out
 
     @property
@@ -279,7 +294,8 @@ class Mill:
     """The grinding circuit: one SAG mill and two ball mills in closed circuit.
     The feeder delivers the setpoint; the circuit grinds what its installed
     power allows for ore of the current hardness (Bond: the energy per tonne
-    grows in proportion to the work index). The power is shared between the
+    grows in proportion to the work index), less what clay in the feed takes
+    (`mill.clay_handling_slope`: viscous pulp, sticky chutes). The power is shared between the
     SAG mill and the ball mills in the proportion of their specific energies.
     Ore fed faster than it can be ground builds up in the circuit (and fills
     the SAG mill's drum above its normal charge); when the build-up reaches
@@ -301,6 +317,7 @@ class Mill:
         self.ground_tph = 0.0                   # leaving for flotation
         self.power_kw = 0.0
         self.feed_bwi = float(self.p["bwi_ref_kwh_t"])
+        self.feed_clay = float(sim.params["flotation"]["clay_ref_pct"])
         self.charge = Stock()                   # ore in the mill above its normal load
         self.restart_at = 0.0
         self.stops = 0                          # every stop: an empty stockpile, a zero setpoint, an overload trip
@@ -310,8 +327,14 @@ class Mill:
     def specific_energy(self, bwi: float) -> float:
         return self.p["specific_energy_kwh_t"] * bwi / self.p["bwi_ref_kwh_t"]
 
-    def max_feed_tph(self, bwi: float) -> float:
+    def power_limit_tph(self, bwi: float) -> float:
+        """What the installed power grinds of ore of this hardness."""
         return self.p["installed_mw"] * 1000.0 / self.specific_energy(bwi)
+
+    def max_feed_tph(self, bwi: float, clay: float | None = None) -> float:
+        """What the circuit grinds of ore of this hardness and clay content: the power limit, less what the clay takes."""
+        clay = self.feed_clay if clay is None else clay
+        return self.power_limit_tph(bwi) * clay_handling(self.sim.params, clay)
 
     def unit_kw(self, unit: str) -> float:
         """Power drawn now by the SAG mill (`sag`) or the ball mills (`ball`)."""
@@ -322,7 +345,7 @@ class Mill:
         charge left after grinding out, up with the feed to the charge at the
         power limit, and up again with ore held above what the circuit grinds."""
         p = self.p
-        grinding = min(1.0, self.ground_tph / self.max_feed_tph(self.feed_bwi)) if self.feed_bwi > 0 else 0.0
+        grinding = min(1.0, self.ground_tph / self.max_feed_tph(self.feed_bwi, self.feed_clay)) if self.feed_bwi > 0 else 0.0
         held = min(1.0, self.charge.t / p["overload_t"])
         return (p["charge_idle_pct"] + (p["charge_full_pct"] - p["charge_idle_pct"]) * grinding
                 + (p["charge_trip_pct"] - p["charge_full_pct"]) * held)
@@ -332,30 +355,31 @@ class Mill:
         self.restart_at = self.sim.now + self.p["restart_min"] * 60.0
         self.sim.log("alarm", self.name, f"{self.title} остановлена: {reason}")
 
-    def step(self, stockpile: Stock, hardness_factor: float, dt: float) -> tuple[float, float, float]:
-        """Draw feed from the stockpile and grind; return the product as (t, cu, bwi).
+    def step(self, stockpile: Stock, hardness_factor: float, dt: float) -> tuple[float, float, float, float]:
+        """Draw feed from the stockpile and grind; return the product as (t, cu, bwi, clay %).
         `hardness_factor` scales the hardness of the ore drawn (1 unless a harder zone is passing)."""
         sim = self.sim
         self.feed_tph = self.ground_tph = self.power_kw = 0.0
         if self.state == "idle":
             needed = sim.params["stockpile"]["restart_hours"] * self.setpoint_tph
             if self.setpoint_tph <= 0 or stockpile.t < needed or sim.now < self.restart_at:
-                return 0.0, 0.0, 0.0
+                return 0.0, 0.0, 0.0, 0.0
             self.state = "running"
             sim.log("info", self.name, f"{self.title} запущена: на складе {stockpile.t:.0f} т руды")
         if self.state == "running":
             if self.setpoint_tph <= 0 or stockpile.t <= 1e-6:
                 if self.charge.t <= 1e-6:
                     self._stop("склад дроблёной руды пуст" if self.setpoint_tph > 0 else "уставка питания равна нулю")
-                    return 0.0, 0.0, 0.0
+                    return 0.0, 0.0, 0.0, 0.0
             else:
-                t, cu, bwi_t, p80_t = stockpile.take(self.setpoint_tph / 3600.0 * dt)
-                self.charge.add(t, cu, bwi_t * hardness_factor, p80_t)
+                t, cu, bwi_t, p80_t, clay_t = stockpile.take(self.setpoint_tph / 3600.0 * dt)
+                self.charge.add(t, cu, bwi_t * hardness_factor, p80_t, clay_t)
                 self.feed_tph = t / dt * 3600.0
-        out = (0.0, 0.0, 0.0)
+        out = (0.0, 0.0, 0.0, 0.0)
         if self.charge.t > 1e-9:
             bwi = self.feed_bwi = self.charge.bwi
-            t, cu, _, _ = self.charge.take(self.max_feed_tph(bwi) / 3600.0 * dt)
+            clay = self.feed_clay = self.charge.clay
+            t, cu, _, _, _ = self.charge.take(self.max_feed_tph(bwi, clay) / 3600.0 * dt)
             self.ground_tph = t / dt * 3600.0
             self.power_kw = self.ground_tph * self.specific_energy(bwi)
             self.total_t += t
@@ -363,12 +387,15 @@ class Mill:
             self.energy_kwh += self.power_kw * dt / 3600.0
             sim.kpis.mill_feed.add(sim.now, t)
             sim.kpis.mill_cu.add(sim.now, cu)
-            out = (t, cu, bwi)
+            sim.kpis.mill_clay.add(sim.now, t * clay)
+            sim.kpis.mill_clay_total += t * clay
+            out = (t, cu, bwi, clay)
         if self.state == "running" and self.charge.t >= self.p["overload_t"]:
             self.state, self.stops, self.overloads = "overload", self.stops + 1, self.overloads + 1
             sim.log("alarm", self.name,
                     f"{self.title} перегружена: уставка {self.setpoint_tph:.0f} т/ч выше предельного питания "
-                    f"{self.max_feed_tph(self.feed_bwi):.0f} т/ч для руды крепостью {num(self.feed_bwi)} кВт·ч/т, питание отключено")
+                    f"{self.max_feed_tph(self.feed_bwi, self.feed_clay):.0f} т/ч для руды крепостью {num(self.feed_bwi)} кВт·ч/т "
+                    f"и глинистостью {num(self.feed_clay)} %, питание отключено")
         elif self.state == "overload" and self.charge.t <= 1e-6:
             self.state = "idle"
             self.restart_at = sim.now + self.p["restart_min"] * 60.0
@@ -377,8 +404,8 @@ class Mill:
 
 
 class ConcentrateStore:
-    """Concentrate after the thickener and the filters: it piles up in the
-    store and leaves by rail in lots of `concentrate.shipment_t`."""
+    """Concentrate of ОФ-1 and ОФ-2 after the thickener and the filters: it piles
+    up in the store and leaves by rail in lots of `concentrate.shipment_t`."""
 
     def __init__(self, sim: "Simulation", thing: dict):
         self.sim, self.p = sim, sim.params["concentrate"]
@@ -388,12 +415,14 @@ class ConcentrateStore:
         self.shipments = 0
         self.last_shipment = None
         self.inflow_tph = 0.0
+        self.step_t = 0.0                       # received in the current step, from both plants
 
     def receive(self, t: float, cu: float, dt: float) -> None:
         self.t += t
         self.cu += cu
         self.produced_t += t
-        self.inflow_tph = t / dt * 3600.0
+        self.step_t += t
+        self.inflow_tph = self.step_t / dt * 3600.0
         lot = float(self.p["shipment_t"])
         if self.t >= lot:
             share = lot / self.t
@@ -422,7 +451,7 @@ class ConcentrateStore:
 
 
 class Tailings:
-    """The tailings storage facility: what the flotation does not recover."""
+    """The tailings storage facility: what the flotation of ОФ-1 and of ОФ-2 does not recover."""
 
     def __init__(self, sim: "Simulation", thing: dict):
         self.sim = sim
@@ -430,12 +459,15 @@ class Tailings:
         self.density = float(sim.params["concentrate"]["tails_density_t_m3"])
         self.t = self.cu = 0.0
         self.inflow_tph = self.grade_pct = 0.0
+        self.step_t = self.step_cu = 0.0        # received in the current step, from both plants
 
     def receive(self, t: float, cu: float, dt: float) -> None:
         self.t += t
         self.cu += cu
-        self.inflow_tph = t / dt * 3600.0
-        self.grade_pct = 100.0 * cu / t if t > 1e-9 else 0.0
+        self.step_t += t
+        self.step_cu += cu
+        self.inflow_tph = self.step_t / dt * 3600.0
+        self.grade_pct = 100.0 * self.step_cu / self.step_t if self.step_t > 1e-9 else 0.0
 
     def values(self) -> dict:
         return {"inflow_tph": round(self.inflow_tph), "grade_pct": round(self.grade_pct, 3),
@@ -448,21 +480,22 @@ class Flotation:
         self.concentrate, self.tailings = concentrate, tailings
         self.state = "running"
         self.feed_grade_pct = self.recovery_pct = self.cu_tph = 0.0
+        self.feed_clay_pct = float(sim.params["flotation"]["clay_ref_pct"])
         self.cu_conc_t = self.cu_tails_t = 0.0
         self.conc_grade = float(sim.params["flotation"]["conc_grade_pct"]) / 100.0
 
-    def recovery(self, grade_pct: float, bwi: float, feed_tph: float | None = None) -> float:
-        return recovery_pct(self.sim.params, grade_pct, bwi, feed_tph)
+    def recovery(self, grade_pct: float, bwi: float, feed_tph: float | None = None, clay_pct: float | None = None) -> float:
+        return recovery_pct(self.sim.params, grade_pct, bwi, feed_tph, clay_pct)
 
-    def step(self, t: float, cu: float, bwi: float, dt: float) -> None:
+    def step(self, t: float, cu: float, bwi: float, clay: float, dt: float) -> None:
         if t <= 1e-9:
             self.state = "idle"
             self.feed_grade_pct = self.recovery_pct = self.cu_tph = 0.0
-            self.concentrate.inflow_tph = self.tailings.inflow_tph = self.tailings.grade_pct = 0.0
             return
         self.state = "running"
         self.feed_grade_pct = 100.0 * cu / t
-        self.recovery_pct = self.recovery(self.feed_grade_pct, bwi, t / dt * 3600.0)
+        self.feed_clay_pct = clay
+        self.recovery_pct = self.recovery(self.feed_grade_pct, bwi, t / dt * 3600.0, clay)
         recovered = cu * self.recovery_pct / 100.0
         self.cu_conc_t += recovered
         self.cu_tails_t += cu - recovered
@@ -472,6 +505,225 @@ class Flotation:
         conc_t = recovered / self.conc_grade
         self.concentrate.receive(conc_t, recovered, dt)
         self.tailings.receive(t - conc_t, cu - recovered, dt)
+
+
+class ClayStockpile(DumpPoint):
+    """The clay-ore stockpile beside ОФ-2: clay ore the plant cannot take now (its feed stockpile full, the plant
+    stopped) or that the grade control sends here; a wheel loader feeds ОФ-2 from it when its feed stockpile runs
+    low. A truck tips here only while its whole load fits."""
+
+    sink_kind = "clay-stock"
+
+    def __init__(self, sim: "Simulation", thing: dict, spot_s: float, dump_s: float, spread: float):
+        super().__init__(sim, thing, spot_s, dump_s, spread)
+        f = lambda name: thing["features"][name]["properties"]["value"]
+        self.capacity_t = float(thing["attributes"]["spec"]["capacity_t"])
+        self.stock = Stock(f("level_t"), f("grade_pct"), sim.params["mill"]["bwi_ref_kwh_t"],
+                           sim.params["blast"]["p80_ref_mm"], f("clay_pct"))
+        self.reclaim_tph = 0.0
+
+    def room_for(self, truck: "Truck") -> bool:
+        ahead = sum(t.payload_t for t in self.queue if t is not truck)
+        if self.truck is not None and self.truck is not truck:
+            ahead += self.truck.payload_t
+        return self.stock.t + ahead + truck.payload_t <= self.capacity_t
+
+    def room_t(self) -> float:
+        return max(0.0, self.capacity_t - self.stock.t)
+
+
+class ClayPlant(DumpPoint):
+    """The clay-ore plant ОФ-2. Trucks tip on its feed stockpile (`clay_plant.feed_bin_t`); the plant draws its
+    setpoint from it through crushing and the SAG mill, the desliming cyclones split the slimes from the sands,
+    each goes to a flotation of its own (mine/common/process.py, `clay_plant_split`), and the concentrate joins
+    that of ОФ-1 in the shared store, the tailings the shared tailings facility. A scenario can stop it; after a
+    stop it starts again after `clay_plant.restart_min`. A wheel loader feeds the feed stockpile from the clay-ore
+    stockpile while it is low (the rule of the shift)."""
+
+    sink_kind = "clay"
+
+    def __init__(self, sim: "Simulation", thing: dict, stockpile: ClayStockpile, concentrate: ConcentrateStore,
+                 tailings: Tailings):
+        dump = sim.params["dump"]
+        super().__init__(sim, thing, dump["spot_s"], dump["dump_s"], sim.params["crusher"]["dump_spread"])
+        self.p = sim.params["clay_plant"]
+        f = lambda name: thing["features"][name]["properties"]["value"]
+        self.capacity_t = float(thing["attributes"]["spec"]["feed_bin_t"])
+        self.stock = Stock(f("bin_t"), f("feed_grade_pct"), sim.params["mill"]["bwi_ref_kwh_t"],
+                           sim.params["blast"]["p80_ref_mm"], f("feed_clay_pct"))
+        self.bin = self.stock
+        self.clay_stock, self.concentrate, self.tailings = stockpile, concentrate, tailings
+        self.setpoint_tph = float(self.p["design_tph"])
+        self.state = "running"                  # running / stopped / starting / idle
+        self.stopped_by = ""
+        self.stopped_since = 0.0
+        self.restart_at: float | None = None    # when it is expected back (the scenario's expected end)
+        self.start_after = 0.0                  # it takes ore again from this moment after a stop
+        self.feed_tph = self.cu_tph = self.power_kw = 0.0
+        self.feed_grade_pct = float(f("feed_grade_pct"))
+        self.feed_clay_pct = float(f("feed_clay_pct"))
+        self.split = clay_plant_split(sim.params, self.feed_grade_pct, self.feed_clay_pct)
+        self.total_t = self.total_cu = self.cu_conc_t = self.cu_tails_t = self.energy_kwh = 0.0
+        self.stops = 0
+        self.reclaiming = False
+        self.reclaim_tph = 0.0
+        self.reclaimed_t = self.reclaimed_cu = 0.0
+        self.conc_grade = float(sim.params["flotation"]["conc_grade_pct"]) / 100.0
+
+    def room_for(self, truck: "Truck") -> bool:
+        ahead = sum(t.payload_t for t in self.queue if t is not truck)
+        if self.truck is not None and self.truck is not truck:
+            ahead += self.truck.payload_t
+        return self.bin.t + ahead + truck.payload_t <= self.capacity_t
+
+    def room_t(self) -> float:
+        return max(0.0, self.capacity_t - self.bin.t)
+
+    def stop(self, reason: str) -> None:
+        self.stopped_by, self.stopped_since = reason, self.sim.now
+        self.stops += 1
+
+    def start(self) -> None:
+        self.stopped_by = ""
+        self.restart_at = None
+        self.start_after = self.sim.now + float(self.p["restart_min"]) * 60.0
+
+    def stop_is_long(self) -> bool:
+        return bool(self.stopped_by) and \
+            self.sim.now - self.stopped_since >= self.sim.params["crusher"]["stop_wait_min"] * 60.0
+
+    def _reclaim(self, dt: float) -> None:
+        p, pile = self.p, self.clay_stock
+        level = 100.0 * self.bin.t / self.capacity_t
+        self.reclaim_tph = pile.reclaim_tph = 0.0
+        if self.reclaiming and (level >= p["reclaim_stop_pct"] or pile.stock.t <= 1e-6):
+            self.reclaiming = False
+            self.sim.log("info", pile.name, f"{pile.title}: подача руды на ОФ-2 прекращена")
+        elif not self.reclaiming and level < p["reclaim_below_pct"] and pile.stock.t > 1000.0 and not self.stopped_by:
+            self.reclaiming = True
+            self.sim.log("info", pile.name, f"{pile.title}: погрузчик подаёт глинистую руду на ОФ-2, приёмный склад "
+                                            f"заполнен на {level:.0f} %")
+        if not self.reclaiming:
+            return
+        amount = min(float(p["reclaim_tph"]) / 3600.0 * dt, pile.stock.t, self.room_t())
+        if amount > 1e-9:
+            parcel = pile.stock.take(amount)
+            self.bin.add(*parcel)
+            self.reclaim_tph = pile.reclaim_tph = amount / dt * 3600.0
+            self.reclaimed_t += amount
+            self.reclaimed_cu += parcel[1]
+            self.sim.kpis.rehandle(amount)
+
+    def process(self, dt: float) -> None:
+        sim, p = self.sim, self.p
+        self._reclaim(dt)
+        self.feed_tph = self.cu_tph = 0.0
+        if self.stopped_by:
+            self.state = "stopped"
+        elif sim.now < self.start_after:
+            self.state = "starting"
+        elif self.bin.t <= 1e-6:
+            if self.state == "running":
+                self.stops += 1
+                sim.log("alarm", self.name, f"{self.title} остановлена: приёмный склад пуст")
+            self.state = "idle"
+        else:
+            if self.state == "idle":
+                self.start_after = sim.now + float(p["restart_min"]) * 60.0
+                self.state = "starting"
+            else:
+                self.state = "running"
+        if self.state == "running":
+            t, cu, _, _, clay_t = self.bin.take(self.setpoint_tph / 3600.0 * dt)
+            if t > 1e-9:
+                self.feed_tph = t / dt * 3600.0
+                self.feed_grade_pct = 100.0 * cu / t
+                self.feed_clay_pct = clay_t / t
+                self.split = clay_plant_split(sim.params, self.feed_grade_pct, self.feed_clay_pct)
+                recovered = cu * self.split["recovery_pct"] / 100.0
+                conc_t = recovered / self.conc_grade
+                self.concentrate.receive(conc_t, recovered, dt)
+                self.tailings.receive(t - conc_t, cu - recovered, dt)
+                self.total_t += t
+                self.total_cu += cu
+                self.cu_conc_t += recovered
+                self.cu_tails_t += cu - recovered
+                self.cu_tph = recovered / dt * 3600.0
+                sim.kpis.clay_feed.add(sim.now, t)
+                sim.kpis.clay_cu.add(sim.now, cu)
+                sim.kpis.conc_cu.add(sim.now, recovered)
+                sim.kpis.clay_conc_cu.add(sim.now, recovered)
+        plant = sim.params["plant"]
+        aux = plant["aux_energy_kwh_t"] * (plant["aux_base_share"] * self.setpoint_tph
+                                           + (1.0 - plant["aux_base_share"]) * self.feed_tph)
+        self.power_kw = self.feed_tph * (float(p["grind_kwh_t"]) + sim.params["flotation"]["energy_kwh_t"]) + aux
+        self.energy_kwh += self.power_kw * dt / 3600.0
+
+    def values(self) -> dict[str, dict]:
+        sim, s = self.sim, self.split
+        running = self.state == "running" and self.feed_tph > 0 and not self.stopped_by
+        conc_tph = self.cu_tph / self.conc_grade
+        slimes_tph = self.feed_tph * s["slimes_share"] if running else 0.0
+        # As it is now, also between a message and the next step: stopped by a scenario, starting up after it.
+        state = "stopped" if self.stopped_by else "starting" if sim.now < self.start_after else self.state
+        return {
+            self.name: {
+                "state": state,
+                "feed_tph": round(self.feed_tph),
+                "feed_setpoint_tph": round(self.setpoint_tph),
+                "capacity_tph": float(self.p["licence_tph"]),
+                "bin_t": round(self.bin.t),
+                "bin_pct": round(100.0 * self.bin.t / self.capacity_t, 1),
+                "bin_hours": round(self.bin.t / self.setpoint_tph, 1) if self.setpoint_tph > 0 else 0.0,
+                "room_t": round(self.room_t()),
+                "feed_grade_pct": round(self.feed_grade_pct, 3),
+                "feed_clay_pct": round(self.feed_clay_pct, 1),
+                "recovery_pct": round(s["recovery_pct"], 1) if running else 0.0,
+                "cu_tph": round(self.cu_tph, 2),
+                "conc_tph": round(conc_tph, 1),
+                "power_mw": round(self.power_kw / 1000.0, 2),
+                "queue_len": len(self.queue),
+                "reclaim_tph": round(self.reclaim_tph),
+                "tonnes_total": round(self.total_t),
+                "cu_total_t": round(self.cu_conc_t, 2),
+                "stops_total": self.stops,
+                "restart_expected_sim_time": sim.sim_time(self.restart_at)
+                if self.stopped_by and self.restart_at is not None else "",
+                "repair_crews": (1 + len(sim.response.working(self.name))) if self.stopped_by else 0,
+            },
+            "desliming": {
+                "state": "running" if running else "idle",
+                "feed_tph": round(self.feed_tph),
+                "feed_clay_pct": round(self.feed_clay_pct, 1),
+                "slimes_pct": round(100.0 * s["slimes_share"], 1),
+                "slimes_tph": round(slimes_tph),
+                "sands_tph": round(self.feed_tph - slimes_tph),
+                "slimes_cu_pct": round(100.0 * s["slimes_cu_share"], 1),
+            },
+            "clay-flotation": {
+                "state": "running" if running else "idle",
+                "feed_grade_pct": round(self.feed_grade_pct, 3),
+                "recovery_pct": round(s["recovery_pct"], 1) if running else 0.0,
+                "sand_recovery_pct": round(s["sand_recovery_pct"], 1),
+                "slime_recovery_pct": round(s["slime_recovery_pct"], 1),
+                "conc_grade_pct": round(100.0 * self.conc_grade, 1),
+                "conc_tph": round(conc_tph, 1),
+                "cu_tph": round(self.cu_tph, 2),
+                "tails_tph": round(self.feed_tph - conc_tph) if running else 0,
+                "tails_grade_pct": round(self.feed_grade_pct * (1 - s["recovery_pct"] / 100.0)
+                                         * self.feed_tph / max(self.feed_tph - conc_tph, 1e-6), 3) if running else 0.0,
+                "cu_total_t": round(self.cu_conc_t, 2),
+            },
+            self.clay_stock.name: {
+                "level_t": round(self.clay_stock.stock.t),
+                "level_pct": round(100.0 * self.clay_stock.stock.t / self.clay_stock.capacity_t, 1),
+                "room_t": round(self.clay_stock.room_t()),
+                "grade_pct": round(self.clay_stock.stock.grade_pct, 3),
+                "clay_pct": round(self.clay_stock.stock.clay, 1),
+                "queue_len": len(self.clay_stock.queue),
+                "reclaim_tph": round(self.clay_stock.reclaim_tph),
+            },
+        }
 
 
 class Plant:
@@ -487,18 +739,15 @@ class Plant:
         for t in kind("rom-pad"):
             start = lambda name: t["features"][name]["properties"]["value"]
             self.rom_pads[short(t["thingId"])].stock = Stock(
-                start("level_t"), start("grade_pct"), start("hardness_bwi"), p["blast"]["p80_ref_mm"])
+                start("level_t"), start("grade_pct"), start("hardness_bwi"), p["blast"]["p80_ref_mm"], start("clay_pct"))
         self.waste_dump = DumpPoint(sim, kind("waste-dump")[0], dump["spot_s"], dump["dump_s"], p["crusher"]["dump_spread"])
-        self.sinks: dict[str, DumpPoint] = {self.crusher.name: self.crusher, **self.rom_pads,
-                                            self.waste_dump.name: self.waste_dump}
         thing = kind("stockpile")[0]
         feature = lambda name: thing["features"][name]["properties"]["value"]
         self.stockpile_name = short(thing["thingId"])
         self.capacity_t = float(thing["attributes"]["spec"]["capacity_t"])
-        self.stockpile = Stock(feature("level_t"), feature("grade_pct"), feature("hardness_bwi"), p["crusher"]["product_p80_mm"])
-        self.hardness_factor = 1.0              # raised by the hard-ore scenario
-        self.initial_stock_t = self.stockpile.t + sum(pad.stock.t for pad in self.rom_pads.values())
-        self.initial_stock_cu = self.stockpile.cu + sum(pad.stock.cu for pad in self.rom_pads.values())
+        self.stockpile = Stock(feature("level_t"), feature("grade_pct"), feature("hardness_bwi"), p["crusher"]["product_p80_mm"],
+                               feature("clay_pct"))
+        self.hardness_factor = 1.0              # the hardness of the ore drawn by the mill, relative (1: as it is)
         self.last_divert_at = -1e9
         self.mill = Mill(sim, kind("mill")[0])
         self.units = {short(t["thingId"]): ("sag" if k == "sag-mill" else "ball")
@@ -506,6 +755,14 @@ class Plant:
         self.concentrate = ConcentrateStore(sim, kind("concentrate")[0])
         self.tailings = Tailings(sim, kind("tailings")[0])
         self.flotation = Flotation(sim, self.concentrate, self.tailings)
+        self.clay_stock = ClayStockpile(sim, kind("clay-stockpile")[0], dump["spot_s"], dump["dump_s"], p["crusher"]["dump_spread"])
+        self.clay_plant = ClayPlant(sim, kind("clay-plant")[0], self.clay_stock, self.concentrate, self.tailings)
+        self.sinks: dict[str, DumpPoint] = {self.crusher.name: self.crusher, **self.rom_pads,
+                                            self.waste_dump.name: self.waste_dump, self.clay_plant.name: self.clay_plant,
+                                            self.clay_stock.name: self.clay_stock}
+        heaps = [self.stockpile, *(pad.stock for pad in self.rom_pads.values()), self.clay_plant.bin, self.clay_stock.stock]
+        self.initial_stock_t = sum(h.t for h in heaps)
+        self.initial_stock_cu = sum(h.cu for h in heaps)
         self.reclaimed_t = 0.0                  # fed from the ROM pads to the crusher since the start
         self.reclaimed_cu = 0.0                 # the copper in it
         self.timeout_s = p["sim"]["decision_timeout_min"] * 60.0
@@ -515,6 +772,10 @@ class Plant:
 
     # -- decisions made at the dump -----------------------------------------------
 
+    def clay_sink_with_room(self, truck: "Truck") -> str | None:
+        """Where a load of clay ore turned away from ОФ-2 goes: the clay-ore stockpile while the load fits on it."""
+        return self.clay_stock.name if self.clay_stock.room_for(truck) else None
+
     def rom_pad_for(self, material: str) -> str:
         """The ROM pad that takes this class of ore."""
         role = "low-grade" if material == "low-grade" else "high-grade"
@@ -523,6 +784,11 @@ class Plant:
     def pad_with_room(self, truck: "Truck") -> str | None:
         """The ROM pad a truck turned away from the crusher tips on, or None
         when that pad cannot take its load and the truck has to wait."""
+        if truck.material == "clay":
+            # Clay ore turned away from the crusher goes to ОФ-2, or to the clay-ore stockpile beside it.
+            if self.clay_plant.room_for(truck):
+                return self.clay_plant.name
+            return self.clay_sink_with_room(truck)
         name = self.rom_pad_for(truck.material)
         return name if self.rom_pads[name].room_for(truck) else None
 
@@ -662,21 +928,28 @@ class Plant:
         sim, p = self.sim, self.sim.params
         if int(sim.now) % 30 == 0 and self.crusher_stop_is_long():
             self._clear_crusher_queue()
+        if int(sim.now) % 30 == 0 and self.clay_plant.queue and \
+                (self.clay_plant.bin.t + self.clay_plant.queue[0].payload_t > self.clay_plant.capacity_t):
+            self._clear_clay_queue()
+        self.concentrate.step_t = self.tailings.step_t = self.tailings.step_cu = 0.0
+        self.concentrate.inflow_tph = self.tailings.inflow_tph = self.tailings.grade_pct = 0.0
         for sink in self.sinks.values():
             sink.step(dt)
         self._reclaim(dt)
         room = self.capacity_t - self.stockpile.t - self.conveyor.load_t
         arrived = self.conveyor.step(self.crusher.draw(dt, max(0.0, room)), dt)
         if arrived[0] > 0:
-            self.stockpile.add(arrived[0], arrived[1], arrived[2], arrived[0] * p["crusher"]["product_p80_mm"])
+            self.stockpile.add(arrived[0], arrived[1], arrived[2], arrived[0] * p["crusher"]["product_p80_mm"], arrived[3])
         product = self.mill.step(self.stockpile, self.hardness_factor, dt)
         self.flotation.step(*product, dt)
+        self.clay_plant.process(dt)
 
         ground_tph = self.mill.ground_tph
         aux = p["plant"]["aux_energy_kwh_t"] * (p["plant"]["aux_base_share"] * p["mill"]["design_tph"]
                                                 + (1.0 - p["plant"]["aux_base_share"]) * ground_tph)
         self.plant_kw = (self.mill.power_kw + p["flotation"]["energy_kwh_t"] * ground_tph + aux
-                         + self.crusher.power_kw(self.conveyor.carried_tph) + self.conveyor.power_kw())
+                         + self.crusher.power_kw(self.conveyor.carried_tph) + self.conveyor.power_kw()
+                         + self.clay_plant.power_kw)
         self.pit_kw = sum(loader.power_kw for loader in sim.fleet.loaders.values())
         self.load_kw = self.plant_kw + self.pit_kw
         kwh = self.load_kw * dt / 3600.0
@@ -685,6 +958,25 @@ class Plant:
         sim.kpis.electric_kwh_total += kwh
         if int(sim.now) % 60 == 0:
             self.expire()
+
+    def _clear_clay_queue(self) -> None:
+        """The feed stockpile of ОФ-2 is full: the trucks waiting there tip on the clay-ore stockpile, except those
+        the dispatch module told to wait."""
+        for truck in list(self.clay_plant.queue):
+            if truck.override_dump:
+                continue
+            sink = self.clay_sink_with_room(truck)
+            if sink is not None:
+                truck.queue_s += self.sim.now - truck.queue_since
+                self.note_clay_divert(truck.title, sink)
+                self.sim.fleet.redirect(truck, sink, "overflow")
+
+    def note_clay_divert(self, truck_title: str, sink: str) -> None:
+        sim, plant = self.sim, self.clay_plant
+        if sim.now - getattr(self, "last_clay_divert_at", -1e9) > sim.params["crusher"]["divert_note_min"] * 60.0:
+            why = "ОФ-2 остановлена" if plant.stopped_by else "приёмный склад ОФ-2 заполнен"
+            sim.log("info", plant.name, f"{truck_title}: {why}, глинистая руда идёт на «{self.sinks[sink].title}»")
+        self.last_clay_divert_at = sim.now
 
     def _reclaim(self, dt: float) -> None:
         """A wheel loader feeds the crusher from the ROM pads: at the rates the
@@ -765,6 +1057,7 @@ class Plant:
                 "level_pct": round(100.0 * pile.t / self.capacity_t, 1),
                 "grade_pct": round(pile.grade_pct, 3),
                 "hardness_bwi": round(pile_bwi, 2),
+                "clay_pct": round(pile.clay or mill.feed_clay, 1),
                 "hours_of_feed": round(pile.t / mill.setpoint_tph, 1) if mill.setpoint_tph > 0 else 0.0,
             },
             mill.name: {
@@ -773,7 +1066,10 @@ class Plant:
                 "feed_setpoint_tph": round(mill.setpoint_tph),
                 "setpoint_source": mill.setpoint_source,
                 "setpoint_hold_until": sim.sim_time(mill.hold_until) if mill.setpoint_source == "operator" else "",
-                "max_feed_tph": round(mill.max_feed_tph(pile_bwi or mill.feed_bwi)),
+                "max_feed_tph": round(mill.max_feed_tph(pile_bwi or mill.feed_bwi, pile.clay if pile.t > 1.0 else mill.feed_clay)),
+                "power_limit_tph": round(mill.power_limit_tph(pile_bwi or mill.feed_bwi)),
+                "clay_factor_pct": round(100.0 * clay_handling(p, pile.clay if pile.t > 1.0 else mill.feed_clay), 1),
+                "feed_clay_pct": round(mill.feed_clay, 1),
                 "throughput_tph": round(mill.ground_tph),
                 "power_mw": round(mill.power_kw / 1000.0, 2),
                 "specific_energy_kwh_t": round(mill.power_kw / mill.ground_tph, 2) if mill.ground_tph > 0 else 0.0,
@@ -787,11 +1083,16 @@ class Plant:
                 "state": flotation.state,
                 "feed_grade_pct": round(flotation.feed_grade_pct, 3),
                 "recovery_pct": round(flotation.recovery_pct, 1),
+                "feed_clay_pct": round(flotation.feed_clay_pct, 1),
+                "clay_loss_pct": round(max(0.0, float(p["flotation"]["clay_loss_pct"])
+                                           * (flotation.feed_clay_pct - float(p["flotation"]["clay_ref_pct"]))), 1),
                 "conc_grade_pct": float(p["flotation"]["conc_grade_pct"]),
                 "conc_tph": round(flotation.cu_tph / (p["flotation"]["conc_grade_pct"] / 100.0), 1),
                 "cu_tph": round(flotation.cu_tph, 2),
-                "tails_grade_pct": round(self.tailings.grade_pct, 3),
-                "tails_tph": round(self.tailings.inflow_tph),
+                "tails_grade_pct": round(100.0 * (1 - flotation.recovery_pct / 100.0) * flotation.feed_grade_pct / 100.0
+                                         * mill.ground_tph / max(mill.ground_tph - flotation.cu_tph / flotation.conc_grade, 1e-6), 3)
+                if mill.ground_tph > 0 else 0.0,
+                "tails_tph": round(mill.ground_tph - flotation.cu_tph / flotation.conc_grade) if mill.ground_tph > 0 else 0,
                 "cu_total_t": round(flotation.cu_conc_t, 2),
             },
             self.concentrate.name: self.concentrate.values(),
@@ -807,6 +1108,7 @@ class Plant:
                 "queue_len": len(self.waste_dump.queue),
             },
         }
+        out.update(self.clay_plant.values())
         for name, unit in self.units.items():
             kw = mill.unit_kw(unit)
             installed_mw = float(mill.p[f"{unit}_installed_mw"])
@@ -831,6 +1133,7 @@ class Plant:
                 "level_pct": round(100.0 * pad.stock.t / pad.capacity_t, 1),
                 "grade_pct": round(pad.stock.grade_pct, 3),
                 "hardness_bwi": round(pad.stock.bwi, 2),
+                "clay_pct": round(pad.stock.clay, 1),
                 "role": pad.role,
                 "queue_len": len(pad.queue),
                 "reclaim_tph": round(pad.reclaim_tph),

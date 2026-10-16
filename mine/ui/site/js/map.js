@@ -596,6 +596,29 @@ export function createMap({ staticCanvas, liveCanvas, onSelect, onHover, onView 
       const box = boxOf(pads);
       caption(4.2, 'Рудные склады', X((box.minX + box.maxX) / 2), Y(box.minY), { gap: 3, sides: ['b', 't'] });
     }
+    // The clay-ore stockpile, and the feed stockpile of the clay-ore plant where the trucks tip.
+    for (const pile of [...byKind('clay-stockpile'), ...byKind('clay-plant')]) {
+      const points = pile.attributes?.geo?.polygon;
+      if (!points?.length) continue;
+      const own = kindOf(pile) === 'clay-stockpile';
+      tracePolygon(ctx, points);
+      ctx.fillStyle = C.padClay;
+      ctx.fill();
+      ctx.strokeStyle = C.padEdge;
+      ctx.lineWidth = 1;
+      if (!own) ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (!own) continue;
+      outlineMarks(ctx, pile.thingId, () => tracePolygon(ctx, points));
+      const centre = centroid(points);
+      const level = feature(pile, 'level_t');
+      const lowest = Math.max(...points.map((pt) => Y(pt[1])));
+      const text = z >= 0.3 ? `Склад глинистой руды${z >= 0.5 && typeof level === 'number' ? ` · ${formatNumber(level, 0)} т` : ''}` : null;
+      captionFor(pile, X(centre.x), lowest, 3, 4.2, text, { sides: ['b', 't', 'c'] });
+      if (feature(pile, 'queue_len') > 0) queueBadge(ctx, X(centre.x), Y(centre.y), feature(pile, 'queue_len'));
+      hits.push({ id: pile.thingId, type: 'poly', points, order: 5 });
+    }
   }
 
   // -- lower canvas: the pit --------------------------------------------------
@@ -1474,6 +1497,48 @@ export function createMap({ staticCanvas, liveCanvas, onSelect, onHover, onView 
       const busy = (feature(workshop, 'bays_busy') ?? 0) + (feature(workshop, 'jobs_queued') ?? 0);
       if (at && busy > 0) queueBadge(ctx, at.x + at.s + 6, at.y - at.s - 5, busy);
     }
+    // The clay-ore plant ОФ-2: its building, the desliming cyclones and the flotation beside it.
+    const clay = first('clay-plant');
+    if (clay) {
+      const state = feature(clay, 'state');
+      const note = state && state !== 'running' ? ` · ${stateText(state)}` : '';
+      const at = service(clay, z >= 0.2 ? `ОФ-2${note}` : null, (x, y, k) => {
+        // a plant: a saw-tooth roof over a wall
+        ctx.beginPath();
+        ctx.moveTo(x - k, y + k); ctx.lineTo(x - k, y - k * 0.2); ctx.lineTo(x - k * 0.3, y - k * 0.8); ctx.lineTo(x - k * 0.3, y - k * 0.2);
+        ctx.lineTo(x + k * 0.3, y - k * 0.8); ctx.lineTo(x + k * 0.3, y - k * 0.2); ctx.lineTo(x + k, y - k * 0.8); ctx.lineTo(x + k, y + k);
+        ctx.closePath();
+        ctx.fill();
+      });
+      if (at) {
+        ctx.beginPath();
+        ctx.arc(at.x + at.s * 0.75, at.y - at.s * 0.75, Math.max(2.5, at.s * 0.28), 0, Math.PI * 2);
+        ctx.fillStyle = stateColor(state);
+        ctx.fill();
+        if (feature(clay, 'queue_len') > 0) queueBadge(ctx, at.x - at.s - 6, at.y - at.s - 5, feature(clay, 'queue_len'));
+      }
+      for (const [kind, label] of [['desliming', 'Обесшламливание'], ['clay-flotation', 'Флотация ОФ-2']]) {
+        const unit = first(kind);
+        if (!unit) continue;
+        service(unit, z >= 0.45 ? label : null, (x, y, k) => {
+          if (kind === 'desliming') {
+            // a cyclone: a cone under a short cylinder
+            ctx.beginPath();
+            ctx.moveTo(x - k * 0.7, y - k); ctx.lineTo(x + k * 0.7, y - k); ctx.lineTo(x + k * 0.7, y - k * 0.4); ctx.lineTo(x, y + k);
+            ctx.lineTo(x - k * 0.7, y - k * 0.4);
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            // flotation cells: three bubbles
+            for (const [dx, dy] of [[-0.45, 0.35], [0.45, 0.35], [0, -0.4]]) {
+              ctx.beginPath();
+              ctx.arc(x + dx * k, y + dy * k, k * 0.42, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        });
+      }
+    }
   }
 
   // Loaders and drill rigs stand where they report; the loader is drawn a
@@ -2127,6 +2192,13 @@ export function createMap({ staticCanvas, liveCanvas, onSelect, onHover, onView 
           if (!box) box = { minX: p.x, maxX: p.x, minY: p.y, maxY: p.y };
           box.minX = Math.min(box.minX, p.x - 30); box.maxX = Math.max(box.maxX, p.x + 30);
           box.minY = Math.min(box.minY, p.y - 30); box.maxY = Math.max(box.maxY, p.y + 30);
+        }
+        // The clay-ore plant ОФ-2 beside ОФ-1: «Фабрика» shows both plants.
+        for (const kind of ['clay-plant', 'desliming', 'clay-flotation']) {
+          const geo = first(kind)?.attributes?.geo;
+          if (!box || typeof geo?.x !== 'number') continue;
+          box.minX = Math.min(box.minX, geo.x - 40); box.maxX = Math.max(box.maxX, geo.x + 40);
+          box.minY = Math.min(box.minY, geo.y - 40); box.maxY = Math.max(box.maxY, geo.y + 40);
         }
       } else {
         box = boxOf(byKind('pit'));

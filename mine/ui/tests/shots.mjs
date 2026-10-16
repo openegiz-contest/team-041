@@ -19,7 +19,9 @@
 //
 // LIGHT_TIME=HH:MM opens the page with ?time=HH:MM: the scene is lit as at
 // that hour (sun, sky, lamps), nothing else changes; the file names then
-// carry "day" or "night" (by the hour) after the window size.
+// carry "day" or "night" (by the hour) after the window size. STYLE=realistic
+// (or hologram, the page's default) opens the page in that look of the 3D
+// view (?style=); the file names then carry the style after the window size.
 //
 //   node mine/ui/tests/shots.mjs <output directory> [base URL] [sizes, e.g. 1280x720,1920x1080]
 //
@@ -42,6 +44,10 @@ mkdirSync(out, { recursive: true });
 const NS = await mineNamespace(base);
 const lightTime = /^\d{1,2}:\d{2}$/.test(process.env.LIGHT_TIME ?? '') ? process.env.LIGHT_TIME : null;
 const lightTag = lightTime ? (Number(lightTime.split(':')[0]) >= 7 && Number(lightTime.split(':')[0]) < 17 ? 'day-' : 'night-') : '';
+// STYLE=hologram|realistic: the look of the 3D view (?style=); the file names then carry it after the window size.
+const style = ['hologram', 'realistic'].includes(process.env.STYLE) ? process.env.STYLE : null;
+const styleTag = style ? `${style}-` : '';
+const query = [lightTime ? `time=${lightTime}` : '', style ? `style=${style}` : ''].filter(Boolean).join('&');
 const only = (process.env.SHOTS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
 const want = (name) => !only.length || only.includes(name);
 const started = new Set();
@@ -57,7 +63,7 @@ for (const [width, height] of sizes) {
     // The pointer rests on an empty part of the top bar: no hover on a button, no tooltip.
     if (target === page) await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: Math.round(width * 0.56), y: 6 });
     await sleep(150);
-    const file = join(out, `${width}x${height}-${lightTag}${name}.png`);
+    const file = join(out, `${width}x${height}-${styleTag}${lightTag}${name}.png`);
     await target.screenshot(file);
     console.log(`saved ${file}`);
   };
@@ -89,7 +95,7 @@ for (const [width, height] of sizes) {
   const select = async (name, wait = 3000) => { await page.evaluate(`location.hash = '#/twin/${name}'`); await sleep(wait); };
   const unselect = async () => { await page.evaluate('location.hash = ""'); await sleep(400); };
   try {
-    await page.goto(`${base}/${lightTime ? `?time=${lightTime}` : ''}`);
+    await page.goto(`${base}/${query ? `?${query}` : ''}`);
     await page.waitFor('window.minePlan?.scene?.()?.firstFrameAt > 0 && document.querySelectorAll(".scenario").length > 0', 60000, 'the page to load');
     await page.waitFor('document.querySelectorAll("#journal li").length > 0', 15000, 'the journal').catch(() => {});
     await sleep(3500);

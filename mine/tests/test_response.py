@@ -14,7 +14,7 @@ R = PARAMS["response"]
 FX = PARAMS["economics"]["usd_kzt"]
 CONTRACTOR_KZT_H = R["contractor_people"] * R["contractor_usd_h"] * FX
 CALLOUT_KZT = CONTRACTOR_KZT_H * R["contractor_min_h"]
-WEST_RAMP = "road-segment-08"
+WEST_RAMP = "road-segment-09"          # the top section of the west ramp (10 %), which heavy rain closes
 MAIN_RAMP_TOP = "road-segment-01"
 
 
@@ -36,7 +36,8 @@ class ExpectedEnd(unittest.TestCase):
                     "scenario-shovel-failure": PARAMS["reliability"]["loader_mttr_h"],
                     "scenario-road-closure": PARAMS["road"]["closure_expected_h"],
                     "scenario-heavy-rain": PARAMS["weather"]["heavy_event_h"],
-                    "scenario-hard-ore": PARAMS["scenario"]["hard_ore_expected_h"]}
+                    "scenario-clay-face": PARAMS["scenario"]["clay_face_expected_h"],
+                    "scenario-clay-plant-stop": PARAMS["clay_plant"]["repair_mechanical_h"]}
         for name, hours in expected.items():
             sim = new_sim()
             inactive = sim.values()[name]
@@ -121,6 +122,29 @@ class Resources(unittest.TestCase):
         run(sim, 1)
         self.assertAlmostEqual(sim.response.spent_kzt, crew_cost(hours), delta=200)
         self.assertEqual(sim.values()["mine"]["response_cost_kzt"], round(sim.response.spent_kzt))
+
+    def test_a_second_crew_on_the_clay_plant(self):
+        sim = forecasting()
+        sim.handle_message("clay-plant", "expedite-repair", {})
+        self.assertIn("фабрика работает", sim.refusals[0])
+        sim.handle_message("scenario-clay-plant-stop", "activate", {})   # mechanical fault, 6 h
+        run(sim, 60)
+        scenario = sim.scenarios["scenario-clay-plant-stop"]
+        before = scenario.expected_end
+        sim.handle_message("clay-plant", "expedite-repair", {})
+        self.assertEqual(sim.refusals, [])
+        left_h = (before - sim.now) / 3600
+        self.assertAlmostEqual(scenario.expected_end - sim.now, left_h * R["second_crew_factor"] * 3600, delta=1)
+        v = sim.values()
+        self.assertEqual(v["clay-plant"]["repair_crews"], 2)
+        self.assertEqual(v["clay-plant"]["restart_expected_sim_time"], sim.sim_time(scenario.expected_end))
+        self.assertAlmostEqual(v["scenario-clay-plant-stop"]["response_cost_kzt"], CALLOUT_KZT, delta=100)
+        start = sim.now
+        run_until(sim, lambda: not sim.plant.clay_plant.stopped_by, limit_min=6 * 60)
+        hours = (sim.now - start) / 3600
+        self.assertAlmostEqual(hours, left_h * R["second_crew_factor"], delta=0.01)
+        run(sim, 1)
+        self.assertAlmostEqual(sim.response.spent_kzt, crew_cost(hours), delta=200)
 
     def test_a_second_crew_and_the_workshop_crew_on_a_broken_loader(self):
         sim = forecasting()

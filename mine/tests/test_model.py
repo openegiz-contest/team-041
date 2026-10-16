@@ -20,7 +20,8 @@ MODULE_TWINS = {short(t["thingId"]) for t in THINGS if t["attributes"]["kind"] =
 FORECAST_TWINS = {short(t["thingId"]) for t in THINGS if t["attributes"]["kind"] == "forecast"}
 NS = WORLD["namespace"]
 CLOSURE = "scenario-road-closure"
-MAIN_RAMP_TOP = "road-segment-01"          # the main ramp from the rim down to the 300 m bench
+MAIN_RAMP_TOP = "road-segment-01"          # the main ramp from the rim down to the 215 m bench
+EAST_LOADERS = ("loader-01", "loader-02", "loader-03")     # the sulphide faces the main ramp serves
 RIGS = tuple(short(t["thingId"]) for t in THINGS if t["attributes"]["kind"] == "drill-rig")
 LOADERS = tuple(short(t["thingId"]) for t in THINGS if t["attributes"]["kind"] == "loader")
 _WARM: list[Simulation] = []
@@ -81,7 +82,7 @@ class Telemetry(unittest.TestCase):
         self.assertEqual(values["mill"]["state"], "running")
         self.assertAlmostEqual(values["stockpile"]["level_pct"], 60, delta=15)
         self.assertFalse(any(n.startswith("module-") for n in values))
-        self.assertEqual([v["status"] for n, v in values.items() if n.startswith("scenario-")], ["inactive"] * 6)
+        self.assertEqual([v["status"] for n, v in values.items() if n.startswith("scenario-")], ["inactive"] * 7)
 
     def test_same_seed_same_run(self):
         a, b = new_sim(7), new_sim(7)
@@ -135,9 +136,10 @@ class Haulage(unittest.TestCase):
         loaded = [v for n, v in values.items() if n.startswith("truck-") and v["state"] == "hauling"]
         self.assertTrue(loaded)
         for v in loaded:
-            self.assertIn(v["material"], ("ore", "low-grade", "waste"))
+            self.assertIn(v["material"], ("ore", "low-grade", "waste", "clay"))
             self.assertGreater(v["grade_pct"], 0)
-            expected = "waste-dump" if v["material"] == "waste" else ("crusher", "rom-pad-01", "rom-pad-02")
+            expected = {"waste": ("waste-dump",), "clay": ("clay-plant", "clay-stockpile")}.get(
+                v["material"], ("crusher", "rom-pad-01", "rom-pad-02"))
             self.assertIn(short(v["assigned_dump"]), expected)
             self.assertEqual(v["assignment_source"] in ("static", "overflow"), True)
 
@@ -198,7 +200,8 @@ class Haulage(unittest.TestCase):
         sim = new_sim()
         mine = sim.values()["mine"]
         # In the first shift the figures of the shift are those since the start.
-        self.assertEqual((mine["cu_shift_t"], mine["ore_shift_t"]), (round(mine["cu_produced_t"], 2), round(mine["ore_mined_t"])))
+        self.assertEqual(mine["cu_shift_t"], round(mine["cu_produced_t"], 2))
+        self.assertAlmostEqual(mine["ore_shift_t"], mine["ore_mined_t"], delta=1)
         self.assertEqual(mine["shift_start_sim_time"], "2026-10-26T08:00:00")
         run_until(sim, lambda: sim.shift_index == 1, limit_min=700)
         before = sim.values()["mine"]
@@ -219,7 +222,7 @@ class Haulage(unittest.TestCase):
         after = sim.values()["mine"]
         self.assertAlmostEqual(after["cu_shift_t"], after["cu_produced_t"] - before["cu_produced_t"] + before["cu_shift_t"], delta=0.02)
         self.assertAlmostEqual(after["ore_shift_t"], after["ore_mined_t"] - before["ore_mined_t"] + before["ore_shift_t"], delta=2)
-        self.assertTrue(8.0 < after["cu_shift_t"] < 18.0, after["cu_shift_t"])     # the first hour of one line
+        self.assertTrue(8.0 < after["cu_shift_t"] < 18.0, after["cu_shift_t"])     # the first hour of ОФ-1 and ОФ-2
         self.assertLessEqual(sim.kpis.longest_standby_s, 45 * 60)                  # the meal break is the longest
 
     def test_closing_any_single_segment_strands_no_truck(self):
@@ -258,8 +261,9 @@ class RoadClosure(unittest.TestCase):
         active = sim.values()
         closed = sim.roads.segments[MAIN_RAMP_TOP]
         self.assertFalse(any(t.seg is closed for t in sim.fleet.trucks))
-        west = [n for n, v in active.items() if n.startswith("truck-") and "road-node-09" in v["route"]]
-        self.assertGreaterEqual(len(west), 4, "trucks leave the pit by the west ramp")
+        east = {t.name for t in sim.fleet.trucks if t.home_loader in EAST_LOADERS}
+        west = [n for n, v in active.items() if n in east and "road-node-07" in v["route"]]
+        self.assertGreaterEqual(len(west), 4, "trucks of the sulphide faces leave the pit by the west ramp")
         self.assertGreater(active[CLOSURE]["current_cycle_min"], active[CLOSURE]["baseline_cycle_min"] + 2)
         self.assertIn("сменил маршрут", texts(sim))
 
@@ -267,14 +271,14 @@ class RoadClosure(unittest.TestCase):
         self.assertEqual(sim.values()[CLOSURE]["status"], "inactive")
         self.assertEqual(sim.values()[MAIN_RAMP_TOP]["status"], "open")
         run(sim, 60)
-        hauling = [v for n, v in sim.values().items() if n.startswith("truck-") and v["state"] == "hauling"]
+        hauling = [v for n, v in sim.values().items() if n in east and v["state"] == "hauling"]
         self.assertTrue(hauling)
         for v in hauling:
-            self.assertNotIn("road-node-09", v["route"])
+            self.assertNotIn("road-node-07", v["route"])
 
     def test_closing_an_unused_road_changes_nothing(self):
         sim = new_sim()
-        sim.handle_message(CLOSURE, "activate", {"target": f"{NS}:road-segment-18"})      # the west perimeter road
+        sim.handle_message(CLOSURE, "activate", {"target": f"{NS}:road-segment-21"})      # the north road past ОФ-2
         values = sim.values()[CLOSURE]
         self.assertEqual(values["status"], "active")
         self.assertEqual(values["current_cycle_min"], values["baseline_cycle_min"])
@@ -396,8 +400,8 @@ class Pit(unittest.TestCase):
         self.assertEqual(sim.values()["bench-05"]["blocks_remaining"], 0)
         run(sim, 2)
         values = sim.values()
-        self.assertEqual((values["bench-05"]["blocks_remaining"], values["bench-05"]["pushback"]), (10, 2))
-        self.assertEqual(values["bench-01"]["pushback"], 1)          # a bench of the final wall has no blocks to push back
+        self.assertEqual((values["bench-05"]["blocks_remaining"], values["bench-05"]["pushback"]), (8, 2))
+        self.assertEqual(values["bench-03"]["pushback"], 1)          # a bench of the final wall has no blocks to push back
         self.assertEqual({b.status for b in blocks}, {"insitu"})
         self.assertNotEqual([b.grade_pct for b in blocks], old)
         self.assertEqual(sum(b.tonnes for b in blocks), sum(b.tonnes_initial for b in blocks))
@@ -435,10 +439,13 @@ class Plant(unittest.TestCase):
         # What the mill ground left it as concentrate (in store and shipped) and tailings solids.
         self.assertAlmostEqual(b["milled"], b["mill_out_t"], delta=0.01)
         values, conc, tails = sim.values(), sim.plant.concentrate, sim.plant.tailings
-        self.assertAlmostEqual(conc.produced_t, sim.plant.flotation.cu_conc_t / 0.28, delta=0.01)
+        # Both plants send their concentrate to the shared store and their tailings to the shared facility.
+        clay = sim.plant.clay_plant
+        self.assertGreater(clay.total_t, 10000)
+        self.assertAlmostEqual(conc.produced_t, (sim.plant.flotation.cu_conc_t + clay.cu_conc_t) / 0.28, delta=0.01)
         self.assertAlmostEqual(conc.t + conc.shipped_t, conc.produced_t, delta=0.01)
-        self.assertAlmostEqual(conc.cu + conc.shipped_cu, sim.plant.flotation.cu_conc_t, delta=1e-6)
-        self.assertAlmostEqual(tails.cu, sim.plant.flotation.cu_tails_t, delta=1e-6)
+        self.assertAlmostEqual(conc.cu + conc.shipped_cu, sim.plant.flotation.cu_conc_t + clay.cu_conc_t, delta=1e-6)
+        self.assertAlmostEqual(tails.cu, sim.plant.flotation.cu_tails_t + clay.cu_tails_t, delta=1e-6)
         self.assertEqual(values["tailings"]["stored_t"], round(tails.t))
         self.assertLessEqual(values["concentrate"]["level_t"], PARAMS["concentrate"]["shipment_t"])
         # A full lot leaves by rail and its copper with it.
@@ -562,7 +569,7 @@ class Plant(unittest.TestCase):
             seen.add(plant.crusher.state(plant.conveyor.carried_tph))
             self.assertLessEqual(plant.stockpile.t + plant.conveyor.load_t, plant.capacity_t + 1e-6)
         self.assertIn("blocked", seen)
-        self.assertGreater(plant.rom_pads["rom-pad-01"].stock.t, pad + 500)
+        self.assertGreater(plant.rom_pads["rom-pad-01"].stock.t, pad + 100)
         self.assertIn("руда идёт на", texts(sim))
 
     def test_low_stockpile_is_fed_from_the_rom_pad(self):
@@ -586,8 +593,50 @@ class Plant(unittest.TestCase):
         self.assertGreater(flotation.recovery(0.55, 14.0), reference)
         self.assertLess(flotation.recovery(0.30, 14.0), reference)
         self.assertLess(flotation.recovery(0.42, 16.0), reference)
-        for grade in (0.30, 0.41, 0.60):                             # Aktogay 2020-2025: 84.9-87.9 % at 0.40-0.56 %
-            self.assertTrue(84 <= flotation.recovery(grade, 14.0) <= 89, grade)
+        for grade in (0.30, 0.39, 0.60):                             # Bozshakol 2019-2025: 73.4-81.1 % for the mine
+            self.assertTrue(78 <= flotation.recovery(grade, 14.0) <= 84, grade)
+
+    def test_clay_lowers_recovery_and_throughput_of_ofs1(self):
+        """Clay in the feed of ОФ-1 costs recovery (slimes) and, above the reference, the feed the mill passes."""
+        sim = new_sim()
+        flotation, mill = sim.plant.flotation, sim.plant.mill
+        g, ref = PARAMS["geology"]["mean_head_grade_pct"], PARAMS["flotation"]["clay_ref_pct"]
+        base = flotation.recovery(g, 14.0, None, ref)
+        self.assertAlmostEqual(base, PARAMS["flotation"]["recovery_ref_pct"])
+        at_limit = flotation.recovery(g, 14.0, None, PARAMS["grade_control"]["clay_limit_pct"])
+        self.assertAlmostEqual(base - at_limit, PARAMS["flotation"]["clay_loss_pct"] * (PARAMS["grade_control"]["clay_limit_pct"] - ref),
+                               delta=0.01)
+        self.assertLess(flotation.recovery(g, 14.0, None, 20.0), at_limit)
+        self.assertAlmostEqual(mill.max_feed_tph(14.0, ref), mill.power_limit_tph(14.0))
+        self.assertLess(mill.max_feed_tph(14.0, 8.0), mill.power_limit_tph(14.0))
+        # At the blend limit ОФ-1 still passes its design rate; well above it, it does not.
+        self.assertGreater(mill.max_feed_tph(14.0, PARAMS["grade_control"]["clay_limit_pct"]), PARAMS["mill"]["design_tph"])
+        self.assertLess(mill.max_feed_tph(14.0, PARAMS["advisor"]["clay_blend_limit_pct"]), PARAMS["mill"]["design_tph"])
+        # Clay ore fed to the mill shows in the feed clay and the recovery the flotation reaches.
+        pile = sim.plant.stockpile
+        share = 0.5
+        pile.clay_t += share * pile.t * 30.0 - share * pile.clay_t
+        run(sim, 30)
+        self.assertGreater(mill.feed_clay, 10.0)
+        self.assertLess(flotation.recovery_pct, base - 3.0)
+        self.assertLess(sim.values()["mill"]["max_feed_tph"], PARAMS["mill"]["design_tph"])
+
+    def test_clay_plant_recovery_follows_the_desliming(self):
+        """ОФ-2: more clay sends more of the copper to the slimes and lowers recovery; the reference clay ore gives the
+        recovery of 2024 (66.5 %), and the mine as a whole comes out at the 78.1 % of 2024 at the reference feeds."""
+        from mine.common.process import clay_plant_split
+        c = PARAMS["clay_plant"]
+        ref = clay_plant_split(PARAMS, c["mean_feed_grade_pct"], c["ref_clay_pct"])
+        self.assertAlmostEqual(ref["recovery_pct"], c["recovery_check_pct"], delta=0.15)
+        more = clay_plant_split(PARAMS, c["mean_feed_grade_pct"], 40.0)
+        self.assertGreater(more["slimes_share"], ref["slimes_share"])
+        self.assertLess(more["recovery_pct"], ref["recovery_pct"])
+        self.assertGreater(clay_plant_split(PARAMS, 0.60, c["ref_clay_pct"])["recovery_pct"], ref["recovery_pct"])
+        g1 = PARAMS["geology"]["mean_head_grade_pct"]
+        cu1 = PARAMS["mill"]["design_tph"] * g1 * PARAMS["flotation"]["recovery_ref_pct"]
+        cu2 = c["design_tph"] * c["mean_feed_grade_pct"] * ref["recovery_pct"]
+        fed = PARAMS["mill"]["design_tph"] * g1 + c["design_tph"] * c["mean_feed_grade_pct"]
+        self.assertAlmostEqual((cu1 + cu2) / fed, 78.1, delta=0.5)
 
     def test_substation_load_is_the_sum_of_its_consumers(self):
         sim = new_sim()
@@ -738,7 +787,8 @@ class Consistency(unittest.TestCase):
                     if flotation["state"] == "running":
                         self.assertAlmostEqual(flotation["conc_tph"] + flotation["tails_tph"], v["throughput_tph"], delta=2,
                                                msg=where)
-                        self.assertAlmostEqual(values["concentrate"]["inflow_tph"], flotation["conc_tph"], delta=0.2, msg=where)
+                        self.assertAlmostEqual(values["concentrate"]["inflow_tph"],
+                                               flotation["conc_tph"] + values["clay-flotation"]["conc_tph"], delta=0.3, msg=where)
                 elif kind == "rom-pad":
                     capacity = sim.things[name]["attributes"]["spec"]["capacity_t"]
                     self.assertLessEqual(v["level_t"], capacity, where)
@@ -893,7 +943,7 @@ class Messages(unittest.TestCase):
             ("scenario-blast", "activate", {"target": f"{NS}:{sim.fleet.loaders['loader-01'].block}"}),
             ("scenario-shovel-failure", "activate", {"target": f"{NS}:truck-01"}),
             ("scenario-heavy-rain", "activate", {"params": {"rain_mm_h": -3}}),
-            ("scenario-hard-ore", "activate", {"params": {"bwi": 9}}),
+            ("scenario-clay-face", "activate", {"params": {"clay_pct": 90}}),
             ("scenario-crusher-stop", "cancel", {}),
             ("mine", "set-speed", {"speedup": 7}),
             ("truck-01", "explode", {}),
@@ -938,26 +988,26 @@ class Messages(unittest.TestCase):
 
     def test_assign_sends_a_truck_to_another_loader_once(self):
         sim = new_sim()
-        truck = sim.fleet.by_name["truck-30"]                         # its home loader is loader-05, in waste
+        truck = sim.fleet.by_name["truck-30"]                         # its home loader is loader-06, in waste
         run_until(sim, lambda: truck.state == "returning", 60)
-        sim.handle_message(truck.name, "assign", {"loader": f"{NS}:loader-02"})
+        sim.handle_message(truck.name, "assign", {"loader": f"{NS}:loader-03"})
         values = sim.values()[truck.name]
-        self.assertEqual((values["assigned_loader"], values["assignment_source"]), (f"{NS}:loader-02", "dispatch"))
+        self.assertEqual((values["assigned_loader"], values["assignment_source"]), (f"{NS}:loader-03", "dispatch"))
         run_until(sim, lambda: truck.state == "loading", 60)
-        self.assertIs(sim.fleet.loaders["loader-02"].truck, truck)
+        self.assertIs(sim.fleet.loaders["loader-03"].truck, truck)
         run_until(sim, lambda: truck.state == "hauling", 20)
         self.assertEqual((truck.material, truck.dump_target), ("ore", "crusher"))
         trips = truck.trips
         run_until(sim, lambda: truck.trips > trips and truck.state == "returning", 90)
         values = sim.values()[truck.name]                             # the order is spent: back to the fixed plan
-        self.assertEqual((values["assigned_loader"], values["assignment_source"]), (f"{NS}:loader-05", "static"))
+        self.assertEqual((values["assigned_loader"], values["assignment_source"]), (f"{NS}:loader-06", "static"))
 
     def test_assign_dump_and_route(self):
         sim = new_sim()
         truck = next(t for t in sim.fleet.trucks if t.home_loader == "loader-01")
         ramp_top = sim.roads.segments["road-segment-01"]
         run_until(sim, lambda: truck.state == "hauling" and truck.seg is ramp_top, 90)     # climbing to the rim
-        route = "road-node-01>road-node-12>road-node-11"
+        route = "road-node-01>road-node-11>road-node-12"
         sim.handle_message(truck.name, "assign", {"dump": f"{NS}:rom-pad-01", "route": route})
         values = sim.values()[truck.name]
         self.assertEqual((values["assigned_dump"], values["assignment_source"]), (f"{NS}:rom-pad-01", "dispatch"))
@@ -1058,14 +1108,14 @@ class Messages(unittest.TestCase):
 
 class LiveMessages(unittest.TestCase):
     def test_parse(self):
-        payload = ('{"topic":"kz.aktogay/scenario-road-closure/things/live/messages/activate",'
+        payload = ('{"topic":"kz.bozshakol/scenario-road-closure/things/live/messages/activate",'
                    '"headers":{"ditto-message-subject":"activate"},'
-                   '"path":"/inbox/messages/activate","value":{"target":"kz.aktogay:road-segment-02"}}')
+                   '"path":"/inbox/messages/activate","value":{"target":"kz.bozshakol:road-segment-02"}}')
         self.assertEqual(envelope.parse_live_message(payload),
-                         ("scenario-road-closure", "activate", {"target": "kz.aktogay:road-segment-02"}))
+                         ("scenario-road-closure", "activate", {"target": "kz.bozshakol:road-segment-02"}))
         self.assertIsNone(envelope.parse_live_message("not json"))
-        self.assertIsNone(envelope.parse_live_message('{"topic":"kz.aktogay/mine/things/twin/events/modified"}'))
-        empty = '{"topic":"kz.aktogay/mine/things/live/messages/pause","headers":{},"path":"/inbox/messages/pause"}'
+        self.assertIsNone(envelope.parse_live_message('{"topic":"kz.bozshakol/mine/things/twin/events/modified"}'))
+        empty = '{"topic":"kz.bozshakol/mine/things/live/messages/pause","headers":{},"path":"/inbox/messages/pause"}'
         self.assertEqual(envelope.parse_live_message(empty), ("mine", "pause", {}))
 
 

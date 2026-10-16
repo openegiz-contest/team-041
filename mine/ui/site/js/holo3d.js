@@ -22,8 +22,8 @@ export const HOLO = {
   below: '#04121a',
   fog: '#08222e',
   floor: '#06141e',
-  wall: '#16627a',
-  flat: '#0b2c3c',
+  wall: '#0f475d',
+  flat: '#08222f',
   rim: '#41d9ff',
   grid: '#1cb7e2',
   crest: '#55e6ff',
@@ -46,12 +46,11 @@ const lin = (hex) => new THREE.Color(hex);
 export function holoTone(state) {
   switch (state) {
     case 'down': case 'stopped': return 'bad';
-    case 'queue_load': case 'queue_dump': case 'blocked': case 'starved': case 'overload': return 'warn';
+    case 'queue_load': case 'queue_dump': case 'blocked': case 'starved': case 'overload': case 'starting': return 'warn';
     case 'idle': case 'standby': case 'service': case 'fuel': case 'fuelling': case 'paused': case undefined: case null: case '': return 'dim';
     default: return 'ok';
   }
 }
-export const TONE_COLOR = { ok: HOLO.glass, warn: HOLO.amber, bad: HOLO.red, dim: HOLO.dim };
 
 // -- shaders ---------------------------------------------------------------------------------------
 
@@ -84,6 +83,11 @@ const SURFACE_FRAGMENT = `
     c *= 0.6 + 0.6 * key;
     float f = 1.0 - abs(dot(N, V));
     c += uRim * (f * f * f) * uRimK;
+    // Faint scan lines across the steep faces, every 3 m.
+    float steep = 1.0 - smoothstep(0.35, 0.6, up);
+    float zf = fract(vW.z / 3.0);
+    float scan = 1.0 - smoothstep(0.0, max(fwidth(vW.z / 3.0) * 1.2, 0.02), min(zf, 1.0 - zf));
+    c += uRim * scan * steep * 0.05 * (1.0 - smoothstep(300.0, 900.0, dist));
   #ifdef GRID
     vec2 g = vW.xy / uGridStep;
     vec2 w = fwidth(g);
@@ -246,32 +250,30 @@ export function createHoloMaterials(soft) {
       load: new THREE.MeshBasicMaterial({ color: lin(HOLO.load) }),
       barrier: new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 1.2, 1.2) }),
       dome: null,
-      surfaces: [],
       all: [],
     };
   }
   const H = {
     soft: false,
     hidden,
-    ground: surface({ flat: HOLO.floor, wall: '#0a2735', grid: true, gridK: 1, step: 50, rimK: 0.05 }),
-    face: surface({ flat: HOLO.flat, wall: HOLO.wall, rimK: 0.35 }),
-    flat: surface({ flat: HOLO.flat, wall: HOLO.wall, rimK: 0.2, grid: true, gridK: 0.6, step: 25 }),
+    ground: surface({ flat: HOLO.floor, wall: '#0a2735', grid: true, gridK: 0.8, step: 50, rimK: 0.03 }),
+    face: surface({ flat: HOLO.flat, wall: HOLO.wall, rimK: 0.28 }),
+    flat: surface({ flat: HOLO.flat, wall: HOLO.wall, rimK: 0.07, grid: true, gridK: 0.7, step: 25 }),
     dump: surface({ flat: '#0c2e3d', wall: '#16566c', rimK: 0.4 }),
     dumpTop: surface({ flat: '#0c2e3d', wall: '#16566c', rimK: 0.25, grid: true, gridK: 0.5, step: 25 }),
-    pad: surface({ flat: '#0a2633', wall: '#0e3a4a', rimK: 0.1, grid: true, gridK: 0.5, step: 20 }),
+    pad: surface({ flat: '#09222e', wall: '#0e3a4a', rimK: 0.05, grid: true, gridK: 0.5, step: 20 }),
     muck: surface({ flat: '#163f4c', wall: '#1a5363', rimK: 0.6 }),
-    road: surface({ flat: '#0c3446', wall: '#0e3a4c', rimK: 0.1 }),
-    water: surface({ flat: '#0a3a55', wall: '#0a3a55', rim: '#6fe2ff', rimK: 0.9 }),
+    road: surface({ flat: '#0b3042', wall: '#0e3a4c', rimK: 0.05 }),
+    water: surface({ flat: '#072a3d', wall: '#072a3d', rim: '#6fe2ff', rimK: 0.3 }),
     piles: glass({ color: '#4fd2f0', opacity: 0.3, fres: 1.0 }),
-    plant: glass({ edges: true, tint: true, albedo: true, opacity: 0.34, color: '#ffffff', gain: 1.0 }),
-    plantPlain: glass({ edges: true, albedo: true, opacity: 0.3 }),
+    plant: glass({ edges: true, tint: true, albedo: true, opacity: 0.4, color: '#ffffff', gain: 1.35 }),
+    plantPlain: glass({ edges: true, albedo: true, opacity: 0.34, gain: 1.1 }),
     plantGlass: glass({ opacity: 0.1, fres: 0.8, side: THREE.DoubleSide }),
     belt: glass({ color: HOLO.lane, opacity: 0.85, fres: 0.3, gain: 1.2 }),
     machine: glass({ edges: true, albedo: true, opacity: 0.42, color: '#ffffff', fres: 1.0, gain: 1.15 }),
     load: glass({ color: '#ffffff', opacity: 0.62, fres: 0.9, gain: 1.35 }),
     barrier: new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 1.4, 1.4), toneMapped: false }),
   };
-  H.surfaces = [H.ground, H.face, H.flat, H.dump, H.dumpTop, H.pad, H.muck, H.road, H.water];
   H.all = Object.values(H).filter((m) => m && m.isMaterial);
   return H;
 }

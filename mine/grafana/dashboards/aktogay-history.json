@@ -1,9 +1,9 @@
 {
   "uid": "aktogay-history",
-  "title": "Актогай — история",
-  "description": "История модели рудника Актогай (участок карьера и сульфидная фабрика №1) из двойников платформы OpenEgiz: цепочка руды, склад, медь, деньги, выбросы, самосвалы и сценарии.",
+  "title": "Бозшаколь — история",
+  "description": "История модели рудника Бозшаколь (карьер, ОФ-1 и ОФ-2, упрощённо) из двойников платформы OpenEgiz: цепочка руды, склад, медь, деньги, выбросы, самосвалы и сценарии.",
   "tags": [
-    "aktogay",
+    "bozshakol",
     "mine"
   ],
   "timezone": "browser",
@@ -77,7 +77,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Актогай — история** модели участка карьера и сульфидной фабрики №1 из её двойников на платформе OpenEgiz (InfluxDB). Модель построена по открытым данным и не связана с KAZ Minerals. Время по оси — настоящее, модель идёт быстрее: при ×20 час на графике — около 20 часов работы рудника. Розовые метки — запуск и отмена сценариев по журналу событий. Значения усреднены по шагу графика, не короче минуты."
+        "content": "**Бозшаколь — история** модели рудника Бозшаколь (карьер, сульфидная фабрика ОФ-1 и глинистая фабрика ОФ-2, упрощённо) из её двойников на платформе OpenEgiz (InfluxDB). Модель построена по открытым данным и не связана с KAZ Minerals. Время по оси — настоящее, модель идёт быстрее: при ×20 час на графике — около 20 часов работы рудника. Розовые метки — запуск и отмена сценариев по журналу событий. Значения усреднены по шагу графика, не короче минуты."
       },
       "transparent": true
     },
@@ -596,7 +596,7 @@
             "uid": "opentwins-influxdb"
           },
           "refId": "A",
-          "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and strings.hasPrefix(v: r.thingId, prefix: \"${ns}:scenario-\") and r._field == \"value_status_properties_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: if r.thingId == \"${ns}:scenario-road-closure\" then \"Закрытие дороги\" else if r.thingId == \"${ns}:scenario-shovel-failure\" then \"Отказ экскаватора\" else if r.thingId == \"${ns}:scenario-crusher-stop\" then \"Остановка дробилки\" else if r.thingId == \"${ns}:scenario-heavy-rain\" then \"Сильный дождь с мокрым снегом\" else if r.thingId == \"${ns}:scenario-blast\" then \"Взрыв блока\" else if r.thingId == \"${ns}:scenario-hard-ore\" then \"Крепкая руда\" else strings.trimPrefix(v: r.thingId, prefix: \"${ns}:\")}))\n  |> group(columns: [\"name\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: r.name}))\n  |> group(columns: [\"name\"])"
+          "query": "import \"strings\"\nfrom(bucket: \"default\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mqtt_consumer\" and strings.hasPrefix(v: r.thingId, prefix: \"${ns}:scenario-\") and r._field == \"value_status_properties_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: if r.thingId == \"${ns}:scenario-road-closure\" then \"Закрытие дороги\" else if r.thingId == \"${ns}:scenario-shovel-failure\" then \"Отказ экскаватора\" else if r.thingId == \"${ns}:scenario-crusher-stop\" then \"Остановка дробилки\" else if r.thingId == \"${ns}:scenario-heavy-rain\" then \"Сильный дождь с мокрым снегом\" else if r.thingId == \"${ns}:scenario-blast\" then \"Взрыв блока\" else if r.thingId == \"${ns}:scenario-clay-face\" then \"Глинистая руда в забое\" else if r.thingId == \"${ns}:scenario-clay-plant-stop\" then \"Остановка ОФ-2\" else strings.trimPrefix(v: r.thingId, prefix: \"${ns}:\")}))\n  |> group(columns: [\"name\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, name: r.name}))\n  |> group(columns: [\"name\"])"
         }
       ],
       "fieldConfig": {

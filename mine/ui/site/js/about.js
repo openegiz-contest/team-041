@@ -85,7 +85,9 @@ function lines() {
     out.push(`Дороги: ${formatNumber(roads / 1000, 1)} км${ramps > 0 ? `, из них съезды в карьере ${formatNumber(ramps / 1000, 1)} км` : ''}`);
   }
   const design = first('mine')?.attributes?.spec?.mill_design_tph;
-  if (typeof design === 'number') out.push(`Фабрика: расчётная подача на мельницу ${formatNumber(design, 0)} т/ч`);
+  if (typeof design === 'number') out.push(`Сульфидная фабрика ОФ-1: расчётная подача на мельницу ${formatNumber(design, 0)} т/ч`);
+  const clay = first('mine')?.attributes?.spec?.clay_plant_design_tph;
+  if (typeof clay === 'number') out.push(`Фабрика глинистых руд ОФ-2: расчётная переработка ${formatNumber(clay, 0)} т/ч`);
   const physical = [...twins.values()].filter((twin) => !['scenario', 'module', 'forecast', 'journal'].includes(kindOf(twin))).length;
   out.push(`Двойников объектов рудника: ${physical}; ещё ${twins.size - physical} — сценарии, модули, прогнозы и журнал`);
   const speedup = feature(first('mine'), 'speedup');

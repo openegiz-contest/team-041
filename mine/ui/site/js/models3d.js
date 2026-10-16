@@ -5,7 +5,8 @@
 // machine of a kind as one instanced mesh; each comes in two levels of
 // detail: `near` (a few thousand triangles, for the camera close by) and
 // `far` (a couple of hundred, for the overview), and `simple` for the
-// 2D-canvas stand-in of WebGL.
+// 2D-canvas stand-in of WebGL. They are drawn until the Blender models
+// (gltf3d.js) are loaded, and stay when those cannot be.
 //
 //   truck  Caterpillar 785C (CAT yellow): frame with the cab on its deck,
 //          the diagonal stair, six wheels on 33.00R51 tyres; the dump body

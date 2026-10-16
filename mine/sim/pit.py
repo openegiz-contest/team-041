@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from mine.model.geology import BlockModel
+from mine.model.geology import BlockModel, clay_class
 from mine.common.roads import BLAST
 from mine.sim.text import num
 
@@ -60,6 +60,7 @@ class Block:
     material: str
     grade_pct: float
     hardness_bwi: float
+    clay_pct: float
     tonnes: float
     frag_p80_mm: float
     powder_factor: float
@@ -73,9 +74,15 @@ class Block:
     charged_at: float = 0.0                 # when charging finished; the oldest charge is fired first
     reserved_by: str = ""                   # the loader or rig working on the block
 
+    clay_plan_pct: float = 0.0              # the clay the block model gave; a scenario may find more at the face
+
     @property
     def is_ore(self) -> bool:
         return self.material != "waste"
+
+    def actual_class(self, params: dict) -> str:
+        """The class of the rock as it is at the face: ore whose clay turned out high is clay ore."""
+        return clay_class(params, "ore" if self.material == "clay" else self.material, self.clay_pct)
 
 
 @dataclass
@@ -119,6 +126,7 @@ class Pit:
                 tonnes_initial=float(spec["tonnes_initial"]), holes_planned=spec["holes_planned"],
                 order=spec["mining_order"], status=initial(t, "status"), material=initial(t, "material"),
                 grade_pct=initial(t, "grade_pct"), hardness_bwi=initial(t, "hardness_bwi"),
+                clay_pct=initial(t, "clay_pct"), clay_plan_pct=initial(t, "clay_pct"),
                 tonnes=initial(t, "tonnes_remaining"), frag_p80_mm=initial(t, "frag_p80_mm"),
                 powder_factor=initial(t, "powder_factor_kg_m3"), destination=initial(t, "destination"))
         for block in self.blocks.values():
@@ -472,6 +480,7 @@ class Pit:
             bench["pushback"] += 1
             for block in blocks:
                 block.__dict__.update(self.model.block(name, *block.centre, generation=bench["pushback"] - 1))
+                block.clay_plan_pct = block.clay_pct
                 block.status, block.tonnes = "insitu", block.tonnes_initial
                 block.frag_p80_mm = block.powder_factor = 0.0
                 block.destination_source, block.reserved_by, block.charged_holes = "cutoff", "", 0.0
@@ -570,7 +579,7 @@ class Pit:
         out: dict[str, dict] = {}
         for b in self.blocks.values():
             out[b.name] = {
-                "status": b.status, "grade_pct": b.grade_pct, "hardness_bwi": b.hardness_bwi,
+                "status": b.status, "grade_pct": b.grade_pct, "hardness_bwi": b.hardness_bwi, "clay_pct": round(b.clay_pct, 1),
                 "tonnes_remaining": round(b.tonnes), "material": b.material,
                 "frag_p80_mm": float(b.frag_p80_mm), "powder_factor_kg_m3": float(b.powder_factor),
                 "destination": b.destination, "destination_source": b.destination_source,

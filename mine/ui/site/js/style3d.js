@@ -2,14 +2,22 @@
 // ?style=hologram|realistic in the address chooses it; otherwise the
 // visitor's last choice, kept in the browser (when the browser allows it).
 
-const KEY = 'aktogay.style3d';
+const KEY = 'bozshakol.style3d';
+const OLD_KEY = 'aktogay.style3d';         // the key before the mine moved to Bozshakol: read once, then moved
 export const STYLES = ['hologram', 'realistic'];
 
 export function initialStyle() {
   const asked = new URLSearchParams(window.location.search).get('style');
   if (STYLES.includes(asked)) return asked;
   try {
-    const kept = window.localStorage.getItem(KEY);
+    let kept = window.localStorage.getItem(KEY);
+    if (kept === null) {
+      kept = window.localStorage.getItem(OLD_KEY);
+      if (kept !== null) {
+        window.localStorage.setItem(KEY, kept);
+        window.localStorage.removeItem(OLD_KEY);
+      }
+    }
     if (STYLES.includes(kept)) return kept;
   } catch { /* storage blocked: the default */ }
   return 'hologram';

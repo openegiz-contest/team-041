@@ -32,6 +32,7 @@ from mine.common.roads import RoadNetwork
 from mine.modules.base import Core, Message, num, short
 
 EMPTY_STATES = ("returning", "queue_load")
+MATERIAL_TITLES = {"waste": "вскрыша", "ore": "руда", "low-grade": "забалансовая руда", "clay": "глинистая руда"}
 LOADED_STATES = ("hauling", "queue_dump")
 RESEND_S = 90.0             # an order that did not show in the twin is repeated after this time
 
@@ -62,8 +63,12 @@ class DispatchCore(Core):
         self.crusher = w.by_kind["crusher"][0]
         self.waste_dump = w.by_kind["waste-dump"][0]
         self.pads = {w.get(pad, "role"): pad for pad in w.by_kind["rom-pad"]}
-        self.sink_node = {name: w.link(name, "access_node") for name in (self.crusher, self.waste_dump, *self.pads.values())}
+        # The clay-ore plant ОФ-2 and the clay-ore stockpile beside it: a load destined there goes there.
+        self.clay_sinks = [*w.by_kind.get("clay-plant", []), *w.by_kind.get("clay-stockpile", [])]
+        self.sink_node = {name: w.link(name, "access_node")
+                          for name in (self.crusher, self.waste_dump, *self.pads.values(), *self.clay_sinks)}
         self.payload_t = float(params["truck"]["payload_t"])
+        self.clay_min = float(params["clay"]["clay_ore_min_pct"])
         self.passes = max(1, int(w.spec(self.loaders[0], "passes_per_truck", 4)))
         nominal_s = params["loader"]["spot_s"] + self.passes * params["loader"]["pass_s"] + 20.0
         self.service_s = {loader: nominal_s for loader in self.loaders}     # learnt from the loadings observed
@@ -307,10 +312,31 @@ class DispatchCore(Core):
                 balance_s = gain_s * max(0.0, lead)             # ore is ahead of the plan: stripping must not fall behind
             else:
                 balance_s = gain_s * max(0.0, -lead) * need     # waste is ahead, and the plant can take the ore
+            if self._face_is_clay(block):
+                balance_s += self._clay_face_cost_s(need)
             options.append({"loader": loader, "node": node, "ore": is_ore, "travel": eta, "wait": wait_s,
                             "load": service_s, "dump_wait": dump_wait_s, "balance": balance_s,
                             "total": eta + wait_s + service_s + dump_wait_s + balance_s})
         return sorted(options, key=lambda o: (o["total"], o["loader"]))
+
+    def _face_is_clay(self, block: str) -> bool:
+        """The face digs clay ore (by its class or by the clay the face shows): it feeds ОФ-2, not the crusher."""
+        w = self.world
+        return block in w.attrs and (w.get(block, "material") == "clay"
+                                     or float(w.get(block, "clay_pct", 0.0)) >= self.clay_min)
+
+    def _clay_face_cost_s(self, ofs1_need: float) -> float:
+        """What a trip to a clay face is made to cost on top of its time: up to `dispatch.clay_full_min` while the
+        feed stockpile of ОФ-2 has no room for it, and up to that again while ОФ-1 needs ore, which clay ore does
+        not bring it."""
+        if not self.clay_sinks:
+            return 0.0
+        w = self.world
+        plant = self.clay_sinks[0]
+        capacity = float(w.spec(plant, "feed_bin_t", 1.0)) or 1.0
+        room = float(w.get(plant, "room_t", capacity))
+        clay_need = min(1.0, max(0.0, room / (0.4 * capacity)))
+        return self.p["clay_full_min"] * 60.0 * (1.0 - clay_need)
 
     def _order_loader(self, truck: str, why: str = "") -> None:
         w = self.world
@@ -358,6 +384,15 @@ class DispatchCore(Core):
             - (int(w.get(pad, "queue_len", 0)) + 2) * self.payload_t * 1.1
         return pad if room > 0 else None
 
+    def _clay_sink(self) -> str | None:
+        """Where a load of clay ore turned away from the crusher goes: ОФ-2 while its feed stockpile has room, else
+        the clay-ore stockpile."""
+        w = self.world
+        for sink in self.clay_sinks:
+            if float(w.get(sink, "room_t", 0.0)) > 3 * self.payload_t:
+                return sink
+        return None
+
     def _order_dump(self, truck: str, loader_node: str | None = None) -> None:
         w = self.world
         v = w.values[truck]
@@ -374,7 +409,7 @@ class DispatchCore(Core):
         if planned == self.crusher:
             haul = self.travel.route(node, self.sink_node[self.crusher], True)
             wait_s = self._crusher_wait_s(lead_s + (haul[1] if haul else 0.0), self._crusher_arrivals(truck))
-            pad = self._pad_for(material)
+            pad = self._pad_for(material) if material != "clay" else self._clay_sink()
             stopped = w.get(self.crusher, "state") == "stopped"
             if pad and (stopped or wait_s > self.p["divert_wait_min"] * 60.0):
                 dump = pad
@@ -388,7 +423,7 @@ class DispatchCore(Core):
         self.sent_at[(truck, "dump")] = w.now
         minutes = f", {num((found[1] if found else 0.0) / 60)} мин пути" if found else ""
         self.send(truck, "assign", body,
-                  f"{w.title(truck)} ({'вскрыша' if material == 'waste' else 'руда'}) → {w.title(dump)}{minutes}"
+                  f"{w.title(truck)} ({MATERIAL_TITLES.get(material, 'руда')}) → {w.title(dump)}{minutes}"
                   f"{': ' + why if why else ''}.")
 
     # -- one round ----------------------------------------------------------------------

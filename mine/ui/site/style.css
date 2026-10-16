@@ -131,7 +131,7 @@ select option, select optgroup { background: #1a1f24; }
 #scene-gl { cursor: grab; touch-action: none; outline-offset: -3px; }
 #scene-gl.dragging { cursor: grabbing !important; }
 #scene-labels { pointer-events: none; }
-.scene[data-style="hologram"] { background: #04121a; }
+.scene[data-look="hologram"] { background: #04121a; }
 /* Floating data panels over the 3D view (hologram look): placed by the scene, never under the pointer. */
 .scene-panels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; contain: layout paint; }
 .holo-panel {

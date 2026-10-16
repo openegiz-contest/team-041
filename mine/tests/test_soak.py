@@ -1,17 +1,22 @@
 """Soak test: seven simulated days of the mine, once under its fixed plan (all modules off) and once with all
-four modules on, checked against the ranges of the Aktogay basis. The measured values are printed, with the
+four modules on, checked against the ranges of the Bozshakol basis. The measured values are printed, with the
 annual figures they come to beside KAZ Minerals' published ones.
 
 Ranges and why:
-    cycle_min                20-35 min    hauls of 2.3-4.3 km from a pit 255 m deep at 8 % (design cycle 25 min)
+    cycle_min                15-30 min    hauls of 1.7-4.1 km from a pit 225 m deep at 8-10 % (design cycle 20.9 min)
     fuel_lph                 Turija band  0.35-0.50 of the 785C engine's full-power fuel, per engine hour
-    head_grade_pct           0.36-0.46    Aktogay mill feed 0.41 % (2025), 0.43 (2024); a week's faces vary
-    recovery_pct             84-89 %      Aktogay 84.9-87.9 % in 2020-2025
-    mill_kwh_t               15.5-21      16.4 kWh/t at the reference hardness; harder blocks draw more
-    strip_ratio              0.30-0.42    Aktogay 0.363 (2024); a week's blasts vary
-    annual_ore_mt            30.4-31.4    Sulphide 1 processed 30.909 Mt in 2025 (no modules: the mill at its setpoint)
-    annual_cu_kt             ±10 %        Sulphide 1's share of copper in concentrate 2025: 109.7 kt
-    rock_vs_required         1.00-1.30    the fleet carries what the line needs, with its 10 % reserve and a little over
+    head_grade_pct           0.33-0.46    ОФ-1 feed: sulphide ore 0.39 % (derived for 2024); a week's faces vary
+    recovery_pct             76-85 %      ОФ-1: 81.1 % derived for 2024 at the reference grade and clay
+    clay_recovery_pct        55-76 %      ОФ-2: 66.5 % derived for 2024; the week's clay faces vary in clay and grade
+    site_recovery_pct        73-81.5 %    the mine (both plants): 73.4-81.1 % in 2019-2025, 78.1 % in 2024
+    site_head_grade_pct      0.35-0.48    the mine: 0.39-0.51 % in 2019-2025, 0.40 % in 2024
+    clay_share_pct           8-26 %       clay ore in the ore mined: 14.2-30.5 % in 2019-2025, 17.1 % in 2024
+    mill_kwh_t               16.5-22      17.7 kWh/t at the reference hardness; harder blocks draw more
+    strip_ratio              0.35-0.75    waste per tonne of ore and low-grade ore, 0.545 by design (0.7 with the low-grade)
+    annual_ore_mt            28.0-29.3    ОФ-1: 28.67 Mt derived for 2024 (no modules: the mill at its setpoint)
+    annual_processed_mt      33.8-35.6    both plants: 34.755 Mt processed in 2024
+    annual_cu_kt             ±10 %        copper in concentrate 2024: 109.6 kt
+    rock_vs_required         1.00-1.30    the fleet carries what the plants need, with its 10 % reserve and a little over
     use_of_available_pct     70-88 %      the design basis assumes 80 % (crew change, meal break, refuelling, queues)
     truck_availability_pct   82-92 %      without maintenance, against 85 % assumed by the design basis
 """
@@ -23,28 +28,34 @@ from mine.tests.coupled import ALL, WEEK_CONFIGS, weeks
 PARAMS = load_params()
 FULL = full_power_fuel_lph(PARAMS)
 HOURS_A_YEAR = 8760 * PARAMS["plan"]["plant_availability"]
-CU_LINE_KT = 220.3 * 30.909 / 62.095            # Sulphide 1's share of Aktogay's copper in concentrate, 2025
+CU_KT = 109.6                                   # Bozshakol, copper in concentrate 2024 (both plants)
 COMMON = {
-    "cycle_min": (20.0, 35.0),
+    "cycle_min": (15.0, 30.0),
     "fuel_lph": (PARAMS["truck"]["cycle_load_factor_min"] * FULL, PARAMS["truck"]["cycle_load_factor_max"] * FULL),
-    "head_grade_pct": (0.36, 0.46),
-    "recovery_pct": (84.0, 89.0),
-    "mill_kwh_t": (15.5, 21.0),
+    "head_grade_pct": (0.33, 0.46),
+    "recovery_pct": (76.0, 85.0),
+    "clay_recovery_pct": (55.0, 76.0),
+    "site_recovery_pct": (73.0, 81.5),
+    "site_head_grade_pct": (0.35, 0.48),
+    "clay_share_pct": (8.0, 26.0),
+    "mill_kwh_t": (16.5, 22.0),
     "lowest_stockpile_t": (0.0, PARAMS["stockpile"]["capacity_t"]),
     "longest_standby_min": (0.0, 75.0),
-    "strip_ratio": (0.30, 0.42),
+    "strip_ratio": (0.35, 0.75),
     "rock_vs_required": (1.0, 1.30),
     "use_of_available_pct": (70.0, 88.0),
 }
 RANGES = {
     (): {**COMMON, "mill_feed_pct_of_design": (99.0, 100.0 + 1e-6), "truck_availability_pct": (82.0, 92.0),
-         "annual_ore_mt": (30.4, 31.4), "annual_cu_kt": (0.9 * CU_LINE_KT, 1.1 * CU_LINE_KT)},
+         "annual_ore_mt": (28.0, 29.3), "annual_processed_mt": (33.8, 35.6), "annual_cu_kt": (0.9 * CU_KT, 1.1 * CU_KT)},
     # Plant control may feed up to the setpoint limit; maintenance keeps more trucks available.
     ALL: {**COMMON, "mill_feed_pct_of_design": (100.0, 100.0 * PARAMS["mill"]["setpoint_max_factor"]),
-          "truck_availability_pct": (90.0, 98.0), "annual_ore_mt": (30.4, 30.9 * PARAMS["mill"]["setpoint_max_factor"]),
-          "annual_cu_kt": (0.9 * CU_LINE_KT, 1.2 * CU_LINE_KT)},
+          "truck_availability_pct": (90.0, 98.0), "annual_ore_mt": (28.0, 28.67 * PARAMS["mill"]["setpoint_max_factor"]),
+          "annual_processed_mt": (33.8, 34.755 * PARAMS["mill"]["setpoint_max_factor"]),
+          "annual_cu_kt": (0.9 * CU_KT, 1.2 * CU_KT)},
 }
 SHOWN = ("trips", "queue_min_per_trip", "tonnes_moved", "ore_mined_t", "waste_mined_t", "rom_pads_t", "ore_milled_t",
+         "clay_milled_t", "clay_head_grade_pct", "ofs1_clay_pct", "clay_stock_t", "cu_ofs1_t",
          "grade_in_band_pct", "cu_t", "mill_stops", "breakdowns", "workshop_jobs", "blasts", "blocks_dug_out", "messages")
 
 
@@ -55,6 +66,7 @@ def annual(r: dict) -> dict:
     return {
         **r,
         "annual_ore_mt": tph(r["ore_milled_t"]) * HOURS_A_YEAR / 1e6,
+        "annual_processed_mt": tph(r["ore_milled_t"] + r["clay_milled_t"]) * HOURS_A_YEAR / 1e6,
         "annual_cu_kt": tph(r["cu_t"]) * HOURS_A_YEAR / 1e3,
         "rock_vs_required": rock_tph / PARAMS["plan"]["rock_tph"],
     }

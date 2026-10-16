@@ -98,7 +98,10 @@ def apply_action(sim: Simulation, rig: Coupled, name: str, subject: str, body: d
 
 def totals(sim: Simulation) -> dict:
     kpis, plant = sim.kpis, sim.plant
-    return {"cu": plant.flotation.cu_conc_t, "ore": kpis.ore_mined_t, "waste": kpis.waste_mined_t,
+    clay = plant.clay_plant
+    return {"cu": plant.flotation.cu_conc_t + clay.cu_conc_t, "ore": kpis.ore_mined_t, "waste": kpis.waste_mined_t,
+            "clay_milled": clay.total_t, "clay_milled_cu": clay.total_cu, "clay_cu": clay.cu_conc_t,
+            "clay_pile": plant.clay_stock.stock.t, "mill_clay": kpis.mill_clay_total,
             "milled": plant.mill.total_t, "milled_cu": plant.mill.total_cu, "diesel": kpis.diesel_l,
             "kwh": kpis.electric_kwh_total, "reclaim": plant.reclaimed_t, "reclaim_cu": plant.reclaimed_cu,
             "crushed": plant.crusher.total_t, "crushed_cu": plant.crusher.total_cu,
@@ -165,6 +168,9 @@ def run_branch(sim: Simulation, actions: list[tuple[str, str, dict]], enabled: d
         "from_stock_t": round(-d["pile"]), "from_stock_cu_t": round(-d["pile_cu"], 2),
         "from_pads_t": round(d["reclaim"]), "from_pads_cu_t": round(d["reclaim_cu"], 2),
         "from_pit_t": round(d["crushed"] - d["reclaim"]), "from_pit_cu_t": round(d["crushed_cu"] - d["reclaim_cu"], 2),
+        "clay_milled_t": round(d["clay_milled"]), "clay_milled_cu_t": round(d["clay_milled_cu"], 2),
+        "clay_cu_t": round(d["clay_cu"], 2), "to_clay_stock_t": round(d["clay_pile"]),
+        "ofs1_clay_pct": round(d["mill_clay"] / d["milled"], 1) if d["milled"] > 1.0 else 0.0,
         # Hours of feed left on the stockpile at the end, at the mill's setpoint then (as the stockpile twin counts).
         "stock_end_h": round(plant.stockpile.t / mill.setpoint_tph, 1) if mill.setpoint_tph > 0 else 0.0,
         "diesel_l": round(d["diesel"]), "energy_mwh": round(d["kwh"] / 1000.0, 1),
@@ -626,7 +632,8 @@ class ForecastDesk:
         self.jobs.clear()
 
 
-BRANCH_KEYS = ("cu_t", "ore_t", "waste_t", "milled_t", "milled_cu_t", "from_stock_t", "from_stock_cu_t", "from_pads_t",
+BRANCH_KEYS = ("cu_t", "ore_t", "waste_t", "milled_t", "milled_cu_t", "clay_milled_t", "clay_milled_cu_t", "clay_cu_t",
+               "to_clay_stock_t", "ofs1_clay_pct", "from_stock_t", "from_stock_cu_t", "from_pads_t",
                "from_pads_cu_t", "from_pit_t", "from_pit_cu_t", "stock_end_h", "diesel_l", "energy_mwh", "revenue_kzt",
                "diesel_kzt", "power_kzt", "margin_kzt", "rehandle_t", "rehandle_kzt", "grade_kzt", "work_kzt", "pads_kzt",
                "stock_kzt", "strip_kzt", "adjust_kzt", "resources_kzt", "total_kzt", "co2_t", "queue_min", "in_band_pct", "avail_pct",
@@ -634,7 +641,8 @@ BRANCH_KEYS = ("cu_t", "ore_t", "waste_t", "milled_t", "milled_cu_t", "from_stoc
 SAME_KZT = 50_000           # below this two branches are called equal in money
 SAME_CU_T = 0.05
 # Rounding of a branch's figures, as run_branch rounds them; the mean over replicas is rounded the same way.
-DIGITS = {"cu_t": 2, "ore_t": 0, "waste_t": 0, "milled_t": 0, "milled_cu_t": 2, "from_stock_t": 0, "from_stock_cu_t": 2,
+DIGITS = {"cu_t": 2, "ore_t": 0, "waste_t": 0, "milled_t": 0, "milled_cu_t": 2, "clay_milled_t": 0, "clay_milled_cu_t": 2,
+          "clay_cu_t": 2, "to_clay_stock_t": 0, "ofs1_clay_pct": 1, "from_stock_t": 0, "from_stock_cu_t": 2,
           "from_pads_t": 0, "from_pads_cu_t": 2, "from_pit_t": 0, "from_pit_cu_t": 2, "stock_end_h": 1, "diesel_l": 0,
           "energy_mwh": 1, "revenue_kzt": 0, "diesel_kzt": 0, "power_kzt": 0, "rehandle_t": 1, "rehandle_kzt": 0,
           "grade_kzt": 0, "work_kzt": 0, "pads_kzt": 0, "strip_kzt": 0, "resources_kzt": 0, "co2_t": 1, "queue_min": 2, "in_band_pct": 1,
@@ -741,22 +749,33 @@ def copper_text(label_b: str, a: dict, b: dict, econ: Economics) -> str:
         return ""
     pm = lambda value: f"{'+' if value >= 0 else '−'}{thousands(abs(value))}"
     sentences = []
+    # ОФ-1: its copper is the total less that of ОФ-2.
+    cu1a, cu1b = a["cu_t"] - a.get("clay_cu_t", 0.0), b["cu_t"] - b.get("clay_cu_t", 0.0)
     ta, tb = a["milled_t"], b["milled_t"]
+    dcu2 = b.get("clay_cu_t", 0.0) - a.get("clay_cu_t", 0.0)
     if ta > 1.0 and tb > 1.0 and a["milled_cu_t"] > 0 and b["milled_cu_t"] > 0:
         ga, gb = a["milled_cu_t"] / ta, b["milled_cu_t"] / tb
-        ra, rb = a["cu_t"] / a["milled_cu_t"], b["cu_t"] / b["milled_cu_t"]
+        ra, rb = cu1a / a["milled_cu_t"], cu1b / b["milled_cu_t"]
         tonnage, grade, recovery = (tb - ta) * ga * ra, tb * (gb - ga) * ra, tb * gb * (rb - ra)
         parts = []
         if abs(dmilled) >= 50 or abs(tonnage) >= SAME_CU_T:
-            parts.append(f"переработано руды {pm(dmilled)} т ({signed(tonnage)} т)")
+            parts.append(f"переработано руды на ОФ-1 {pm(dmilled)} т ({signed(tonnage)} т)")
         if abs(grade) >= SAME_CU_T:
-            parts.append(f"содержание меди в питании {num(100 * ga, 3)} → {num(100 * gb, 3)} % ({signed(grade)} т)")
+            parts.append(f"содержание меди в питании ОФ-1 {num(100 * ga, 3)} → {num(100 * gb, 3)} % ({signed(grade)} т)")
         if abs(recovery) >= SAME_CU_T:
-            parts.append(f"извлечение {num(100 * ra)} → {num(100 * rb)} % ({signed(recovery)} т)")
+            clay = (f", глины в питании {num(a.get('ofs1_clay_pct', 0.0))} → {num(b.get('ofs1_clay_pct', 0.0))} %"
+                    if abs(b.get("ofs1_clay_pct", 0.0) - a.get("ofs1_clay_pct", 0.0)) >= 0.1 else "")
+            parts.append(f"извлечение ОФ-1 {num(100 * ra)} → {num(100 * rb)} %{clay} ({signed(recovery)} т)")
+        if abs(dcu2) >= SAME_CU_T:
+            dt2 = b.get("clay_milled_t", 0) - a.get("clay_milled_t", 0)
+            parts.append(f"ОФ-2 {signed(dcu2)} т (" + (f"переработано {pm(dt2)} т)" if abs(dt2) >= 50 else
+                                                     "та же переработка, другое содержание и глинистость питания)"))
         if parts:
             sentences.append(f"Медь {signed(dcu)} т: " + ", ".join(parts))
     elif abs(dcu) >= SAME_CU_T:
         sentences.append(f"Медь {signed(dcu)} т")
+    if abs(d("to_clay_stock_t") if "to_clay_stock_t" in a else 0) >= 500:
+        sentences.append(f"На склад глинистой руды: {pm(a['to_clay_stock_t'])} т в А, {pm(b['to_clay_stock_t'])} т в Б")
     if a["overloads"] != b["overloads"]:
         sentences.append(f"Отключений мельницы по перегрузу: {a['overloads']} → {b['overloads']} (ветвь Б против А)")
     sources = []
@@ -770,10 +789,11 @@ def copper_text(label_b: str, a: dict, b: dict, econ: Economics) -> str:
     grade_kzt = d("grade_kzt")
     if abs(grade_kzt) >= 1e6:
         ref = num(100.0 * econ.ref_grade, 2)
-        sentences.append(f"Медь сверх средней руды ({ref} %) взята из запасов, итог её вычитает: {signed(grade_kzt / 1e6)} млн тг"
+        sentences.append(f"Запасы руды (медь сверх средней руды фабрики, {ref} % на ОФ-1, и глина) отдали её, итог это "
+                         f"вычитает: {signed(grade_kzt / 1e6)} млн тг"
                          if grade_kzt < 0 else
-                         f"Руда беднее средней ({ref} %), богатая осталась в запасах, итог это учитывает: "
-                         f"{signed(grade_kzt / 1e6)} млн тг")
+                         f"Запасы руды (медь сверх средней руды фабрики, {ref} % на ОФ-1, и глина) стали ценнее, итог это "
+                         f"учитывает: {signed(grade_kzt / 1e6)} млн тг")
     if abs(d("ore_t")) >= 500 or abs(d("waste_t")) >= 500:
         sentences.append(f"Добыто руды {pm(d('ore_t'))} т, вскрыши {pm(d('waste_t'))} т: работа парка "
                          f"{signed((d('work_kzt') + d('strip_kzt')) / 1e6)} млн тг")

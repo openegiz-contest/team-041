@@ -8,6 +8,9 @@
 // Chrome runs with --disable-gpu (see cdp.mjs): on Windows WebGL is then drawn
 // by WARP (Microsoft Basic Render Driver), on Linux by SwiftShader. To force
 // SwiftShader: CHROME_FLAGS="--use-angle=swiftshader --enable-unsafe-swiftshader".
+// STYLE=realistic (or hologram) measures that look of the 3D view. The
+// measurements start 4 s after the first frame, when the Blender models are
+// loaded (the line of the renderer says when they were ready).
 
 import { launch, sleep } from './cdp.mjs';
 
@@ -15,11 +18,15 @@ const base = (process.argv[2] ?? 'http://localhost:8088').replace(/\/$/, '');
 const sizes = (process.argv[3] ?? '1280x720,1920x1080').split(',').map((size) => size.split('x').map(Number));
 // LIGHT_TIME=HH:MM: the scene lit as at that hour (?time=), e.g. at night with its lamps.
 const lightTime = /^\d{1,2}:\d{2}$/.test(process.env.LIGHT_TIME ?? '') ? process.env.LIGHT_TIME : null;
+// STYLE=hologram|realistic: the look of the 3D view (?style=); the default is the page's own (hologram).
+const style = ['hologram', 'realistic'].includes(process.env.STYLE) ? process.env.STYLE : null;
+// MODELS=0: the procedural models only (?models=0), to compare with the Blender models.
+const query = [lightTime ? `time=${lightTime}` : '', style ? `style=${style}` : '', process.env.MODELS === '0' ? 'models=0' : ''].filter(Boolean).join('&');
 
 for (const [width, height] of sizes) {
   const page = await launch({ width, height });
   try {
-    await page.goto(`${base}/${lightTime ? `?time=${lightTime}` : ''}`);
+    await page.goto(`${base}/${query ? `?${query}` : ''}`);
     const first = await page.waitFor('window.minePlan?.scene?.()?.firstFrameAt', 60000, 'the first frame');
     const renderer = await page.evaluate(`(() => {
       const gl = document.createElement('canvas').getContext('webgl2');
@@ -45,7 +52,9 @@ for (const [width, height] of sizes) {
       await page.evaluate('window.minePlan.scene().setTiming(false)');
       console.log(`${width}x${height} ${label.padEnd(9)} turning: ${(turning.frames / turning.seconds).toFixed(1)} fps, frame drawn to the end ${turning.avgCostMs.toFixed(1)} ms (worst ${turning.worstCostMs.toFixed(1)}), longest gap ${turning.longestIntervalMs.toFixed(0)} ms, ${turning.triangles} triangles, ${turning.drawCalls} draw calls`);
     };
-    console.log(`${width}x${height} renderer: ${renderer}; first frame of the mine ${(first / 1000).toFixed(2)} s after navigation`);
+    const look = await page.evaluate('window.minePlan.scene().style');
+    const models = await page.evaluate('window.minePlan.scene().models?.() ?? { state: "none" }');
+    console.log(`${width}x${height} renderer: ${renderer}; look: ${look}; first frame of the mine ${(first / 1000).toFixed(2)} s after navigation; glTF models ${models.state}${models.loadMs ? ` (loaded and prepared in ${(models.loadMs / 1000).toFixed(2)} s after the first frame)` : ''}`);
     await measure('overview', 'overview');
     await measure('faces', 'faces');
     await measure('plant', 'plant');

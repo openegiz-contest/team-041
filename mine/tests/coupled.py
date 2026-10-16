@@ -62,8 +62,9 @@ def week(modules: tuple[str, ...] = (), days: int = 7, seed: int | None = None) 
                 if LATIN.search(text):
                     latin.append(f"{name}: {text}")
     hours = sim.now / 3600.0
-    mill = plant.mill
+    mill, clay = plant.mill, plant.clay_plant
     b = balance(sim)
+    site_cu = plant.flotation.cu_conc_t + clay.cu_conc_t
     return {
         "modules": "+".join(modules) or "none",
         "seed": sim.seed,
@@ -89,8 +90,18 @@ def week(modules: tuple[str, ...] = (), days: int = 7, seed: int | None = None) 
         "head_grade_pct": 100.0 * mill.total_cu / mill.total_t,
         "grade_in_band_pct": 100.0 * in_band_s / fed_s if fed_s else 0.0,
         "recovery_pct": 100.0 * plant.flotation.cu_conc_t / mill.total_cu,
-        "cu_t": plant.flotation.cu_conc_t,
-        "cu_tph": plant.flotation.cu_conc_t / hours,
+        # The clay-ore plant ОФ-2 and the mine as a whole (both plants), as KAZ Minerals reports it.
+        "clay_milled_t": clay.total_t,
+        "clay_head_grade_pct": 100.0 * clay.total_cu / clay.total_t if clay.total_t else 0.0,
+        "clay_recovery_pct": 100.0 * clay.cu_conc_t / clay.total_cu if clay.total_cu else 0.0,
+        "site_recovery_pct": 100.0 * site_cu / (mill.total_cu + clay.total_cu),
+        "site_head_grade_pct": 100.0 * (mill.total_cu + clay.total_cu) / (mill.total_t + clay.total_t),
+        "clay_share_pct": 100.0 * kpis.clay_mined_t / kpis.ore_mined_t,
+        "ofs1_clay_pct": kpis.mill_clay_total / mill.total_t,
+        "clay_stock_t": plant.clay_stock.stock.t,
+        "cu_ofs1_t": plant.flotation.cu_conc_t,
+        "cu_t": site_cu,
+        "cu_tph": site_cu / hours,
         "mill_stops": mill.stops,
         "mill_kwh_t": mill.energy_kwh / mill.total_t,
         "truck_availability_pct": 100.0 * (1.0 - kpis.unavailable_s / kpis.truck_s),

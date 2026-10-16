@@ -48,7 +48,7 @@ function truckTone(state) {
 function unitTone(state) {
   if (['running', 'loading', 'drilling'].includes(state)) return 'good';
   if (['down', 'stopped'].includes(state)) return 'bad';
-  if (['blocked', 'starved', 'overload'].includes(state)) return 'warn';
+  if (['blocked', 'starved', 'overload', 'starting'].includes(state)) return 'warn';
   if (['relocating', 'setup', 'tramming', 'positioning'].includes(state)) return 'moving';
   return state === 'waiting' ? 'ready' : 'idle';
 }
@@ -90,6 +90,17 @@ export function keyState(twin) {
       return { text: `${stateText(f('state'))} · извлечение ${num(f('recovery_pct'), 1)} %`, tone: unitTone(f('state')) };
     case 'rom-pad':
       return { text: `${num(f('level_t'))} т · ${num(f('grade_pct'), 2)} % Cu`, tone: 'idle' };
+    case 'clay-stockpile':
+      return { text: `${num(f('level_t'))} т · ${num(f('grade_pct'), 2)} % Cu · глина ${num(f('clay_pct'))} %`, tone: 'idle' };
+    case 'clay-plant': {
+      const bin = f('bin_pct');
+      const tone = unitTone(f('state'));
+      return { text: `${stateText(f('state'))} · ${num(f('feed_tph'))} т/ч · приёмный склад ${num(bin)} %`, tone: tone === 'good' && bin < 10 ? 'warn' : tone };
+    }
+    case 'desliming':
+      return { text: `${stateText(f('state'))} · шламы ${num(f('slimes_pct'), 1)} %`, tone: unitTone(f('state')) };
+    case 'clay-flotation':
+      return { text: `${stateText(f('state'))} · извлечение ${num(f('recovery_pct'), 1)} %`, tone: unitTone(f('state')) };
     case 'waste-dump':
       return { text: `${num(f('tonnes_total'))} т${f('queue_len') > 0 ? ` · очередь ${f('queue_len')}` : ''}`, tone: 'idle' };
     case 'substation':
@@ -165,7 +176,7 @@ export function hoverLines(twin) {
       break;
     }
     case 'block':
-      lines.push(`${MATERIAL_TEXT[f('material')] ?? ''} · крепость ${formatSmart(f('hardness_bwi'))} · остаток ${num(f('tonnes_remaining'))} т`);
+      lines.push(`${MATERIAL_TEXT[f('material')] ?? ''} · крепость ${formatSmart(f('hardness_bwi'))}${typeof f('clay_pct') === 'number' ? ` · глина ${num(f('clay_pct'))} %` : ''} · остаток ${num(f('tonnes_remaining'))} т`);
       break;
     case 'loader':
       if (twins.has(f('block'))) lines.push(`${titleById(f('block'))} · ${num(f('dig_rate_tph'))} т/ч`);

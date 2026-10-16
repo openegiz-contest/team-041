@@ -2,8 +2,11 @@
 
 The module watches the twins for an incident:
 
-    crusher-stop        the primary crusher is stopped
+    crusher-stop        the primary crusher of ОФ-1 is stopped
+    clay-plant-stop     the clay-ore plant ОФ-2 is stopped
     loader-down:<id>    a loader has broken down (not a planned service)
+    clay-face:<id>      a loader digs a block the block model took for sulphide ore, and the face shows clay ore
+                        (at least `clay.clay_ore_min_pct` of clay)
     road-closed:<id>    a haul-road segment is closed, other than for a blast or by the rain
     rain                it rains: wet roads, the steep ramp closed
     truck-cluster       `advisor.truck_cluster_out` trucks or more are out of work at once
@@ -37,6 +40,11 @@ own, before the levers the modules also pull:
     truck-cluster   put off planned truck service; a second workshop crew on overtime (`expedite-repair` to
                     the workshop); reclaim from the ROM pad; lower the mill feed by 10 %
     hard-ore        mill feed at 97 % or at 90 % of the power limit
+    clay-face       move the loader off the clay face to a blasted block of sulphide ore (`move-to-block`); send the
+                    face's ore to the clay-ore stockpile, into the blend of ОФ-1 (its feed then carries more clay than
+                    the grade-control module allows), or to ОФ-2 while its feed stockpile has room (`set-destination`)
+    clay-plant-stop a second repair crew on ОФ-2 (`expedite-repair` to the clay plant); send the clay faces to the
+                    clay-ore stockpile, or into the blend of ОФ-1; move the clay shovel to a block of sulphide ore
 
 Putting off a planned service keeps a truck at work now, and its failure rate
 then grows with every hour past the service interval
@@ -112,10 +120,15 @@ from datetime import datetime
 from mine.common.roads import RoadNetwork
 from mine.model.build_twins import MARGIN_SPLIT
 from mine.modules.base import Core, Message, num, short
+from mine.sim.text import thousands
 
-ORDER = ("crusher-stop", "loader-down", "road-closed", "rain", "truck-cluster", "hard-ore")
+ORDER = ("crusher-stop", "clay-plant-stop", "loader-down", "clay-face", "road-closed", "rain", "truck-cluster", "hard-ore")
 OUT_STATES = ("down", "service", "to_service")
 NOTHING = "Ничего не менять"
+# A gain beyond the scatter that rests on inventory, not copper: the verdict starts with ON_STOCK,
+# the reason text says STOCK_REASON.
+ON_STOCK = "выигрыш набран не медью"
+STOCK_REASON = "выигрыш держится на запасах руды, меди не прибавляет"
 MODULE_TITLES = {"module-dispatch": "модуль диспетчеризации", "module-grade": "модуль управления качеством руды",
                  "module-plant": "модуль управления фабрикой", "module-maint": "модуль техобслуживания"}
 # What a module that is on already does about an incident: said when «change nothing» is recommended.
@@ -135,6 +148,10 @@ HANDLES = {
                       "module-dispatch": "распределяет оставшиеся самосвалы между экскаваторами",
                       "module-plant": PLANT_FEED},
     "hard-ore": {"module-plant": "держит уставку мельницы у предела мощности на крепкой руде"},
+    "clay-face": {"module-grade": "переводит руду глинистого забоя на ОФ-2 или на склад глинистой руды, не пуская в "
+                                  "питание ОФ-1 больше 8 % глины",
+                  "module-plant": "снижает уставку ОФ-1, если глина в питании опускает предел мельницы"},
+    "clay-plant-stop": {"module-grade": "везёт глинистую руду на склад глинистой руды, когда приёмный склад ОФ-2 полон"},
 }
 SPLIT_TITLES = {"revenue": "медь", "grade": "медь из запасов сверх средней руды", "work": "работа парка",
                 "rehandle": "перевалка", "diesel": "дизель", "power": "электроэнергия", "resources": "ресурсы смены"}
@@ -144,6 +161,7 @@ CASH_PARTS = ("revenue", "grade", "rehandle", "diesel", "power", "resources")
 # The shift's response resources: (thing kind, subject) -> what it does, what it is called, what it shortens.
 RESOURCES = {
     ("crusher", "expedite-repair"): ("Ускорить ремонт дробилки", "вторая бригада", "ремонта дробилки"),
+    ("clay-plant", "expedite-repair"): ("Ускорить ремонт ОФ-2", "вторая бригада", "ремонта ОФ-2"),
     ("loader", "expedite-repair"): ("Ускорить ремонт экскаватора", "вторая бригада", "ремонта экскаватора"),
     ("loader", "prioritise-repair"): ("Бригада мастерской на ремонте экскаватора", "бригада мастерской",
                                       "ремонта экскаватора"),
@@ -204,6 +222,10 @@ class AdvisorCore(Core):
         self.segments, self.blocks = w.by_kind["road-segment"], w.by_kind["block"]
         self.pads = {w.get(pad, "role"): pad for pad in w.by_kind["rom-pad"]}
         self.crusher, self.mill, self.stockpile = w.by_kind["crusher"][0], w.by_kind["mill"][0], w.by_kind["stockpile"][0]
+        self.clay_plant, self.clay_stock = w.by_kind["clay-plant"][0], w.by_kind["clay-stockpile"][0]
+        self.clay_min = float(params["clay"]["clay_ore_min_pct"])
+        self.clay_ref = float(params["flotation"]["clay_ref_pct"])
+        self.clay_limit = float(params["grade_control"]["clay_limit_pct"])
         self.roads = RoadNetwork.from_things(things, params["road"])
         self.loader_kmh = float(params["loader"]["travel_kmh"])
         self.setup_min = float(params["loader"]["relocate_setup_min"])
@@ -238,6 +260,23 @@ class AdvisorCore(Core):
                           f"{w.title(self.crusher)} остановлена: самосвалы с рудой ждут у неё или везут руду на рудные склады; "
                           f"склад дроблёной руды заполнен на {level:.0f} %, это {num(float(w.get(self.stockpile, 'hours_of_feed', 0.0)))} ч "
                           f"питания мельницы."))
+        if w.get(self.clay_plant, "state") == "stopped":
+            found.append(("clay-plant-stop", self.clay_plant,
+                          f"{w.title(self.clay_plant)} остановлена: глинистая руда копится на приёмном складе "
+                          f"({float(w.get(self.clay_plant, 'bin_t', 0.0)):.0f} т, свободно "
+                          f"{float(w.get(self.clay_plant, 'room_t', 0.0)):.0f} т), потом идёт на склад глинистой руды "
+                          f"(свободно {float(w.get(self.clay_stock, 'room_t', 0.0)):.0f} т); ОФ-2 не даёт меди."))
+        for loader in self.loaders:
+            block = short(w.get(loader, "block", ""))
+            if w.get(loader, "state") in ("loading", "waiting") and block in w.attrs \
+                    and w.get(block, "material") in ("ore", "low-grade") \
+                    and float(w.get(block, "clay_pct", 0.0)) >= self.clay_min - (1.0 if current == f"clay-face:{loader}" else 0.0):
+                found.append((f"clay-face:{loader}", loader,
+                              f"{w.title(loader)}: забой {w.title(block)} показал глинистую руду — глины "
+                              f"{num(float(w.get(block, 'clay_pct', 0.0)))} % при пороге {num(self.clay_min, 0)} %, а по "
+                              f"блочной модели руда сульфидная; сейчас её везут на «{w.title(short(w.get(block, 'destination', '')))}». "
+                              f"Глины на складе дроблёной руды ОФ-1 {num(float(w.get(self.stockpile, 'clay_pct', 0.0)))} %, "
+                              f"предел мельницы {float(w.get(self.mill, 'max_feed_tph', 0.0)):.0f} т/ч."))
         for loader in self.loaders:
             if w.get(loader, "state") == "down" and str(w.get(loader, "service_kind", "")).startswith("breakdown"):
                 block = short(w.get(loader, "block", ""))
@@ -308,8 +347,11 @@ class AdvisorCore(Core):
             return self._scenario_end("scenario-road-closure", thing)
         if kind == "rain":
             return self._scenario_end("scenario-heavy-rain")
-        if kind == "hard-ore":
-            return self._scenario_end("scenario-hard-ore")
+        if kind == "clay-plant-stop":
+            end = str(w.get(self.clay_plant, "restart_expected_sim_time", ""))
+            return end, self._scenario_end("scenario-clay-plant-stop")[1] if end else ""
+        if kind == "clay-face":
+            return self._scenario_end("scenario-clay-face", thing)
         return "", ""
 
     # -- options ------------------------------------------------------------------------------
@@ -416,6 +458,98 @@ class AdvisorCore(Core):
             return None
         return {"label": f"Уставка питания мельницы {tph:.0f} т/ч вместо {now:.0f} на {self._hold_text()}: {why}",
                 "actions": [self._action(self.mill, "set-feed-rate", {"tph": tph, "hold_min": self.hold_min})]}
+
+    # -- clay ore ----------------------------------------------------------------------------
+
+    def _face_rate(self, loader: str) -> float:
+        rate = float(self.world.get(loader, "dig_rate_tph", 0.0) or 0.0)
+        return rate if rate > 300.0 else 1200.0
+
+    def _clay_faces(self) -> list[tuple[str, str]]:
+        """(loader, block) of every face digging clay ore now: clay-ore blocks and clay-rich faces of sulphide blocks."""
+        w, out = self.world, []
+        for loader in self.loaders:
+            block = short(w.get(loader, "block", ""))
+            if w.get(loader, "state") in ("loading", "waiting", "relocating", "setup") and block in w.attrs \
+                    and w.get(block, "material") != "waste" and float(w.get(block, "clay_pct", 0.0)) >= self.clay_min:
+                out.append((loader, block))
+        return out
+
+    def _clay_route(self, faces: list[tuple[str, str]], sink: str) -> dict | None:
+        """Send the ore of these faces to the clay-ore stockpile, ОФ-2 or the crusher of ОФ-1, as an operator's order."""
+        w = self.world
+        faces = [(l, b) for l, b in faces if short(w.get(b, "destination", "")) != sink]
+        if not faces:
+            return None
+        tph = sum(self._face_rate(l) for l, _ in faces)
+        names = ", ".join(w.title(b) for _, b in faces)
+        if sink == self.clay_stock:
+            room = float(w.get(self.clay_stock, "room_t", 0.0))
+            if room < 6 * float(self.params["truck"]["payload_t"]):
+                return None
+            hours = room / max(tph, 1.0)
+            label = f"Руду забоя ({names}) — на склад глинистой руды ({self._hold_text()})"
+            why = (f"на складе глинистой руды свободно {thousands(room)} т — {num(hours)} ч работы забоя; перевалка "
+                   f"потом {money(tph * self._hold_h() * float(self.params['rom']['rehandle_kzt_t']))} млн тг")
+        elif sink == self.clay_plant:
+            room = float(w.get(self.clay_plant, "room_t", 0.0))
+            if w.get(self.clay_plant, "state") == "stopped" or room < 2000.0:
+                return None
+            hours = room / max(tph, 1.0)
+            label = f"Руду забоя ({names}) — сразу на ОФ-2 ({self._hold_text()})"
+            why = (f"на приёмном складе ОФ-2 свободно {thousands(room)} т — {num(hours)} ч работы забоя, ОФ-2 перерабатывает "
+                   f"{float(w.get(self.clay_plant, 'feed_setpoint_tph', 0.0)):.0f} т/ч")
+        else:
+            mill_tph = float(w.get(self.mill, "feed_setpoint_tph", 0.0)) or 3557.0
+            pile = float(w.get(self.stockpile, "clay_pct", 0.0)) or self.clay_ref
+            face_clay = sum(self._face_rate(l) * float(w.get(b, "clay_pct", 0.0)) for l, b in faces)
+            clay = (pile * max(mill_tph - tph, 0.0) + face_clay) / max(mill_tph, tph)
+            loss = float(self.params["flotation"]["clay_loss_pct"]) * max(0.0, clay - self.clay_ref)
+            limit = (f"выше предела модуля {num(self.clay_limit, 0)} %" if clay > self.clay_limit
+                     else f"в пределах {num(self.clay_limit, 0)} %")
+            label = (f"Руду забоя ({names}) — в шихту ОФ-1: глины в питании около {num(clay, 0)} %, {limit} "
+                     f"({self._hold_text()})")
+            why = (f"глины в питании ОФ-1 станет около {num(clay)} %: минус {num(loss)} пункта извлечения ОФ-1 и предел "
+                   f"мельницы ниже, зато склад глинистой руды и ОФ-2 не загружаются")
+        reason = "глинистая руда: " + {self.clay_stock: "на склад глинистой руды", self.clay_plant: "на ОФ-2",
+                                       self.crusher: "в шихту ОФ-1"}[sink] + " (указание советника)"
+        actions = [self._action(b, "set-destination", {"destination": w.tid(sink), "hold_min": self.hold_min,
+                                                       "reason": reason}) for _, b in faces]
+        return {"label": label, "actions": actions, "why": why}
+
+    def _hold_h(self) -> float:
+        return self.hold_min / 60.0
+
+    def _move_off_clay(self, loader: str) -> dict | None:
+        """Move the loader of a clay face to the nearest free blasted block of sulphide ore."""
+        w = self.world
+        taken = {short(w.get(l, "block", "")) for l in self.loaders}
+        free = [b for b in self.blocks if w.get(b, "status") == "blasted" and w.get(b, "material") == "ore"
+                and float(w.get(b, "clay_pct", 0.0)) < self.clay_min and b not in taken
+                and float(w.get(b, "tonnes_remaining", 0)) > 5000 and not self._in_blast_zone(b)]
+        if not free or w.get(loader, "state") == "down":
+            return None
+        block = min(free, key=lambda b: (self._move_minutes(loader, b), b))
+        minutes = self._move_minutes(loader, block)
+        here = short(w.get(loader, "block", ""))
+        return {"label": f"Перевести {w.title(loader)} с глинистого забоя {w.title(here)} на {w.title(block)} "
+                         f"(сульфидная руда {num(float(w.get(block, 'grade_pct', 0.0)), 2)} % Cu, переезд около {minutes:.0f} мин)",
+                "actions": [self._action(loader, "move-to-block", {"block": w.tid(block)})],
+                "why": f"переезд около {minutes:.0f} мин; ОФ-1 получает сульфидную руду, глинистая остаётся в блоке "
+                       f"{w.title(here)} до переработки на ОФ-2"}
+
+    def _crew_clay_plant(self, incident: dict) -> dict | None:
+        w = self.world
+        end = incident.get("end") or ""
+        if w.get(self.clay_plant, "state") != "stopped" or not end or int(w.get(self.clay_plant, "repair_crews", 0) or 0) > 1:
+            return None
+        left = self._left_h(end)
+        if left < 0.5:
+            return None
+        new = left * float(self.r["second_crew_factor"])
+        return {"label": f"Вторая бригада с подрядчиком на ремонт ОФ-2: пуск около {self._at(new)} вместо {hhmm(end)} "
+                         f"(около {money(self._crew_cost(new))} млн тг)",
+                "actions": [self._action(self.clay_plant, "expedite-repair", {})]}
 
     def _call_back(self) -> dict | None:
         """Trucks booked for planned service that have not reached the workshop yet stay at work for the hold time."""
@@ -577,6 +711,17 @@ class AdvisorCore(Core):
             candidates = [switch, self._treat_ramp(incident), self._call_back(), self._reclaim(), spare]
         elif kind == "truck-cluster":
             candidates = [switch, self._call_back(), self._overtime(), self._reclaim(), spare]
+        elif kind == "clay-face":
+            loader = incident["thing"]
+            face = [(loader, short(w.get(loader, "block", "")))]
+            candidates = [switch, self._move_off_clay(loader), self._clay_route(face, self.clay_stock),
+                          self._clay_route(face, self.crusher), self._clay_route(face, self.clay_plant)]
+        elif kind == "clay-plant-stop":
+            faces = self._clay_faces()
+            clay_loaders = [l for l, b in faces if w.get(b, "material") == "clay"]
+            candidates = [switch, self._crew_clay_plant(incident), self._clay_route(faces, self.clay_stock),
+                          self._move_off_clay(clay_loaders[0]) if clay_loaders else None,
+                          self._clay_route(faces, self.crusher)]
         else:                                   # hard ore
             limit = f"предела по мощности {max_feed:.0f} т/ч при нынешней крепости"
             candidates = [switch, self._mill_setpoint(0.97 * max_feed, f"97 % {limit}; если руда станет крепче, "
@@ -681,7 +826,10 @@ class AdvisorCore(Core):
                                     "a_mill": series(twin.get("a_series_mill_tph")),
                                     "b_mill": series(twin.get("b_series_mill_tph")),
                                     "a_stops": int(twin.get("a_mill_stops") or 0),
-                                    "b_stops": int(twin.get("b_mill_stops") or 0)}
+                                    "b_stops": int(twin.get("b_mill_stops") or 0),
+                                    "clay_cu": float(twin.get("b_clay_cu_t") or 0.0) - float(twin.get("a_clay_cu_t") or 0.0),
+                                    "clay_stock": int(twin.get("b_to_clay_stock_t") or 0) - int(twin.get("a_to_clay_stock_t") or 0),
+                                    "ofs1_clay": (float(twin.get("a_ofs1_clay_pct") or 0.0), float(twin.get("b_ofs1_clay_pct") or 0.0))}
             elif twin.get("status") == "error":
                 option["error"] = str(twin.get("error_text") or "прогноз не получен")
         if all(o.get("result") is not None or o.get("error") for o in self.options):
@@ -771,7 +919,7 @@ class AdvisorCore(Core):
         if r["cu"] < -max_loss:
             return f"теряет {num(-r['cu'])} т меди за {self.horizon_h} ч, мельница позже её не наверстает"
         if cash < min_gain and (abs(r["cu"]) < min_cu or cash < 0.5 * r["delta"]):
-            return (f"выигрыш набран не медью и затратами за {self.horizon_h} ч ({signed(cash / 1e6)} млн тг), а оценкой "
+            return (f"{ON_STOCK} и затратами за {self.horizon_h} ч ({signed(cash / 1e6)} млн тг), а оценкой "
                     f"работы парка в запасах руды и вскрыше ({signed(r['split']['work'] / 1e6)} млн тг)")
         return ""
 
@@ -814,11 +962,29 @@ class AdvisorCore(Core):
         verdict = option.get("verdict", "")
         figures = f"{signed(r['delta'] / 1e6)} млн тг, медь {signed(r['cu'])} т за {self.horizon_h} ч"
         resource = self._resource(option)
+        why = option.get("why", "")
         if resource is None:
+            facts = f" ({why})" if why else ""
             if recommended:
-                return f"Окупается: {figures}."
-            return f"Не рекомендован: {verdict}." if verdict else f"Окупается: {figures}, но другой вариант даёт больше."
+                return f"Окупается{facts}: {figures}."
+            return f"Не рекомендован{facts}: {verdict}." if verdict else f"Окупается{facts}: {figures}, но другой вариант даёт больше."
         what, who, of = resource
+        if of == "ремонта ОФ-2":
+            cost = -r["split"].get("resources", 0)
+            gained = r.get("clay_cu", 0.0)
+            pays = "окупается" if recommended or not verdict else (
+                "не окупается достоверно (выигрыш в пределах разброса прогноза)" if "разброс" in verdict else "не окупается")
+            left = self._left_h(self.incident.get("end") or "") if self.incident else 0.0
+            if ON_STOCK in verdict and not recommended:
+                # Beyond the scatter, but the gain is inventory, not copper: say so instead of «не окупается».
+                return (f"{what}: {STOCK_REASON}; до пуска {num(left)} ч, со второй бригадой ОФ-2 запустится раньше "
+                        f"({signed(gained)} т меди за {self.horizon_h} ч); {who} стоит {money(cost)} млн тг, "
+                        f"итог {figures}.")
+            head = (f"{what} {pays}: до пуска {num(left)} ч, со второй бригадой ОФ-2 запустится раньше и даст "
+                    f"{signed(gained)} т меди за {self.horizon_h} ч; {who} стоит {money(cost)} млн тг")
+            tail = f", но другой вариант даёт больше" if not recommended and not verdict else (
+                f" ({verdict})" if verdict and "разброс" not in verdict and "не выгоднее" not in verdict else "")
+            return f"{head}, итог {figures}{tail}."
         cost = -r["split"].get("resources", 0)
         price = f"{who} стоит {money(cost)} млн тг" if cost >= 50_000 else f"{who} денег не стоит"
         short_a = self._short_of_ore(r.get("a_mill", []), r.get("b_mill", []))
@@ -839,6 +1005,11 @@ class AdvisorCore(Core):
             return f"{head}; {price}, итог {figures}, но другой вариант даёт больше."
         pays = "не окупится" if r["delta"] <= 0 else "не окупается достоверно (в пределах разброса прогноза)" \
             if self._t(r) < float(self.p["min_t"]) else "не окупается"
+        if ON_STOCK in verdict:
+            # Beyond the scatter, but the gain is inventory, not copper: say so instead of «не окупается».
+            if starve:
+                return f"{what}: без этого {starve}, но {who}: {STOCK_REASON} (итог {figures})."
+            return f"{who[:1].upper()}{who[1:]}: {STOCK_REASON} (итог {figures})."
         # The verdict says more than the figures only when it is not about the scatter or a loss in money.
         why = verdict if verdict and "разброс" not in verdict and "не выгоднее" not in verdict else figures
         if starve:
@@ -922,7 +1093,8 @@ class AdvisorCore(Core):
         for a in actions:
             name, subject = short(a["thing"]), a["subject"]
             if subject == "set-destination":
-                undo.append((name, subject, {"destination": w.tid(self.crusher), "hold_min": 1,
+                base = self.clay_plant if w.get(name, "material") == "clay" else self.crusher
+                undo.append((name, subject, {"destination": w.tid(base), "hold_min": 1,
                                              "reason": "инцидент закончился"}))
             elif subject == "set-reclaim":
                 undo.append((name, subject, {"tph": 0, "hold_min": 1}))
@@ -1052,8 +1224,8 @@ class AdvisorCore(Core):
         if not self.enabled:
             return "Модуль выключен: инциденты не разбираются, варианты ответа не прогнозируются."
         if self.incident is None:
-            return ("Инцидентов нет. Советник следит за экскаваторами, дробилкой, дорогами, погодой, самосвалами и "
-                    "крепостью руды и при инциденте сравнивает варианты ответа по прогнозу на "
+            return ("Инцидентов нет. Советник следит за экскаваторами, дробилкой, ОФ-2, глинистостью забоев, дорогами, "
+                    "погодой, самосвалами и крепостью руды и при инциденте сравнивает варианты ответа по прогнозу на "
                     f"{self.horizon_h} ч.")
         if self.status == "running":
             return f"{self.incident['text']} Считаются прогнозы {len(self.options)} вариантов ответа."

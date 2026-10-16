@@ -1,0 +1,2640 @@
+{
+ "generator": "tools/blender/build.py (Blender 4.2.3 LTS), deterministic",
+ "units": "metres",
+ "axes": {
+  "source": "Blender/scene: Z up, a machine faces +Y, origin on the ground under its centre",
+  "gltf": "glTF: +Y up, a machine faces -Z; Blender (x, y, z) = glTF (x, z, -y)",
+  "to_scene": "for the Z-up scene: rotate the loaded root by +PI/2 about X (root.rotation.x = Math.PI / 2)",
+  "rotations": "rotations about X have the same sign in both frames; pivot_m is in scene axes, pivot_gltf in glTF axes"
+ },
+ "compression": "KHR_draco_mesh_compression: load with GLTFLoader + DRACOLoader (vendor/three/addons/libs/draco/gltf/)",
+ "materials": {
+  "cat_yellow": {
+   "base_srgb": "#e8b01c",
+   "metallic": 0.0,
+   "roughness": 0.48
+  },
+  "cat_yellow_dk": {
+   "base_srgb": "#b7860f",
+   "metallic": 0.0,
+   "roughness": 0.55
+  },
+  "hitachi_orange": {
+   "base_srgb": "#ee6a14",
+   "metallic": 0.0,
+   "roughness": 0.45
+  },
+  "hitachi_orange_dk": {
+   "base_srgb": "#b74f0d",
+   "metallic": 0.0,
+   "roughness": 0.55
+  },
+  "sandvik_yellow": {
+   "base_srgb": "#f2b415",
+   "metallic": 0.0,
+   "roughness": 0.48
+  },
+  "sandvik_grey": {
+   "base_srgb": "#4c5154",
+   "metallic": 0.1,
+   "roughness": 0.6
+  },
+  "paint_white": {
+   "base_srgb": "#e6e6e0",
+   "metallic": 0.0,
+   "roughness": 0.5
+  },
+  "paint_black": {
+   "base_srgb": "#1b1c1d",
+   "metallic": 0.0,
+   "roughness": 0.6
+  },
+  "steel_dark": {
+   "base_srgb": "#34373a",
+   "metallic": 0.45,
+   "roughness": 0.62
+  },
+  "steel": {
+   "base_srgb": "#6a6d6f",
+   "metallic": 0.55,
+   "roughness": 0.55
+  },
+  "steel_worn": {
+   "base_srgb": "#8a8174",
+   "metallic": 0.5,
+   "roughness": 0.45
+  },
+  "chrome": {
+   "base_srgb": "#d8dbdc",
+   "metallic": 1.0,
+   "roughness": 0.18
+  },
+  "rubber": {
+   "base_srgb": "#2a2a2a",
+   "metallic": 0.0,
+   "roughness": 0.85
+  },
+  "rim": {
+   "base_srgb": "#b4ad9f",
+   "metallic": 0.2,
+   "roughness": 0.5
+  },
+  "glass": {
+   "base_srgb": "#2e4356",
+   "metallic": 0.0,
+   "roughness": 0.12
+  },
+  "lamp": {
+   "base_srgb": "#fff6dc",
+   "metallic": 0.0,
+   "roughness": 0.3,
+   "emissive": "#fff1cc",
+   "strength": 1.0
+  },
+  "lamp_red": {
+   "base_srgb": "#c0180e",
+   "metallic": 0.0,
+   "roughness": 0.3,
+   "emissive": "#d0200f",
+   "strength": 1.0
+  },
+  "lamp_amber": {
+   "base_srgb": "#f08a10",
+   "metallic": 0.0,
+   "roughness": 0.3,
+   "emissive": "#f08a10",
+   "strength": 1.0
+  },
+  "rock": {
+   "base_srgb": "#8a6a52",
+   "metallic": 0.0,
+   "roughness": 0.95
+  },
+  "bucket_wear": {
+   "base_srgb": "#6e665c",
+   "metallic": 0.6,
+   "roughness": 0.42
+  },
+  "concrete": {
+   "base_srgb": "#b3ada2",
+   "metallic": 0.0,
+   "roughness": 0.9,
+   "texture": "concrete"
+  },
+  "concrete_dk": {
+   "base_srgb": "#8e897f",
+   "metallic": 0.0,
+   "roughness": 0.92,
+   "texture": "concrete"
+  },
+  "clad_white": {
+   "base_srgb": "#d4d8d6",
+   "metallic": 0.1,
+   "roughness": 0.6,
+   "texture": "clad"
+  },
+  "clad_warm": {
+   "base_srgb": "#c9c2b2",
+   "metallic": 0.1,
+   "roughness": 0.6,
+   "texture": "clad"
+  },
+  "clad_blue": {
+   "base_srgb": "#2f5878",
+   "metallic": 0.1,
+   "roughness": 0.55,
+   "texture": "clad"
+  },
+  "roof": {
+   "base_srgb": "#66788a",
+   "metallic": 0.25,
+   "roughness": 0.55,
+   "texture": "clad"
+  },
+  "trim": {
+   "base_srgb": "#2f5272",
+   "metallic": 0.1,
+   "roughness": 0.5
+  },
+  "struct": {
+   "base_srgb": "#5d6468",
+   "metallic": 0.35,
+   "roughness": 0.6
+  },
+  "struct_blue": {
+   "base_srgb": "#3a6487",
+   "metallic": 0.1,
+   "roughness": 0.55
+  },
+  "rail_yellow": {
+   "base_srgb": "#e0aa1e",
+   "metallic": 0.0,
+   "roughness": 0.5
+  },
+  "tank": {
+   "base_srgb": "#c3c7c0",
+   "metallic": 0.2,
+   "roughness": 0.55
+  },
+  "shell_green": {
+   "base_srgb": "#6f8a7a",
+   "metallic": 0.15,
+   "roughness": 0.55
+  },
+  "motor": {
+   "base_srgb": "#3e4447",
+   "metallic": 0.3,
+   "roughness": 0.55
+  },
+  "froth": {
+   "base_srgb": "#b49f5e",
+   "metallic": 0.0,
+   "roughness": 0.75
+  },
+  "water": {
+   "base_srgb": "#4d7473",
+   "metallic": 0.0,
+   "roughness": 0.15
+  },
+  "slurry": {
+   "base_srgb": "#6b6650",
+   "metallic": 0.0,
+   "roughness": 0.4
+  },
+  "belt": {
+   "base_srgb": "#262625",
+   "metallic": 0.0,
+   "roughness": 0.85
+  },
+  "ore": {
+   "base_srgb": "#7d6450",
+   "metallic": 0.0,
+   "roughness": 0.95
+  },
+  "window": {
+   "base_srgb": "#22323f",
+   "metallic": 0.0,
+   "roughness": 0.12
+  },
+  "hood": {
+   "base_srgb": "#c7ccca",
+   "metallic": 0.2,
+   "roughness": 0.55,
+   "texture": "clad",
+   "double": true
+  },
+  "grating": {
+   "base_srgb": "#4f5559",
+   "metallic": 0.4,
+   "roughness": 0.65
+  },
+  "rust": {
+   "base_srgb": "#7a4a2c",
+   "metallic": 0.0,
+   "roughness": 0.85
+  }
+ },
+ "vertex_colours": "COLOR_0 holds grime (multiplies the base colour; white = clean)",
+ "total_bytes": 987132,
+ "total_budget_bytes": 4194304,
+ "models": [
+  {
+   "id": "cat785c",
+   "title": "Caterpillar 785C mining truck",
+   "kind": "machine",
+   "reference": {
+    "payload_t": 136,
+    "overall_length_m": 11.02,
+    "operating_width_m": 6.64,
+    "canopy_height_m": 5.77,
+    "wheelbase_m": 5.18,
+    "tyres": "33.00R51",
+    "body_raise_deg": 45,
+    "colour": "CAT yellow"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "cat785c_lod0.glb",
+     "root": "CAT785C",
+     "triangles": 6424,
+     "budget": 8000,
+     "bytes": 105828,
+     "sha256": "d5f7be19b1bd5293c631612a2d529653736297109078d8d9f356e25602683540",
+     "bounds_m": {
+      "min": [
+       -3.63,
+       -5.42,
+       -0.055
+      ],
+      "max": [
+       3.58,
+       5.73,
+       6.362
+      ]
+     },
+     "size_m": [
+      7.21,
+      11.15,
+      6.417
+     ],
+     "nodes": [
+      {
+       "name": "frame",
+       "parent": "CAT785C",
+       "triangles": 1604,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "chrome",
+        "steel",
+        "cat_yellow",
+        "paint_black",
+        "cat_yellow_dk",
+        "lamp",
+        "grating",
+        "glass",
+        "lamp_red"
+       ]
+      },
+      {
+       "name": "body",
+       "parent": "CAT785C",
+       "triangles": 586,
+       "pivot_m": [
+        0.0,
+        -4.62,
+        2.02
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.02,
+        4.62
+       ],
+       "materials": [
+        "cat_yellow",
+        "steel_worn",
+        "cat_yellow_dk",
+        "steel_dark"
+       ],
+       "what": "dump body",
+       "pivot": "rear hinge pin",
+       "axis": "x",
+       "range_rad": [
+        0,
+        0.79
+       ],
+       "note": "positive rotation about local X tips the body (front up); 0.79 rad = 45 deg fully raised"
+      },
+      {
+       "name": "load",
+       "parent": "body",
+       "triangles": 198,
+       "pivot_m": [
+        0.0,
+        -4.62,
+        2.02
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.02,
+        4.62
+       ],
+       "materials": [
+        "rock"
+       ],
+       "what": "heaped load, child of body",
+       "note": "hide when empty or tipped"
+      },
+      {
+       "name": "wheel_FL",
+       "parent": "CAT785C",
+       "triangles": 670,
+       "pivot_m": [
+        -2.18,
+        3.15,
+        1.47
+       ],
+       "pivot_gltf": [
+        -2.18,
+        1.47,
+        -3.15
+       ],
+       "materials": [
+        "rubber",
+        "rim",
+        "steel_dark"
+       ],
+       "what": "front left wheel",
+       "pivot": "wheel centre",
+       "axis": "x",
+       "note": "roll about X; steer about Z (front only)"
+      },
+      {
+       "name": "wheel_FR",
+       "parent": "CAT785C",
+       "triangles": 670,
+       "pivot_m": [
+        2.18,
+        3.15,
+        1.47
+       ],
+       "pivot_gltf": [
+        2.18,
+        1.47,
+        -3.15
+       ],
+       "materials": [
+        "rubber",
+        "steel_dark",
+        "rim"
+       ],
+       "what": "front right wheel",
+       "pivot": "wheel centre",
+       "axis": "x"
+      },
+      {
+       "name": "wheel_RL",
+       "parent": "CAT785C",
+       "triangles": 1190,
+       "pivot_m": [
+        -2.07,
+        -2.03,
+        1.47
+       ],
+       "pivot_gltf": [
+        -2.07,
+        1.47,
+        2.03
+       ],
+       "materials": [
+        "rubber",
+        "rim",
+        "steel_dark"
+       ],
+       "what": "rear left dual wheels",
+       "pivot": "axle centre of the pair",
+       "axis": "x"
+      },
+      {
+       "name": "wheel_RR",
+       "parent": "CAT785C",
+       "triangles": 1190,
+       "pivot_m": [
+        2.07,
+        -2.03,
+        1.47
+       ],
+       "pivot_gltf": [
+        2.07,
+        1.47,
+        2.03
+       ],
+       "materials": [
+        "rubber",
+        "steel_dark",
+        "rim"
+       ],
+       "what": "rear right dual wheels",
+       "pivot": "axle centre of the pair",
+       "axis": "x"
+      },
+      {
+       "name": "hoist_L",
+       "parent": "CAT785C",
+       "triangles": 158,
+       "pivot_m": [
+        -1.28,
+        2.0,
+        1.15
+       ],
+       "pivot_gltf": [
+        -1.28,
+        1.15,
+        -2.0
+       ],
+       "materials": [
+        "steel_dark",
+        "cat_yellow_dk",
+        "chrome"
+       ],
+       "what": "hoist cylinder (left)",
+       "pivot": "lower pin on the frame",
+       "aim": "pin_hoist_L",
+       "note": "to follow the body: lookAt(world position of pin_hoist_L), then scale.z = distance / rest_length_m",
+       "rest_length_m": 2.5201
+      },
+      {
+       "name": "hoist_R",
+       "parent": "CAT785C",
+       "triangles": 158,
+       "pivot_m": [
+        1.28,
+        2.0,
+        1.15
+       ],
+       "pivot_gltf": [
+        1.28,
+        1.15,
+        -2.0
+       ],
+       "materials": [
+        "steel_dark",
+        "cat_yellow_dk",
+        "chrome"
+       ],
+       "what": "hoist cylinder (right)",
+       "pivot": "lower pin on the frame",
+       "aim": "pin_hoist_R",
+       "rest_length_m": 2.5201,
+       "note": "lookAt(world position of pin_hoist_R), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "pin_hoist_L",
+       "parent": "body",
+       "empty": true,
+       "pivot_m": [
+        -1.28,
+        -0.3,
+        2.18
+       ],
+       "pivot_gltf": [
+        -1.28,
+        2.18,
+        0.3
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_hoist_R",
+       "parent": "body",
+       "empty": true,
+       "pivot_m": [
+        1.28,
+        -0.3,
+        2.18
+       ],
+       "pivot_gltf": [
+        1.28,
+        2.18,
+        0.3
+       ],
+       "what": "attachment point a cylinder aims at"
+      }
+     ]
+    },
+    {
+     "lod": 1,
+     "file": "cat785c_lod1.glb",
+     "root": "CAT785C",
+     "triangles": 260,
+     "budget": 800,
+     "bytes": 17792,
+     "sha256": "1beb13340c6bb1b99a66caf8bc2a478d090c4ce7a2eb98c2a0ae646306fe1f11",
+     "bounds_m": {
+      "min": [
+       -3.32,
+       -5.42,
+       0.0
+      ],
+      "max": [
+       3.32,
+       5.58,
+       6.05
+      ]
+     },
+     "size_m": [
+      6.64,
+      11.0,
+      6.05
+     ],
+     "nodes": [
+      {
+       "name": "frame",
+       "parent": "CAT785C",
+       "triangles": 108,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "cat_yellow",
+        "paint_black",
+        "cat_yellow_dk",
+        "glass"
+       ]
+      },
+      {
+       "name": "body",
+       "parent": "CAT785C",
+       "triangles": 36,
+       "pivot_m": [
+        0.0,
+        -4.62,
+        2.02
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.02,
+        4.62
+       ],
+       "materials": [
+        "cat_yellow"
+       ],
+       "what": "dump body",
+       "pivot": "rear hinge pin",
+       "axis": "x",
+       "range_rad": [
+        0,
+        0.79
+       ],
+       "note": "positive rotation about local X tips the body (front up); 0.79 rad = 45 deg fully raised"
+      },
+      {
+       "name": "load",
+       "parent": "body",
+       "triangles": 4,
+       "pivot_m": [
+        0.0,
+        -4.62,
+        2.02
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.02,
+        4.62
+       ],
+       "materials": [
+        "rock"
+       ],
+       "what": "heaped load, child of body",
+       "note": "hide when empty or tipped"
+      },
+      {
+       "name": "wheel_FL",
+       "parent": "CAT785C",
+       "triangles": 28,
+       "pivot_m": [
+        -2.18,
+        3.15,
+        1.47
+       ],
+       "pivot_gltf": [
+        -2.18,
+        1.47,
+        -3.15
+       ],
+       "materials": [
+        "rubber",
+        "rim"
+       ],
+       "what": "front left wheel",
+       "pivot": "wheel centre",
+       "axis": "x",
+       "note": "roll about X; steer about Z (front only)"
+      },
+      {
+       "name": "wheel_FR",
+       "parent": "CAT785C",
+       "triangles": 28,
+       "pivot_m": [
+        2.18,
+        3.15,
+        1.47
+       ],
+       "pivot_gltf": [
+        2.18,
+        1.47,
+        -3.15
+       ],
+       "materials": [
+        "rubber",
+        "rim"
+       ],
+       "what": "front right wheel",
+       "pivot": "wheel centre",
+       "axis": "x"
+      },
+      {
+       "name": "wheel_RL",
+       "parent": "CAT785C",
+       "triangles": 28,
+       "pivot_m": [
+        -2.07,
+        -2.03,
+        1.47
+       ],
+       "pivot_gltf": [
+        -2.07,
+        1.47,
+        2.03
+       ],
+       "materials": [
+        "rubber",
+        "rim"
+       ],
+       "what": "rear left dual wheels",
+       "pivot": "axle centre of the pair",
+       "axis": "x"
+      },
+      {
+       "name": "wheel_RR",
+       "parent": "CAT785C",
+       "triangles": 28,
+       "pivot_m": [
+        2.07,
+        -2.03,
+        1.47
+       ],
+       "pivot_gltf": [
+        2.07,
+        1.47,
+        2.03
+       ],
+       "materials": [
+        "rubber",
+        "rim"
+       ],
+       "what": "rear right dual wheels",
+       "pivot": "axle centre of the pair",
+       "axis": "x"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ex3600",
+   "title": "Hitachi EX3600-6 loading shovel",
+   "kind": "machine",
+   "reference": {
+    "operating_weight_t": 360,
+    "bucket_m3": 21,
+    "undercarriage_length_m": 8.7,
+    "track_gauge_m": 5.5,
+    "width_over_tracks_m": 6.77,
+    "shoe_width_m": 1.27,
+    "tail_swing_radius_m": 6.78,
+    "transport_height_m": 7.83,
+    "colour": "Hitachi orange"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "ex3600_lod0.glb",
+     "root": "EX3600",
+     "triangles": 5492,
+     "budget": 8000,
+     "bytes": 113452,
+     "sha256": "756abba8d16cb925bea9f8be1ee8165ea6f0b816590c554d56a2734f4e58c1f5",
+     "bounds_m": {
+      "min": [
+       -4.711,
+       -6.74,
+       -0.09
+      ],
+      "max": [
+       3.62,
+       12.96,
+       9.957
+      ]
+     },
+     "size_m": [
+      8.331,
+      19.7,
+      10.047
+     ],
+     "nodes": [
+      {
+       "name": "base",
+       "parent": "EX3600",
+       "triangles": 2464,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "steel"
+       ],
+       "what": "undercarriage: crawlers, car body, swing circle"
+      },
+      {
+       "name": "upper",
+       "parent": "EX3600",
+       "triangles": 1372,
+       "pivot_m": [
+        0.0,
+        0.0,
+        2.6
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.6,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange",
+        "hitachi_orange_dk",
+        "paint_black",
+        "steel",
+        "glass",
+        "paint_white",
+        "lamp",
+        "rail_yellow",
+        "grating"
+       ],
+       "what": "upper structure",
+       "pivot": "slewing centre on the swing circle",
+       "axis": "z",
+       "note": "slew: rotate about local Z (scene) = glTF Y; positive turns left (counter-clockwise seen from above)"
+      },
+      {
+       "name": "boom",
+       "parent": "upper",
+       "triangles": 212,
+       "pivot_m": [
+        0.0,
+        1.9,
+        3.9
+       ],
+       "pivot_gltf": [
+        0.0,
+        3.9,
+        -1.9
+       ],
+       "materials": [
+        "hitachi_orange",
+        "steel_dark",
+        "lamp"
+       ],
+       "what": "boom, child of upper",
+       "pivot": "boom foot pin",
+       "axis": "x",
+       "range_rad": [
+        -0.35,
+        0.35
+       ],
+       "note": "positive rotation about X raises the boom"
+      },
+      {
+       "name": "stick",
+       "parent": "boom",
+       "triangles": 72,
+       "pivot_m": [
+        0.0,
+        7.2,
+        8.6
+       ],
+       "pivot_gltf": [
+        0.0,
+        8.6,
+        -7.2
+       ],
+       "materials": [
+        "hitachi_orange",
+        "steel_dark"
+       ],
+       "what": "stick (arm), child of boom",
+       "pivot": "boom point pin",
+       "axis": "x",
+       "range_rad": [
+        -0.5,
+        0.9
+       ],
+       "note": "positive rotation about X crowds the stick out and up"
+      },
+      {
+       "name": "bucket",
+       "parent": "stick",
+       "triangles": 424,
+       "pivot_m": [
+        0.0,
+        8.95,
+        3.9
+       ],
+       "pivot_gltf": [
+        0.0,
+        3.9,
+        -8.95
+       ],
+       "materials": [
+        "hitachi_orange",
+        "steel_worn",
+        "hitachi_orange_dk",
+        "bucket_wear",
+        "steel_dark",
+        "steel"
+       ],
+       "what": "bottom-dump bucket, child of stick",
+       "pivot": "stick end pin",
+       "axis": "x",
+       "range_rad": [
+        -0.8,
+        0.6
+       ],
+       "note": "positive rotation about X curls the bucket (lip up)"
+      },
+      {
+       "name": "boom_cyl_L",
+       "parent": "upper",
+       "triangles": 158,
+       "pivot_m": [
+        -1.25,
+        2.7,
+        3.4
+       ],
+       "pivot_gltf": [
+        -1.25,
+        3.4,
+        -2.7
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of upper",
+       "pivot": "pin on upper",
+       "aim": "pin_boom_cyl_L",
+       "rest_length_m": 3.3181,
+       "note": "lookAt(world position of pin_boom_cyl_L), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "boom_cyl_R",
+       "parent": "upper",
+       "triangles": 158,
+       "pivot_m": [
+        1.25,
+        2.7,
+        3.4
+       ],
+       "pivot_gltf": [
+        1.25,
+        3.4,
+        -2.7
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of upper",
+       "pivot": "pin on upper",
+       "aim": "pin_boom_cyl_R",
+       "rest_length_m": 3.3181,
+       "note": "lookAt(world position of pin_boom_cyl_R), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "arm_cyl_L",
+       "parent": "boom",
+       "triangles": 158,
+       "pivot_m": [
+        -0.72,
+        3.0,
+        6.3
+       ],
+       "pivot_gltf": [
+        -0.72,
+        6.3,
+        -3.0
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of boom",
+       "pivot": "pin on boom",
+       "aim": "pin_arm_cyl_L",
+       "rest_length_m": 4.9667,
+       "note": "lookAt(world position of pin_arm_cyl_L), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "arm_cyl_R",
+       "parent": "boom",
+       "triangles": 158,
+       "pivot_m": [
+        0.72,
+        3.0,
+        6.3
+       ],
+       "pivot_gltf": [
+        0.72,
+        6.3,
+        -3.0
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of boom",
+       "pivot": "pin on boom",
+       "aim": "pin_arm_cyl_R",
+       "rest_length_m": 4.9667,
+       "note": "lookAt(world position of pin_arm_cyl_R), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "bucket_cyl_L",
+       "parent": "boom",
+       "triangles": 158,
+       "pivot_m": [
+        -1.18,
+        6.1,
+        7.4
+       ],
+       "pivot_gltf": [
+        -1.18,
+        7.4,
+        -6.1
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of boom",
+       "pivot": "pin on boom",
+       "aim": "pin_bucket_cyl_L",
+       "rest_length_m": 4.3304,
+       "note": "lookAt(world position of pin_bucket_cyl_L), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "bucket_cyl_R",
+       "parent": "boom",
+       "triangles": 158,
+       "pivot_m": [
+        1.18,
+        6.1,
+        7.4
+       ],
+       "pivot_gltf": [
+        1.18,
+        7.4,
+        -6.1
+       ],
+       "materials": [
+        "steel_dark",
+        "hitachi_orange_dk",
+        "chrome"
+       ],
+       "what": "hydraulic cylinder, child of boom",
+       "pivot": "pin on boom",
+       "aim": "pin_bucket_cyl_R",
+       "rest_length_m": 4.3304,
+       "note": "lookAt(world position of pin_bucket_cyl_R), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "pin_boom_cyl_L",
+       "parent": "boom",
+       "empty": true,
+       "pivot_m": [
+        -1.05,
+        4.3,
+        6.3
+       ],
+       "pivot_gltf": [
+        -1.05,
+        6.3,
+        -4.3
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_boom_cyl_R",
+       "parent": "boom",
+       "empty": true,
+       "pivot_m": [
+        1.05,
+        4.3,
+        6.3
+       ],
+       "pivot_gltf": [
+        1.05,
+        6.3,
+        -4.3
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_arm_cyl_L",
+       "parent": "stick",
+       "empty": true,
+       "pivot_m": [
+        -0.72,
+        6.79,
+        9.51
+       ],
+       "pivot_gltf": [
+        -0.72,
+        9.51,
+        -6.79
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_arm_cyl_R",
+       "parent": "stick",
+       "empty": true,
+       "pivot_m": [
+        0.72,
+        6.79,
+        9.51
+       ],
+       "pivot_gltf": [
+        0.72,
+        9.51,
+        -6.79
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_bucket_cyl_L",
+       "parent": "bucket",
+       "empty": true,
+       "pivot_m": [
+        -1.18,
+        9.6,
+        4.85
+       ],
+       "pivot_gltf": [
+        -1.18,
+        4.85,
+        -9.6
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_bucket_cyl_R",
+       "parent": "bucket",
+       "empty": true,
+       "pivot_m": [
+        1.18,
+        9.6,
+        4.85
+       ],
+       "pivot_gltf": [
+        1.18,
+        4.85,
+        -9.6
+       ],
+       "what": "attachment point a cylinder aims at"
+      }
+     ]
+    },
+    {
+     "lod": 1,
+     "file": "ex3600_lod1.glb",
+     "root": "EX3600",
+     "triangles": 196,
+     "budget": 800,
+     "bytes": 10440,
+     "sha256": "7e52bbd0caf629f194fd411ce41909d25e9c3714d5853de571e9ad2aed5e5c79",
+     "bounds_m": {
+      "min": [
+       -3.5,
+       -6.68,
+       0.0
+      ],
+      "max": [
+       3.45,
+       12.45,
+       9.69
+      ]
+     },
+     "size_m": [
+      6.95,
+      19.13,
+      9.69
+     ],
+     "nodes": [
+      {
+       "name": "base",
+       "parent": "EX3600",
+       "triangles": 68,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark"
+       ],
+       "what": "undercarriage: crawlers, car body, swing circle"
+      },
+      {
+       "name": "upper",
+       "parent": "EX3600",
+       "triangles": 72,
+       "pivot_m": [
+        0.0,
+        0.0,
+        2.6
+       ],
+       "pivot_gltf": [
+        0.0,
+        2.6,
+        -0.0
+       ],
+       "materials": [
+        "hitachi_orange",
+        "hitachi_orange_dk",
+        "glass"
+       ],
+       "what": "upper structure",
+       "pivot": "slewing centre on the swing circle",
+       "axis": "z",
+       "note": "slew: rotate about local Z (scene) = glTF Y; positive turns left (counter-clockwise seen from above)"
+      },
+      {
+       "name": "boom",
+       "parent": "upper",
+       "triangles": 20,
+       "pivot_m": [
+        0.0,
+        1.9,
+        3.9
+       ],
+       "pivot_gltf": [
+        0.0,
+        3.9,
+        -1.9
+       ],
+       "materials": [
+        "hitachi_orange"
+       ],
+       "what": "boom, child of upper",
+       "pivot": "boom foot pin",
+       "axis": "x",
+       "range_rad": [
+        -0.35,
+        0.35
+       ],
+       "note": "positive rotation about X raises the boom"
+      },
+      {
+       "name": "stick",
+       "parent": "boom",
+       "triangles": 12,
+       "pivot_m": [
+        0.0,
+        7.2,
+        8.6
+       ],
+       "pivot_gltf": [
+        0.0,
+        8.6,
+        -7.2
+       ],
+       "materials": [
+        "hitachi_orange"
+       ],
+       "what": "stick (arm), child of boom",
+       "pivot": "boom point pin",
+       "axis": "x",
+       "range_rad": [
+        -0.5,
+        0.9
+       ],
+       "note": "positive rotation about X crowds the stick out and up"
+      },
+      {
+       "name": "bucket",
+       "parent": "stick",
+       "triangles": 24,
+       "pivot_m": [
+        0.0,
+        8.95,
+        3.9
+       ],
+       "pivot_gltf": [
+        0.0,
+        3.9,
+        -8.95
+       ],
+       "materials": [
+        "hitachi_orange_dk"
+       ],
+       "what": "bottom-dump bucket, child of stick",
+       "pivot": "stick end pin",
+       "axis": "x",
+       "range_rad": [
+        -0.8,
+        0.6
+       ],
+       "note": "positive rotation about X curls the bucket (lip up)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "d55sp",
+   "title": "Sandvik D55SP rotary blasthole drill",
+   "kind": "machine",
+   "reference": {
+    "mast_up_m": [
+     13.72,
+     5.05,
+     23.06
+    ],
+    "mast_down_m": [
+     22.63,
+     4.4,
+     5.33
+    ],
+    "hole_mm": [
+     172,
+     254
+    ],
+    "single_pass_m": 17,
+    "engine_kw": 708,
+    "colour": "Sandvik yellow"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "d55sp_lod0.glb",
+     "root": "D55SP",
+     "triangles": 4864,
+     "budget": 8000,
+     "bytes": 89884,
+     "sha256": "0a13662169976d07fd809d874963d5d8f8b297d84c2f899b3994d33f8a45ec96",
+     "bounds_m": {
+      "min": [
+       -3.297,
+       -6.415,
+       -0.06
+      ],
+      "max": [
+       2.48,
+       6.4,
+       23.13
+      ]
+     },
+     "size_m": [
+      5.777,
+      12.815,
+      23.19
+     ],
+     "nodes": [
+      {
+       "name": "base",
+       "parent": "D55SP",
+       "triangles": 3700,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "steel",
+        "sandvik_grey",
+        "grating",
+        "rail_yellow",
+        "chrome",
+        "sandvik_yellow",
+        "paint_black",
+        "rubber",
+        "paint_white",
+        "glass",
+        "lamp",
+        "lamp_amber"
+       ],
+       "what": "crawlers, frame, deck, power pack, cab"
+      },
+      {
+       "name": "mast",
+       "parent": "D55SP",
+       "triangles": 848,
+       "pivot_m": [
+        0.5,
+        5.0,
+        4.1
+       ],
+       "pivot_gltf": [
+        0.5,
+        4.1,
+        -5.0
+       ],
+       "materials": [
+        "sandvik_yellow",
+        "steel_dark",
+        "lamp",
+        "sandvik_grey",
+        "steel"
+       ],
+       "what": "lattice mast with rotary head and drill pipe",
+       "pivot": "mast trunnion pin",
+       "axis": "x",
+       "range_rad": [
+        0,
+        1.55
+       ],
+       "note": "built standing (drilling); positive rotation about X lowers it backwards onto the mast rest; 1.55 rad = transport"
+      },
+      {
+       "name": "mast_cyl_L",
+       "parent": "D55SP",
+       "triangles": 158,
+       "pivot_m": [
+        -0.3,
+        6.2,
+        1.9
+       ],
+       "pivot_gltf": [
+        -0.3,
+        1.9,
+        -6.2
+       ],
+       "materials": [
+        "steel_dark",
+        "sandvik_grey",
+        "chrome"
+       ],
+       "what": "mast raise cylinder, child of base",
+       "pivot": "pin on the deck",
+       "aim": "pin_mast_cyl_L",
+       "rest_length_m": 5.4866,
+       "note": "lookAt(world position of pin_mast_cyl_L), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "mast_cyl_R",
+       "parent": "D55SP",
+       "triangles": 158,
+       "pivot_m": [
+        1.3,
+        6.2,
+        1.9
+       ],
+       "pivot_gltf": [
+        1.3,
+        1.9,
+        -6.2
+       ],
+       "materials": [
+        "steel_dark",
+        "sandvik_grey",
+        "chrome"
+       ],
+       "what": "mast raise cylinder, child of base",
+       "pivot": "pin on the deck",
+       "aim": "pin_mast_cyl_R",
+       "rest_length_m": 5.4866,
+       "note": "lookAt(world position of pin_mast_cyl_R), then scale.z = distance / rest_length_m"
+      },
+      {
+       "name": "pin_mast_cyl_L",
+       "parent": "mast",
+       "empty": true,
+       "pivot_m": [
+        -0.3,
+        4.45,
+        7.1
+       ],
+       "pivot_gltf": [
+        -0.3,
+        7.1,
+        -4.45
+       ],
+       "what": "attachment point a cylinder aims at"
+      },
+      {
+       "name": "pin_mast_cyl_R",
+       "parent": "mast",
+       "empty": true,
+       "pivot_m": [
+        1.3,
+        4.45,
+        7.1
+       ],
+       "pivot_gltf": [
+        1.3,
+        7.1,
+        -4.45
+       ],
+       "what": "attachment point a cylinder aims at"
+      }
+     ]
+    },
+    {
+     "lod": 1,
+     "file": "d55sp_lod1.glb",
+     "root": "D55SP",
+     "triangles": 140,
+     "budget": 800,
+     "bytes": 7276,
+     "sha256": "69148f352009bf11882dcb9cf19598cf949e0ddbe7cff82059a8f73b204a4c53",
+     "bounds_m": {
+      "min": [
+       -2.4,
+       -6.4,
+       0.0
+      ],
+      "max": [
+       2.3,
+       6.3,
+       22.7
+      ]
+     },
+     "size_m": [
+      4.7,
+      12.7,
+      22.7
+     ],
+     "nodes": [
+      {
+       "name": "base",
+       "parent": "D55SP",
+       "triangles": 116,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "sandvik_grey",
+        "sandvik_yellow",
+        "glass"
+       ],
+       "what": "crawlers, frame, deck, power pack, cab"
+      },
+      {
+       "name": "mast",
+       "parent": "D55SP",
+       "triangles": 24,
+       "pivot_m": [
+        0.5,
+        5.0,
+        4.1
+       ],
+       "pivot_gltf": [
+        0.5,
+        4.1,
+        -5.0
+       ],
+       "materials": [
+        "sandvik_yellow"
+       ],
+       "what": "lattice mast with rotary head and drill pipe",
+       "pivot": "mast trunnion pin",
+       "axis": "x",
+       "range_rad": [
+        0,
+        1.55
+       ],
+       "note": "built standing (drilling); positive rotation about X lowers it backwards onto the mast rest; 1.55 rad = transport"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "crusher",
+   "title": "Primary gyratory crusher with dump pocket",
+   "kind": "plant",
+   "reference": {
+    "dump_bays": 2,
+    "building_m": [
+     18,
+     26,
+     34
+    ],
+    "hopper_m": [
+     8,
+     20
+    ],
+    "truck_level_z": 0,
+    "road_side": "local -X (scene); trucks back up towards +X"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "crusher_lod0.glb",
+     "root": "Crusher",
+     "triangles": 2650,
+     "budget": 15000,
+     "bytes": 80840,
+     "sha256": "fc8443ecb1493e187bb5f16da8f604da3ddf3505afc6bb4dc01bec8cd4275dbc",
+     "bounds_m": {
+      "min": [
+       -30.0,
+       -17.3,
+       -7.0
+      ],
+      "max": [
+       32.5,
+       20.75,
+       35.2
+      ]
+     },
+     "size_m": [
+      62.5,
+      38.05,
+      42.2
+     ],
+     "nodes": [
+      {
+       "name": "crusher",
+       "parent": "Crusher",
+       "triangles": 2650,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete_dk",
+        "concrete",
+        "rail_yellow",
+        "paint_black",
+        "steel_worn",
+        "steel",
+        "roof",
+        "struct",
+        "steel_dark",
+        "chrome",
+        "clad_white",
+        "window",
+        "trim",
+        "clad_warm",
+        "grating",
+        "clad_blue",
+        "tank"
+       ],
+       "what": "static: dump pocket, crusher building, services"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mill_hall",
+   "title": "Grinding hall: SAG mill and two ball mills",
+   "kind": "plant",
+   "reference": {
+    "hall_m": [
+     160.0,
+     46.0,
+     37.0
+    ],
+    "sag_mill_m": [
+     12.2,
+     7.9
+    ],
+    "ball_mills_m": [
+     8.5,
+     13.4
+    ],
+    "ball_mill_count": 2,
+    "mill_axes": "across the hall (local Y)"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "mill_hall_lod0.glb",
+     "root": "MillHall",
+     "triangles": 4232,
+     "budget": 15000,
+     "bytes": 103352,
+     "sha256": "7e898c56ebc6a384e606292c227391ec24592c7f6199eebefae7e44f3797f98b",
+     "bounds_m": {
+      "min": [
+       -82.0,
+       -25.0,
+       -0.3
+      ],
+      "max": [
+       82.0,
+       25.0,
+       38.2
+      ]
+     },
+     "size_m": [
+      164.0,
+      50.0,
+      38.5
+     ],
+     "nodes": [
+      {
+       "name": "hall",
+       "parent": "MillHall",
+       "triangles": 440,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete_dk",
+        "concrete",
+        "clad_white",
+        "window",
+        "steel",
+        "trim",
+        "struct"
+       ],
+       "what": "walls, floor, columns, gable ends"
+      },
+      {
+       "name": "roof",
+       "parent": "MillHall",
+       "triangles": 56,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "roof",
+        "trim",
+        "struct",
+        "window"
+       ],
+       "what": "pitched roof with roof lights and ridge vent",
+       "note": "hide (or fade) to show the mills"
+      },
+      {
+       "name": "crane",
+       "parent": "MillHall",
+       "triangles": 144,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "rail_yellow",
+        "steel_dark"
+       ],
+       "what": "overhead travelling crane",
+       "note": "may travel along local X (scene) = glTF X"
+      },
+      {
+       "name": "sag_mill",
+       "parent": "MillHall",
+       "triangles": 512,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "motor",
+        "shell_green",
+        "steel",
+        "grating",
+        "steel_dark"
+       ],
+       "what": "SAG mill: piers, bearings, motor, feed chute, trommel"
+      },
+      {
+       "name": "sag_shell",
+       "parent": "sag_mill",
+       "triangles": 648,
+       "pivot_m": [
+        -45.0,
+        0.0,
+        9.5
+       ],
+       "pivot_gltf": [
+        -45.0,
+        9.5,
+        -0.0
+       ],
+       "materials": [
+        "shell_green",
+        "motor"
+       ],
+       "what": "SAG mill shell, child of sag_mill",
+       "pivot": "on the mill axis",
+       "axis": "y",
+       "note": "turns about local Y (scene) = glTF -Z: about 10 rpm (1.0 rad/s)"
+      },
+      {
+       "name": "ball_mill_1",
+       "parent": "MillHall",
+       "triangles": 568,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "motor",
+        "shell_green",
+        "steel",
+        "steel_dark"
+       ],
+       "what": "ball mill 1: piers, bearings, girth gear guard, motors"
+      },
+      {
+       "name": "ball_shell_1",
+       "parent": "ball_mill_1",
+       "triangles": 648,
+       "pivot_m": [
+        15.0,
+        0.0,
+        7.65
+       ],
+       "pivot_gltf": [
+        15.0,
+        7.65,
+        -0.0
+       ],
+       "materials": [
+        "shell_green",
+        "motor"
+       ],
+       "what": "ball mill 1 shell",
+       "pivot": "on the mill axis",
+       "axis": "y",
+       "note": "about 13 rpm (1.4 rad/s)"
+      },
+      {
+       "name": "ball_mill_2",
+       "parent": "MillHall",
+       "triangles": 568,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "motor",
+        "shell_green",
+        "steel",
+        "steel_dark"
+       ],
+       "what": "ball mill 2"
+      },
+      {
+       "name": "ball_shell_2",
+       "parent": "ball_mill_2",
+       "triangles": 648,
+       "pivot_m": [
+        42.0,
+        0.0,
+        7.65
+       ],
+       "pivot_gltf": [
+        42.0,
+        7.65,
+        -0.0
+       ],
+       "materials": [
+        "shell_green",
+        "motor"
+       ],
+       "what": "ball mill 2 shell",
+       "pivot": "on the mill axis",
+       "axis": "y"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "flotation",
+   "title": "Flotation: two rows of seven tank cells",
+   "kind": "plant",
+   "reference": {
+    "cells": 14,
+    "cell_diameter_m": 7.2,
+    "cell_height_m": 6.3,
+    "bank_m": [
+     70.19999999999999,
+     22.4
+    ]
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "flotation_lod0.glb",
+     "root": "Flotation",
+     "triangles": 9020,
+     "budget": 15000,
+     "bytes": 126868,
+     "sha256": "3ea01d93522ab000770d4eaa94ae2a066aa836f39a1743a2c748212d0d19a77a",
+     "bounds_m": {
+      "min": [
+       -39.176,
+       -11.2,
+       0.0
+      ],
+      "max": [
+       39.176,
+       11.2,
+       10.2
+      ]
+     },
+     "size_m": [
+      78.353,
+      22.4,
+      10.2
+     ],
+     "nodes": [
+      {
+       "name": "flotation",
+       "parent": "Flotation",
+       "triangles": 9020,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "tank",
+        "struct",
+        "froth",
+        "motor",
+        "struct_blue",
+        "grating",
+        "rail_yellow"
+       ],
+       "what": "static; the froth uses material \"froth\""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "thickener_tailings",
+   "title": "Tailings thickener, 76 m",
+   "kind": "plant",
+   "reference": {
+    "diameter_m": 76,
+    "wall_m": 5.0,
+    "drive": "centre column, traction arm"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "thickener_tailings_lod0.glb",
+     "root": "Thickener",
+     "triangles": 2938,
+     "budget": 15000,
+     "bytes": 66436,
+     "sha256": "a9b0515618f2376f242ef8bd88dc3cbfc3489d7e1a5bcb85f2277144440c7a36",
+     "bounds_m": {
+      "min": [
+       -41.015,
+       -39.4,
+       0.0
+      ],
+      "max": [
+       47.0,
+       39.4,
+       11.5
+      ]
+     },
+     "size_m": [
+      88.015,
+      78.8,
+      11.5
+     ],
+     "nodes": [
+      {
+       "name": "tank",
+       "parent": "Thickener",
+       "triangles": 2026,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "struct",
+        "clad_white",
+        "trim",
+        "grating",
+        "rail_yellow",
+        "clad_warm"
+       ],
+       "what": "tank, launder, centre column, bridge, drive house"
+      },
+      {
+       "name": "water",
+       "parent": "Thickener",
+       "triangles": 208,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "water",
+        "slurry"
+       ],
+       "what": "water surface (clear at the rim, slurry in the feedwell)",
+       "note": "swap in the scene water material"
+      },
+      {
+       "name": "rake",
+       "parent": "Thickener",
+       "triangles": 704,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct_blue",
+        "struct"
+       ],
+       "what": "rotating rake arm (above the water)",
+       "pivot": "tank centre",
+       "axis": "z",
+       "note": "turns slowly about local Z (scene) = glTF Y, about 0.05 rad/s"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "thickener_concentrate",
+   "title": "Concentrate thickener, 26 m",
+   "kind": "plant",
+   "reference": {
+    "diameter_m": 26,
+    "wall_m": 4.0,
+    "drive": "bridge-supported centre drive"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "thickener_concentrate_lod0.glb",
+     "root": "Thickener",
+     "triangles": 1916,
+     "budget": 15000,
+     "bytes": 52936,
+     "sha256": "4cf38cb12e1d341b7d592b1854794eb8a822f0ed20a638659799ffdf710d6f9c",
+     "bounds_m": {
+      "min": [
+       -14.445,
+       -14.4,
+       0.0
+      ],
+      "max": [
+       22.0,
+       14.4,
+       8.35
+      ]
+     },
+     "size_m": [
+      36.445,
+      28.8,
+      8.35
+     ],
+     "nodes": [
+      {
+       "name": "tank",
+       "parent": "Thickener",
+       "triangles": 1748,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete",
+        "struct",
+        "grating",
+        "clad_white",
+        "trim",
+        "rail_yellow",
+        "clad_warm"
+       ],
+       "what": "tank, launder, centre column, bridge, drive house"
+      },
+      {
+       "name": "water",
+       "parent": "Thickener",
+       "triangles": 144,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "water",
+        "slurry"
+       ],
+       "what": "water surface (clear at the rim, slurry in the feedwell)",
+       "note": "swap in the scene water material"
+      },
+      {
+       "name": "rake",
+       "parent": "Thickener",
+       "triangles": 24,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct_blue"
+       ],
+       "what": "rotating rake arm (above the water)",
+       "pivot": "tank centre",
+       "axis": "z",
+       "note": "turns slowly about local Z (scene) = glTF Y, about 0.05 rad/s"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "conveyor",
+   "title": "Covered conveyor truss segment, 24 m",
+   "kind": "plant",
+   "reference": {
+    "segment_m": 24.0,
+    "belt_width_m": 1.8,
+    "truss_m": [
+     3.6,
+     2.4
+    ],
+    "tiling": "along local +Y (scene) = glTF -Z, 24 m a segment"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "conveyor_lod0.glb",
+     "root": "Conveyor",
+     "triangles": 1998,
+     "budget": 15000,
+     "bytes": 51456,
+     "sha256": "377188f946f2d2bf57044f18446d2a8fda01c03ff2e1a8ca9aabdd6517b95d6a",
+     "bounds_m": {
+      "min": [
+       -2.25,
+       -0.045,
+       -1.043
+      ],
+      "max": [
+       2.25,
+       24.045,
+       2.49
+      ]
+     },
+     "size_m": [
+      4.5,
+      24.09,
+      3.533
+     ],
+     "nodes": [
+      {
+       "name": "truss",
+       "parent": "Conveyor",
+       "triangles": 1924,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct",
+        "grating",
+        "rail_yellow",
+        "steel_dark",
+        "steel",
+        "belt",
+        "hood"
+       ],
+       "what": "truss, walkway, idlers, belt, hoods"
+      },
+      {
+       "name": "ore",
+       "parent": "Conveyor",
+       "triangles": 6,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "ore"
+       ],
+       "what": "ore on the belt",
+       "note": "show while the belt runs; material \"ore\""
+      },
+      {
+       "name": "trestle",
+       "parent": "Conveyor",
+       "triangles": 68,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct"
+       ],
+       "what": "portal trestle under the segment start, legs 1 m long at rest",
+       "note": "scale glTF Y (scene Z) by the truss height above the ground in metres"
+      }
+     ]
+    },
+    {
+     "lod": 1,
+     "file": "conveyor_lod1.glb",
+     "root": "Conveyor",
+     "triangles": 70,
+     "budget": 800,
+     "bytes": 12492,
+     "sha256": "36dbd63b5ae84e401dcf0d4d81dc396b0ef7e757f3a8b339b34c72945f00c3f3",
+     "bounds_m": {
+      "min": [
+       -2.044,
+       0.0,
+       -1.043
+      ],
+      "max": [
+       2.044,
+       24.0,
+       2.4
+      ]
+     },
+     "size_m": [
+      4.087,
+      24.0,
+      3.443
+     ],
+     "nodes": [
+      {
+       "name": "truss",
+       "parent": "Conveyor",
+       "triangles": 44,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct",
+        "belt",
+        "hood"
+       ],
+       "what": "truss, walkway, idlers, belt, hoods"
+      },
+      {
+       "name": "ore",
+       "parent": "Conveyor",
+       "triangles": 2,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "ore"
+       ],
+       "what": "ore on the belt",
+       "note": "show while the belt runs; material \"ore\""
+      },
+      {
+       "name": "trestle",
+       "parent": "Conveyor",
+       "triangles": 24,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "struct"
+       ],
+       "what": "portal trestle under the segment start, legs 1 m long at rest",
+       "note": "scale glTF Y (scene Z) by the truss height above the ground in metres"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "floodlight",
+   "title": "Mobile floodlight tower",
+   "kind": "plant",
+   "reference": {
+    "mast_m": 9.0,
+    "trailer_m": [
+     1.6,
+     4.2
+    ],
+    "floods": 4,
+    "faces": "local +Y (scene) = glTF -Z"
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "floodlight_lod0.glb",
+     "root": "Floodlight",
+     "triangles": 768,
+     "budget": 15000,
+     "bytes": 18636,
+     "sha256": "37aff728288a04bae9a77d173d1783db512d843e450a13a544e9b17cc178c227",
+     "bounds_m": {
+      "min": [
+       -1.625,
+       -2.225,
+       0.0
+      ],
+      "max": [
+       1.625,
+       3.021,
+       9.75
+      ]
+     },
+     "size_m": [
+      3.25,
+      5.246,
+      9.75
+     ],
+     "nodes": [
+      {
+       "name": "tower",
+       "parent": "Floodlight",
+       "triangles": 760,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "steel_dark",
+        "steel",
+        "rubber",
+        "rim",
+        "rail_yellow",
+        "paint_black",
+        "lamp_amber"
+       ],
+       "what": "trailer, generator canopy, mast, lamp frame"
+      },
+      {
+       "name": "lamps",
+       "parent": "Floodlight",
+       "triangles": 8,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "lamp"
+       ],
+       "what": "the four lamp faces (material \"lamp\", emissive)",
+       "note": "light at night; the light source sits here"
+      }
+     ]
+    },
+    {
+     "lod": 1,
+     "file": "floodlight_lod1.glb",
+     "root": "Floodlight",
+     "triangles": 38,
+     "budget": 800,
+     "bytes": 4780,
+     "sha256": "f1a95d3f3a29946deedf43f4d16fe1d53129c3c99efbc1dedc5634ce3295e80e",
+     "bounds_m": {
+      "min": [
+       -0.9,
+       -2.1,
+       0.3
+      ],
+      "max": [
+       0.9,
+       1.5,
+       9.7
+      ]
+     },
+     "size_m": [
+      1.8,
+      3.6,
+      9.4
+     ],
+     "nodes": [
+      {
+       "name": "tower",
+       "parent": "Floodlight",
+       "triangles": 36,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "rail_yellow",
+        "steel",
+        "paint_black"
+       ],
+       "what": "trailer, generator canopy, mast, lamp frame"
+      },
+      {
+       "name": "lamps",
+       "parent": "Floodlight",
+       "triangles": 2,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "lamp"
+       ],
+       "what": "the four lamp faces (material \"lamp\", emissive)",
+       "note": "light at night; the light source sits here"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "clay_plant",
+   "title": "Clay-ore plant: desliming cyclones and flotation",
+   "kind": "plant",
+   "reference": {
+    "building_m": [
+     64,
+     30,
+     24
+    ],
+    "cyclones": 10,
+    "cyclone_platform_m": 16,
+    "flotation_cells": 5,
+    "cell_diameter_m": 5.0
+   },
+   "lods": [
+    {
+     "lod": 0,
+     "file": "clay_plant_lod0.glb",
+     "root": "ClayPlant",
+     "triangles": 5914,
+     "budget": 15000,
+     "bytes": 124664,
+     "sha256": "991a69dc3fc7fe35406d99c6c0d9689a3c5269f6c9c13534dfaccc9be1371261",
+     "bounds_m": {
+      "min": [
+       -51.0,
+       -62.51,
+       -0.3
+      ],
+      "max": [
+       59.0,
+       34.0,
+       24.0
+      ]
+     },
+     "size_m": [
+      110.0,
+      96.51,
+      24.3
+     ],
+     "nodes": [
+      {
+       "name": "clay_plant",
+       "parent": "ClayPlant",
+       "triangles": 5914,
+       "pivot_m": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "pivot_gltf": [
+        0.0,
+        0.0,
+        -0.0
+       ],
+       "materials": [
+        "concrete_dk",
+        "concrete",
+        "clad_warm",
+        "window",
+        "steel",
+        "trim",
+        "roof",
+        "clad_white",
+        "struct",
+        "struct_blue",
+        "grating",
+        "rail_yellow",
+        "paint_white",
+        "tank",
+        "froth",
+        "motor"
+       ],
+       "what": "static"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

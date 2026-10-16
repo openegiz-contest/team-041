@@ -86,6 +86,7 @@ class Truck:
     payload_cu_t: float = 0.0
     payload_bwi: float = 0.0                # tonne-weighted sum of hardness
     payload_p80: float = 0.0                # tonne-weighted sum of fragment size
+    payload_clay: float = 0.0               # tonne-weighted sum of clay content (% x t)
     hauled_t: float = 0.0                   # payload of the trip under way
     material: str = "none"
     timer_s: float = 0.0
@@ -481,6 +482,18 @@ class Fleet:
                 truck.override_dump = ""
                 self.redirect(truck, plant.crusher.name, "overflow")
                 return
+            if target in (plant.clay_plant.name, plant.clay_stock.name) and not sink.room_for(truck):
+                # No room on the feed stockpile of ОФ-2: the clay-ore stockpile beside it; no room there either: ОФ-1.
+                other = plant.clay_sink_with_room(truck) if target == plant.clay_plant.name else None
+                if other is not None:
+                    plant.note_clay_divert(truck.title, other)
+                    truck.override_dump = ""
+                    self.redirect(truck, other, "overflow")
+                    return
+                sim.log("warning", target, f"{sink.title}: нет места, {truck.title} везёт руду на дробилку ОФ-1")
+                truck.override_dump = ""
+                self.redirect(truck, plant.crusher.name, "overflow")
+                return
             truck.state, truck.queue = "queue_dump", sink.queue
             sink.queue.append(truck)
         elif kind == "refuel":
@@ -672,10 +685,11 @@ class Fleet:
         truck.payload_cu_t += cu_t
         truck.payload_bwi += load_t * block.hardness_bwi
         truck.payload_p80 += load_t * block.frag_p80_mm
+        truck.payload_clay += load_t * block.clay_pct
         truck.material = block.material
         loader.passes += 1
         loader.dug.add(sim.now, load_t)
-        sim.kpis.mined(load_t, cu_t, block.material)
+        sim.kpis.mined(load_t, cu_t, block.material, load_t * block.clay_pct, block.actual_class(sim.params))
 
     def _loaded(self, truck: Truck, block) -> None:
         """The truck is full: it goes where the block is destined, unless a
@@ -701,6 +715,11 @@ class Fleet:
             if pad is not None:
                 dump, truck.source = pad, "overflow"
                 plant.note_divert(truck.title, dump)
+        if dump == plant.clay_plant.name and not truck.override_dump and not plant.clay_plant.room_for(truck):
+            other = plant.clay_sink_with_room(truck)
+            if other is not None:
+                dump, truck.source = other, "overflow"
+                plant.note_clay_divert(truck.title, dump)
         truck.dump_target, truck.hauled_t = dump, truck.payload_t
         self._send(truck, ("dump", dump))
 
@@ -819,7 +838,7 @@ class Fleet:
 
     def finish_trip(self, truck: Truck) -> None:
         """Called by the dump point when the body is empty."""
-        truck.payload_t = truck.payload_cu_t = truck.payload_bwi = truck.payload_p80 = 0.0
+        truck.payload_t = truck.payload_cu_t = truck.payload_bwi = truck.payload_p80 = truck.payload_clay = 0.0
         truck.material = "none"
         truck.trips += 1
         if truck.cycle_start is not None:

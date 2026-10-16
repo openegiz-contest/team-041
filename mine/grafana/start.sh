@@ -4,7 +4,7 @@
 # Grafana itself starts as in the platform (/run.sh). Beside it, setup.sh
 # gives visitors without an account a read-only view of the mine history: a
 # separate organisation that anonymous visitors enter as viewers, holding only
-# the dashboard «Актогай — история» and an InfluxDB data source with a read-only
+# the dashboard «Бозшаколь — история» and an InfluxDB data source with a read-only
 # token. The platform's own organisation, with the OpenEgiz app and its
 # credentials, still needs a login.
 set -u

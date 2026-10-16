@@ -92,7 +92,13 @@ class Incidents(unittest.TestCase):
         self.assertEqual(self.detect("road-closure")["key"], "road-closed:road-segment-01")
         rain = self.detect("heavy-rain")
         self.assertEqual(rain["key"], "rain")                    # the ramp it closes is part of the rain incident
-        self.assertEqual(self.detect("hard-ore", minutes=40)["key"], "hard-ore")
+        self.assertEqual(self.detect("clay-face", body={"target": f"{NS}:loader-03"})["key"], "clay-face:loader-03")
+        self.assertEqual(self.detect("clay-plant-stop")["key"], "clay-plant-stop")
+        sim = new_sim()
+        sim.plant.hardness_factor = 1.25                          # harder ore on the stockpile (no scenario since B1)
+        run(sim, 2)
+        core = AdvisorCore(things_now(sim), PARAMS)
+        self.assertEqual(core.detect(core.world.now)["key"], "hard-ore")
         self.assertIsNone(self.detect("blast", minutes=5))        # a blast closes roads by plan: no incident
         for found in (rain, self.detect("crusher-stop")):
             self.assertTrue(found["text"])
@@ -142,7 +148,7 @@ class Options(unittest.TestCase):
         self.assertIn("Вторая бригада с подрядчиком на ремонт экскаватора №1", by_subject["expedite-repair"]["label"])
         self.assertIn("один бокс стоит", by_subject["prioritise-repair"]["label"])
         move = by_subject["move-to-block"]
-        self.assertEqual(move["actions"][0]["thing"], f"{NS}:loader-05")             # the loader on waste
+        self.assertIn(move["actions"][0]["thing"], (f"{NS}:loader-05", f"{NS}:loader-06"))   # a loader on waste
         self.assertEqual(move["actions"][0]["body"], {"block": f"{NS}:{short_block(core, 'loader-01')}"})
         # The incident has its expected end: the scenario's, from the loader's mean repair time.
         twin = core.twin()
@@ -202,6 +208,22 @@ class Options(unittest.TestCase):
                                      "diesel": -1_000_000, "power": -500_000, "resources": -1_300_000})
             self.assertEqual(sum(parts.values()), twin[f"option{n}_delta_kzt"])
             self.assertEqual(twin[f"option{n}_cost_kzt"], 1_300_000)          # what its resources cost
+
+    def test_a_second_crew_gaining_on_inventory_is_said_to_rest_on_the_stocks(self):
+        # Beyond two standard errors, but all of it fleet work held in the stocks: the reason says so, not «не окупается».
+        for scenario in ("crusher-stop", "clay-plant-stop"):
+            core = self.core_for(scenario)
+            core.step()
+            n = len(core.options)
+            crew = next(i for i in range(2, n + 1) if "expedite-repair" in core.twin()[f"option{i}_actions"])
+            scripted(core, [(60_000_000, 0.1) if i == crew else (0, 0.0) if i == 1 else (-1_000_000, 0.0)
+                            for i in range(2, n + 2)][:0] or
+                     [(60_000_000, 0.1) if i == crew else (-1_000_000, 0.0) for i in range(1, n + 1)],
+                     inventory=True, se=1_000_000)
+            core.step()
+            reason = core.twin()[f"option{crew}_reason"]
+            self.assertIn("выигрыш держится на запасах руды, меди не прибавляет", reason, scenario)
+            self.assertNotIn("не окупается", reason, scenario)
 
     def test_an_option_gaining_only_on_inventory_is_never_recommended(self):
         core = self.core_for("shovel-failure")
@@ -397,9 +419,10 @@ class EndToEnd(unittest.TestCase):
             cash = sum(twin[f"option{rec}_split_{part}_kzt"] for part in ("revenue", "grade", "rehandle", "diesel", "power"))
             self.assertGreater(cash, 0.5 * twin[f"option{rec}_delta_kzt"])
         move = next(n for n in range(2, twin["options_count"] + 1) if "move-to-block" in twin[f"option{n}_actions"])
+        mover = stand.advisor.options[move - 1]["actions"][0]["thing"].split(":")[1]
         stand.deliver(stand.advisor.command("apply", {"option": move}))
         stand.run(5)
-        loader = stand.sim.fleet.loaders["loader-05"]
+        loader = stand.sim.fleet.loaders[mover]
         self.assertEqual((loader.block, loader.state), (target, "relocating"))
         self.assertIsNone(stand.sim.fleet.loaders["loader-01"].block)      # the broken-down loader gave its face up
         events = texts(stand.sim)
@@ -457,6 +480,77 @@ class StockpileDecides(unittest.TestCase):
         self.assertGreater(drained[f"option{m}_cu_delta_t"], 3.0)
         self.assertIn("Ускорить ремонт дробилки окупается: без этого мельнице", drained[f"option{m}_reason"])
         self.assertIn("Ускорить ремонт дробилки окупается", drained["last_decision"])
+
+
+class ClayDecides(unittest.TestCase):
+    """Clay ore: the same kind of incident answered differently as the situation differs. ОФ-2 stopped: a second
+    crew pays when the repair has hours to go (ОФ-2 makes no copper meanwhile) and does not when it is nearly done.
+    A sulphide face turns out clay-rich: moving its shovel to a free blasted block of sulphide ore pays (ОФ-1 gets
+    clean ore, the clay waits in the pit for ОФ-2); with no such block free, the grade-control module already
+    sends the clay to ОФ-2 and the clay-ore stockpile, and nothing the shift can add beats it."""
+
+    def ranked(self, setup) -> dict:
+        stand = Stand(warm_min=90)
+        setup(stand)
+        stand.run(20)
+        twin = stand.run_until_ranked(240)
+        print(f"\n{stand.advisor.incident['key']}: recommended {twin['recommended']}")
+        for n in range(1, twin["options_count"] + 1):
+            print(f"  {n}. {twin[f'option{n}_delta_kzt'] / 1e6:+8.1f} ± {twin[f'option{n}_gain_se_kzt'] / 1e6:.1f} млн тг "
+                  f"{twin[f'option{n}_cu_delta_t']:+6.2f} т Cu, {twin[f'option{n}_cost_kzt'] / 1e6:.2f} млн тг: "
+                  f"{twin[f'option{n}_label']}\n     {twin[f'option{n}_reason']}")
+        for n in range(1, twin["options_count"] + 1):
+            self.assertEqual(sum(twin[f"option{n}_split_{part}_kzt"] for part in MARGIN_SPLIT), twin[f"option{n}_delta_kzt"])
+            if n > 1:
+                self.assertTrue(twin[f"option{n}_reason"], n)
+        return twin
+
+    @staticmethod
+    def option(twin: dict, text: str) -> int:
+        return next(n for n in range(2, twin["options_count"] + 1) if text in twin[f"option{n}_actions"])
+
+    def test_the_repair_time_decides_whether_a_second_crew_on_ofs2_pays(self):
+        def stop(hours):
+            return lambda stand: stand.sim.handle_message("scenario-clay-plant-stop", "activate",
+                                                          {"params": {"expected_h": hours}})
+        long, short_ = self.ranked(stop(6.0)), self.ranked(stop(1.5))
+        for twin in (long, short_):
+            self.assertEqual(twin["incident"], "clay-plant-stop")
+            crew = self.option(twin, "expedite-repair")
+            self.assertGreater(twin[f"option{crew}_cost_kzt"], 0)
+            self.assertIn("ОФ-2 запустится раньше", twin[f"option{crew}_reason"])
+        crew = self.option(long, "expedite-repair")
+        self.assertEqual(long["recommended"], crew)
+        self.assertGreater(long[f"option{crew}_cu_delta_t"], 3.0)
+        self.assertIn("окупается: до пуска", long[f"option{crew}_reason"])
+        crew = self.option(short_, "expedite-repair")
+        self.assertNotEqual(short_["recommended"], crew)
+        self.assertIn("не окупается", short_[f"option{crew}_reason"])
+
+    def test_a_free_sulphide_face_decides_what_to_do_with_a_clay_face(self):
+        def clay_face(stand):
+            stand.sim.handle_message("scenario-clay-face", "activate", {"target": f"{NS}:loader-03"})
+
+        def clay_face_nothing_free(stand):
+            for block in stand.sim.pit.blocks.values():
+                if block.status == "blasted" and block.material == "ore" and not block.reserved_by:
+                    block.status = "charged"                     # no blasted sulphide block a shovel could go to
+            clay_face(stand)
+        free, none = self.ranked(clay_face), self.ranked(clay_face_nothing_free)
+        for twin in (free, none):
+            self.assertEqual(twin["incident"], "clay-face:loader-03")
+            stockpile = self.option(twin, "clay-stockpile")
+            self.assertIn("на складе глинистой руды свободно", twin[f"option{stockpile}_reason"])
+            blend = self.option(twin, "destination=crusher")
+            self.assertLess(twin[f"option{blend}_delta_kzt"], 0)        # clay into ОФ-1 above the limit loses copper
+            self.assertIn("пункта извлечения ОФ-1", twin[f"option{blend}_reason"])
+        move = self.option(free, "move-to-block")
+        self.assertEqual(free["recommended"], move)
+        self.assertGreater(free[f"option{move}_cu_delta_t"], 3.0)
+        self.assertIn("ОФ-1 получает сульфидную руду", free[f"option{move}_reason"])
+        self.assertFalse(any("move-to-block" in none[f"option{n}_actions"] for n in range(2, none["options_count"] + 1)))
+        self.assertEqual(none["recommended"], 1)
+        self.assertIn("оставить как есть", none["last_decision"])
 
 
 class Withdrawal(unittest.TestCase):

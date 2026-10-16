@@ -17,9 +17,10 @@ const NOTES = {
   'scenario-crusher-stop': 'Дробилка стоит → руда идёт на рудные склады → мельница срабатывает запас.',
   'scenario-heavy-rain': 'Дождь → скорость ниже на всех дорогах, крутой съезд закрыт → рейс и расход топлива растут.',
   'scenario-blast': 'Взрыв блока → опасная зона, техника отходит, ближние дороги закрыты до допуска.',
-  'scenario-hard-ore': 'На мельницу идёт крепкая руда → производительность падает, расход энергии растёт.',
+  'scenario-clay-face': 'Забой вскрыл глинистую руду → в питании ОФ-1 растёт глина → мельница и флотация теряют; руду можно везти на ОФ-2 или на склад глинистой руды.',
+  'scenario-clay-plant-stop': 'Фабрика глинистых руд ОФ-2 стоит → приёмный склад заполняется → глинистая руда идёт на склад, медь ОФ-2 теряется.',
   'module-dispatch': 'Назначает самосвалу экскаватор, пункт разгрузки и маршрут. Выключен — самосвалы закреплены за экскаваторами.',
-  'module-grade': 'Решает, куда везти руду блока, чтобы держать содержание меди в питании. Выключен — вся руда идёт в дробилку.',
+  'module-grade': 'Решает, куда везти руду блока: сульфидную на ОФ-1 по содержанию меди и глинистости, глинистую на ОФ-2 или на её склад. Выключен — руда идёт по блочной модели: сульфидная выше бортового содержания в дробилку, глинистая на ОФ-2, без управления смешиванием.',
   'module-plant': 'Задаёт подачу на мельницу по запасу склада и крепости руды. Выключен — подача постоянная.',
   'module-maint': 'Ставит технику на обслуживание до отказа. Выключен — ремонт только после поломки.',
   'module-advisor': 'При происшествии предлагает варианты действий, проверенные прогнозом на 12 часов. Выключен — вариантов нет.',
@@ -106,7 +107,7 @@ function forecastButton(text, label) {
 // -- scenarios ----------------------------------------------------------------
 
 function chosenTarget(card) {
-  const select = $('.target select:not(.cause)', card);
+  const select = $('.target select:not(.cause):not(.clay)', card);
   return select ? select.value : $('.target', card)?.dataset.target || '';
 }
 
@@ -115,12 +116,19 @@ const causesOf = (twin) => [].concat(twin?.attributes?.spec?.causes ?? []).filte
 function chosenCause(card) {
   return $('select.cause', card)?.value || '';
 }
-// The body of `activate`: the target and, where the scenario has causes, the one chosen.
+// The body of `activate`: the target and, where the scenario has causes, the one chosen;
+// the clay share of the face where the scenario takes one (the clay face).
 function activateBody(card) {
   const target = chosenTarget(card);
   const cause = chosenCause(card);
-  return { ...(target ? { target } : {}), ...(cause ? { params: { cause } } : {}) };
+  const clay = Number($('select.clay', card)?.value);
+  const params = { ...(cause ? { cause } : {}), ...(clay > 0 ? { clay_pct: clay } : {}) };
+  return { ...(target ? { target } : {}), ...(Object.keys(params).length ? { params } : {}) };
 }
+
+// The clay share a clay-face scenario may be started with (the model takes 15–40 %).
+const CLAY_SHARES = [15, 20, 25, 32, 40];
+const CLAY_DEFAULT = 32;
 
 // «Ожидается N ч: why» before the start, for the cause chosen.
 function showDuration(card, twin) {
@@ -221,7 +229,7 @@ function defaultTarget(scenario, targets) {
 
 // Fill the target list: valid targets first, each invalid one with its reason and not selectable.
 function fillTargets(card, scenario) {
-  const select = $('.target select:not(.cause)', card);
+  const select = $('.target select:not(.cause):not(.clay)', card);
   if (!select) return;
   const targets = JSON.parse(select.dataset.targets);
   const shown = targets.map((target) => ({ target, ...targetValidity(scenario, target) }));
@@ -277,6 +285,11 @@ function buildScenario(twin) {
     cause.addEventListener('change', () => showDuration(card, twins.get(id)));
     if (targets.length <= 1) chooser = el('label', { className: 'target target-cause', dataset: { target: chooser.dataset.target ?? '' } }, cause);
   }
+  // The clay face: how clayey the ore the face shows.
+  const clay = shortName(id) === 'scenario-clay-face'
+    ? el('select', { className: 'clay', 'aria-label': `Глинистость руды в забое: сценарий «${title}»` },
+      ...CLAY_SHARES.map((value) => el('option', { value: String(value), selected: value === CLAY_DEFAULT }, `глина ${value} %`)))
+    : null;
   const start = el('button', { type: 'button', className: 'start', dataset: { action: 'activate' }, 'aria-label': `Запустить сценарий «${title}»` }, 'Запустить');
   const cancel = el('button', { type: 'button', className: 'cancel', dataset: { action: 'cancel' }, 'aria-label': `Отменить сценарий «${title}»` }, 'Отменить');
   const ask = forecast.available()
@@ -289,6 +302,7 @@ function buildScenario(twin) {
       el('p', { className: 'note' }, NOTES[shortName(id)] ?? ''),
       el('div', { className: 'controls' }, chooser, start, cancel),
       cause && targets.length > 1 ? el('div', { className: 'controls' }, el('label', { className: 'target' }, cause)) : null,
+      clay ? el('div', { className: 'controls' }, el('label', { className: 'target' }, clay)) : null,
       el('p', { className: 'duration', hidden: true }),
       el('p', { className: 'hint', role: 'status' }),
       el('div', { className: 'live', hidden: true },
@@ -310,7 +324,7 @@ function buildScenario(twin) {
     const target = chosenTarget(card);
     const scenario = twins.get(id);
     const blocked = blockedReason(scenario);
-    const check = target && $('.target select:not(.cause)', card) ? targetValidity(scenario, target) : { ok: true };
+    const check = target && $('.target select:not(.cause):not(.clay)', card) ? targetValidity(scenario, target) : { ok: true };
     if (blocked || !check.ok) {
       settle(card, `Сейчас не запустить: ${blocked || `${titleById(target)} ${check.reason}`}.`, 'warn');
       return;
@@ -422,9 +436,11 @@ function updateScenario(twin) {
     settle(card);
   }
   const target = resolveRef(feature(twin, 'target'));
-  const select = $('.target select:not(.cause)', card);
+  const select = $('.target select:not(.cause):not(.clay)', card);
   const causeSelect = $('select.cause', card);
   if (causeSelect) causeSelect.disabled = running;
+  const claySelect = $('select.clay', card);
+  if (claySelect) claySelect.disabled = running;
   if (select) {
     if (!running) fillTargets(card, twin);
     else if (target && select.value !== target) {
@@ -887,7 +903,8 @@ function buildAll() {
   $('#modules').replaceChildren(...(modules.length ? modules.map(buildModule)
     : [el('p', { className: 'muted pad' }, 'В модели нет модулей.')]));
   modules.forEach(updateModule);
-  forecast.forget();
+  // An open forecast panel moves into the rebuilt card of its scenario or module.
+  forecast.forget((key) => document.querySelector(`#control .card[data-id="${key}"] .slots`));
   countScenarios();
   countModules();
   advisor.update(null);

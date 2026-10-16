@@ -103,7 +103,9 @@ class History:
         mill = plant.mill
         moving = [t.speed_ms * 3.6 for t in fleet.trucks if t.seg is not None and t.speed_ms > 0.5]
         bwi = mill.feed_bwi if mill.ground_tph > 0 else (plant.stockpile.bwi * plant.hardness_factor or mill.feed_bwi)
+        clay = plant.stockpile.clay if plant.stockpile.t > 100.0 else mill.feed_clay
         rate = mill.setpoint_tph if mill.setpoint_tph > 0 else float(sim.params["mill"]["design_tph"])
+        clay_plant = plant.clay_plant
         self.times.append(sim.now)
         self.samples.append({
             "crushed_t": plant.crusher.total_t, "crushed_cu": plant.crusher.total_cu,
@@ -112,7 +114,12 @@ class History:
             "to_crusher_t": kpis.tipped_at.get("crusher", 0.0), "to_rom_t": kpis.tipped_at.get("rom", 0.0),
             "diesel_l": kpis.diesel_l, "reclaim_t": plant.reclaimed_t,
             "stock_h": plant.stockpile.t / rate, "stock_t": plant.stockpile.t,
-            "bwi": bwi, "max_feed": mill.max_feed_tph(bwi),
+            "bwi": bwi, "max_feed": mill.max_feed_tph(bwi, clay),
+            # Clay: in the feed of ОФ-1, its recovery, and the clay-ore plant ОФ-2 with its stockpiles.
+            "clay_feed": clay, "recovery1": plant.flotation.recovery_pct if mill.ground_tph > 0 else None,
+            "to_clay_t": kpis.tipped_at.get("clay", 0.0) + kpis.tipped_at.get("clay-stock", 0.0),
+            "to_clay_stock_t": kpis.tipped_at.get("clay-stock", 0.0),
+            "clay_milled_t": clay_plant.total_t, "clay_bin_t": clay_plant.bin.t, "clay_cu_t": clay_plant.cu_conc_t,
             "speed": sum(moving) / len(moving) if moving else None,
             "limit": sum(s.speed_limit_kmh for s in sim.roads.segments.values()) / len(sim.roads.segments),
             # A minute some what-if scenario was changing the mine: not part of its usual swing.

@@ -11,8 +11,8 @@ from __future__ import annotations
 def causes(params: dict) -> dict[str, list[dict]]:
     """{scenario: [{id, title, hours, basis}]}, the default cause first. A scenario without an entry (the
     blast) runs by itself and has no expected end."""
-    crusher, road, rel, weather, scenario = (params["crusher"], params["road"], params["reliability"],
-                                             params["weather"], params["scenario"])
+    crusher, road, rel, weather, scenario, clay = (params["crusher"], params["road"], params["reliability"],
+                                                   params["weather"], params["scenario"], params["clay_plant"])
     h = lambda value: f"{value:g}".replace(".", ",")
     return {
         "scenario-crusher-stop": [
@@ -35,12 +35,23 @@ def causes(params: dict) -> dict[str, list[dict]]:
         "scenario-heavy-rain": [
             {"id": "heavy", "title": "сильные осадки", "hours": float(weather["heavy_event_h"]),
              "basis": f"сильные осадки 10–15 мм при {h(weather['rain_heavy_mm_h'])} мм/ч идут около "
-                      f"{h(weather['heavy_event_h'])} ч (климатические нормы станции Актогай), затем дороги сохнут "
+                      f"{h(weather['heavy_event_h'])} ч (климатические нормы станции Экибастуз), затем дороги сохнут "
                       f"{h(road['drying_min'])} мин"},
         ],
-        "scenario-hard-ore": [
-            {"id": "zone", "title": "зона крепкой руды", "hours": float(scenario["hard_ore_expected_h"]),
-             "basis": f"крепкую руду даёт забой, вскрывший зону; руды зоны хватит не меньше чем на смену, "
-                      f"{h(scenario['hard_ore_expected_h'])} ч — допущение модели"},
+        "scenario-clay-face": [
+            {"id": "fault-zone", "title": "зона каолинизации по разлому", "hours": float(scenario["clay_face_expected_h"]),
+             "basis": f"забой вскрыл зону каолинизации по разлому, которой нет в блочной модели; глинистой руды в блоке "
+                      f"хватит не меньше чем на смену, {h(scenario['clay_face_expected_h'])} ч — допущение модели"},
+        ],
+        "scenario-clay-plant-stop": [
+            {"id": "mechanical", "title": "механическая неисправность", "hours": float(clay["repair_mechanical_h"]),
+             "basis": f"отказ насоса пульпы, привода МПСИ или конвейера ОФ-2: замена узла со склада одной сменой "
+                      f"ремонтников, около {h(clay['repair_mechanical_h'])} ч — допущение модели"},
+            {"id": "slurry", "title": "забивка гидроциклонов глинистой пульпой", "hours": float(clay["repair_slurry_h"]),
+             "basis": f"вязкая глинистая пульпа забила песковые насадки гидроциклонов и пульпопроводы: промывка и "
+                      f"прочистка, около {h(clay['repair_slurry_h'])} ч — допущение модели"},
+            {"id": "pipeline", "title": "засор пульпопровода", "hours": float(clay["repair_pipeline_h"]),
+             "basis": f"засор одного пульпопровода ОФ-2: промывка и прочистка без замены узлов, около "
+                      f"{h(clay['repair_pipeline_h'])} ч — допущение модели"},
         ],
     }

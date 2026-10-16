@@ -744,13 +744,31 @@ class HeavyRain(Scenario):
     def start(self, target: str, params: dict) -> None:
         sim, road = self.sim, self.sim.params["road"]
         sim.weather.set_heavy(True, float(params.get("rain_mm_h", sim.params["weather"]["rain_heavy_mm_h"])))
-        self.closed = [s for s in sim.roads.segments.values()
-                       if s.road_class == "ramp" and abs(s.grade_pct) >= road["wet_closed_grade_pct"]]
-        for segment in self.closed:
+        steep = sorted((s for s in sim.roads.segments.values()
+                        if s.road_class == "ramp" and abs(s.grade_pct) >= road["wet_closed_grade_pct"]),
+                       key=lambda s: (-abs(s.grade_pct), s.name))
+        # A steep section that is the only way to a working face stays open (slowly, wet): the rule closes the
+        # sections whose closure leaves every point of the road graph reachable.
+        self.closed, kept = [], []
+        for segment in steep:
             sim.roads.close(segment, self.name)
-            sim.log("alarm", segment.name, f"Участок «{segment.title}» закрыт: уклон {num(abs(segment.grade_pct))} % "
-                                           f"слишком крут для мокрой дороги")
+            if self._all_reachable():
+                self.closed.append(segment)
+                sim.log("alarm", segment.name, f"Участок «{segment.title}» закрыт: уклон {num(abs(segment.grade_pct))} % "
+                                               f"слишком крут для мокрой дороги")
+            else:
+                sim.roads.reopen(segment, self.name)
+                kept.append(segment)
+        for segment in kept:
+            sim.log("warning", segment.name, f"Участок «{segment.title}» (уклон {num(abs(segment.grade_pct))} %) не закрыт: "
+                                             f"это единственный проезд к забоям; движение по мокрой дороге с ограничением скорости")
         sim.fleet.roads_changed()
+
+    def _all_reachable(self) -> bool:
+        roads = self.sim.roads
+        length = lambda seg, node: seg.length
+        nodes = list(roads.nodes)
+        return all(roads.route(nodes[0], node, length) is not None for node in nodes[1:])
 
     def stop(self) -> None:
         self.sim.weather.set_heavy(False)
@@ -948,29 +966,32 @@ class Blast(Scenario):
                 f"блока не пойдёт в дробилку (часы модели). {_speed_hint(sim)}")
 
 
-class HardOre(Scenario):
-    """A zone of harder ore reaches the mill and stays until cancelled. The
-    work index of the mill feed rises over the transition time; the mill can
-    grind less per hour with its installed power, uses more energy per tonne,
-    and recovery falls. After the cancel the zone passes over the same time."""
+class ClayFace(Scenario):
+    """The block a loader digs turns out to be clay-rich: a zone of kaolinisation along a fault that the block
+    model did not show (params.yaml, group `clay`). The block keeps its class by the block model (sulphide ore,
+    destined to the crusher of ОФ-1) until somebody acts on what the face shows: without the grade-control module
+    its clay goes into the feed of ОФ-1, where it costs recovery and, above the reference clay, throughput; the
+    module classifies the face as clay ore and sends it to ОФ-2, to the clay-ore stockpile or into the blend of
+    ОФ-1 within its clay limit. The cancel gives the block back the clay of the block model."""
 
-    kpi_label = "Удельный расход энергии мельницы"
-    kpi_unit = "кВт·ч/т"
-    kpi_digits = 2
-    feed_label = "питание мельницы"
-    idle = "Сценарий не активен: крепость руды обычная."
+    kpi_label = "Глинистость питания ОФ-1"
+    kpi_unit = "%"
+    kpi_digits = 1
+    feed_label = "питание мельницы ОФ-1"
+    idle = "Сценарий не активен: забои дают руду той глинистости, что в блочной модели."
 
     def __init__(self, sim: "Simulation", thing: dict):
         super().__init__(sim, thing)
-        self.factor = 1.0                       # the hardness factor the scenario is heading for
-        self.rate_per_s = 0.0
+        self.block_name = ""
+        self.clay_was = 0.0
+        self.clay = 0.0
 
-    def _bwi(self) -> float:
+    def _clay_now(self) -> float:
         plant = self.sim.plant
-        return (plant.stockpile.bwi or plant.mill.feed_bwi) * plant.hardness_factor
+        return plant.stockpile.clay if plant.stockpile.t > 100.0 else plant.mill.feed_clay
 
     def kpi_now(self) -> float:
-        return self.sim.plant.mill.specific_energy(self._bwi())
+        return self._clay_now()
 
     def feed_live(self) -> float:
         return self.sim.kpis.mill_feed.per_hour(self.sim.now)
@@ -981,85 +1002,172 @@ class HardOre(Scenario):
     def take_mark(self) -> None:
         super().take_mark()
         plant = self.sim.plant
-        mill, flotation = plant.mill, plant.flotation
-        self.mark.update(bwi=self._bwi(), max_feed=mill.max_feed_tph(self._bwi()), stops=mill.stops,
-                         overloads=mill.overloads, recovery=flotation.recovery(plant.stockpile.grade_pct, self._bwi(), mill.setpoint_tph))
+        mill = plant.mill
+        self.mark.update(recovery=plant.flotation.recovery_pct or 0.0, max_feed=mill.max_feed_tph(mill.feed_bwi, self._clay_now()),
+                         bin=plant.clay_plant.bin.t, pile=plant.clay_stock.stock.t, overloads=mill.overloads)
+
+    def pick_target(self) -> str:
+        """Without a target: the loader on a sulphide ore face with the most tonnes left, the default first."""
+        fleet, pit = self.sim.fleet, self.sim.pit
+        valid = [l for l in fleet.loaders.values() if self._face(l) is not None]
+        if any(l.name == self.default_target for l in valid):
+            return self.default_target
+        return max(valid, key=lambda l: (pit.blocks[l.block].tonnes, l.name)).name if valid else self.default_target
+
+    def _face(self, loader):
+        if loader.state == "down" or not loader.block:
+            return None
+        block = self.sim.pit.blocks[loader.block]
+        if block.material not in ("ore", "low-grade") or block.tonnes < 1000.0:
+            return None
+        return block
 
     def check(self, target: str, params: dict) -> str | None:
-        bwi = params.get("bwi", self.sim.params["scenario"]["hard_ore_bwi"])
-        low = self._bwi() + 0.5
-        if isinstance(bwi, bool) or not isinstance(bwi, (int, float)) or not low <= bwi <= 22:
-            return f"индекс Бонда {bwi!r} должен быть от {num(low)} до 22 кВт·ч/т"
+        loader = self.sim.fleet.loaders[target]
+        if self._face(loader) is None:
+            return f"{loader.title} не работает на блоке сульфидной руды"
+        clay = params.get("clay_pct", self.sim.params["scenario"]["clay_face_pct"])
+        low = float(self.sim.params["clay"]["clay_ore_min_pct"])
+        if isinstance(clay, bool) or not isinstance(clay, (int, float)) or not low <= clay <= 40:
+            return f"глинистость {clay!r} % вне диапазона {num(low, 0)}–40 %"
         return None
 
     def start(self, target: str, params: dict) -> None:
         sim = self.sim
-        bwi = float(params.get("bwi", sim.params["scenario"]["hard_ore_bwi"]))
-        ramp_s = sim.params["scenario"]["hard_ore_ramp_min"] * 60.0
-        self.factor = bwi / self.mark["bwi"]
-        self.rate_per_s = (self.factor - 1.0) / ramp_s
-        sim.log("alarm", target, f"Зона крепкой руды (сценарий «{self.title}»): индекс Бонда питания мельницы "
-                                 f"растёт с {num(self.mark['bwi'])} до {num(bwi)} кВт·ч/т за {ramp_s / 60:.0f} мин")
+        block = self._face(sim.fleet.loaders[target])
+        self.block_name, self.clay_was = block.name, block.clay_pct
+        self.clay = float(params.get("clay_pct", sim.params["scenario"]["clay_face_pct"]))
+        block.clay_pct = self.clay
+        sim.log("alarm", block.name, f"{block.title}: забой {sim.fleet.loaders[target].title} вскрыл зону каолинизации "
+                                     f"(сценарий «{self.title}»): глины {num(self.clay_was)} → {num(self.clay)} %; по блочной "
+                                     f"модели руда сульфидная и идёт на «{sim.plant.sinks[block.destination].title}»")
 
     def stop(self) -> None:
-        self.status = "cancelling"
-        self.sim.log("info", self.target, f"Зона крепкой руды проходит, сценарий «{self.title}» отменён: "
-                                          f"крепость вернётся к обычной за {self.sim.params['scenario']['hard_ore_ramp_min']:.0f} мин")
-
-    def step(self) -> None:
-        plant = self.sim.plant
-        if self.status == "active":
-            plant.hardness_factor = min(self.factor, plant.hardness_factor + self.rate_per_s)
-        elif self.status == "cancelling":
-            plant.hardness_factor = max(1.0, plant.hardness_factor - self.rate_per_s)
-            if plant.hardness_factor <= 1.0:
-                self.finish()
-
-    def cancel_remaining_s(self) -> float:
-        excess = self.sim.plant.hardness_factor - 1.0
-        return excess / self.rate_per_s if self.rate_per_s > 0 and excess > 0 else 0.0
+        sim = self.sim
+        block = sim.pit.blocks.get(self.block_name)
+        if block is not None:
+            block.clay_pct = self.clay_was
+            sim.log("info", block.name, f"{block.title}: зона каолинизации пройдена, глинистость руды забоя снова "
+                                        f"{num(self.clay_was)} % (сценарий «{self.title}» отменён)")
+        self.finish()
 
     def affected(self) -> list[str]:
-        plant = self.sim.plant
-        names = [plant.stockpile_name, plant.mill.name, "flotation", "substation"]
-        if plant.crusher.limited:
-            names.append(plant.crusher.name)
+        sim, plant = self.sim, self.sim.plant
+        names = [self.target, self.block_name, plant.stockpile_name, plant.mill.name, "flotation"]
+        block = sim.pit.blocks.get(self.block_name)
+        if block is not None and block.destination in plant.sinks:
+            names.append(block.destination)
+        if plant.clay_stock.queue or plant.clay_stock.truck:
+            names.append(plant.clay_stock.name)
         return names
 
     def text(self, v: dict) -> str:
-        plant = self.sim.plant
-        mill, flotation = plant.mill, plant.flotation
-        bwi = self._bwi()
-        recovery = flotation.recovery_pct or flotation.recovery(plant.stockpile.grade_pct, bwi, mill.setpoint_tph)
-        stops = mill.overloads - self.mark["overloads"]
-        if mill.setpoint_source != "constant":
-            control = f"Уставку питания ведёт модуль управления фабрикой: {mill.setpoint_tph:.0f} т/ч"
-        else:
-            control = f"Уставка питания постоянная, {mill.setpoint_tph:.0f} т/ч"
-        if stops:
-            control += f"; остановок мельницы из-за перегруза: {stops}"
-        elif mill.setpoint_tph > mill.max_feed_tph(bwi):
-            control += (f"; уставка выше предела по мощности: в мельницах накопилось {mill.charge.t:.0f} т руды сверх "
-                        f"измельчённой, питание отключится при {mill.p['overload_t']:.0f} т")
-        head = "Зона крепкой руды" if self.status == "active" else (
-            f"Зона крепкой руды проходит (крепость вернётся к обычной через {self.cancel_remaining_s() / 60:.0f} мин "
-            f"модели, {_real(self.sim, self.cancel_remaining_s() / 3600)} стенда)")
-        return (f"{head}: индекс Бонда {num(self.mark['bwi'])} → {num(bwi)} кВт·ч/т. Предел мельницы по мощности "
-                f"{self.mark['max_feed']:.0f} → {mill.max_feed_tph(bwi):.0f} т/ч, извлечение {num(self.mark['recovery'])} → "
-                f"{num(recovery)} %. {control}.")
+        sim, plant = self.sim, self.sim.plant
+        block = sim.pit.blocks[self.block_name]
+        source = {"cutoff": "по блочной модели", "grade-control": "модуль управления качеством руды",
+                  "operator": "указание оператора"}.get(block.destination_source, block.destination_source)
+        mill = plant.mill
+        recovery = plant.flotation.recovery_pct or 0.0
+        return (f"Глинистая руда в забое: {block.title}, глины {num(self.clay_was)} → {num(self.clay)} %. Руда забоя идёт "
+                f"на «{plant.sinks[block.destination].title}» ({source}). Глинистость склада ОФ-1 {num(v['kpi0'])} → "
+                f"{num(v['kpi'])} %, извлечение ОФ-1 {num(self.mark['recovery'])} → {num(recovery)} %, предел мельницы "
+                f"{self.mark['max_feed']:.0f} → {mill.max_feed_tph(mill.feed_bwi, self._clay_now()):.0f} т/ч; приёмный склад "
+                f"ОФ-2 {self.mark['bin']:.0f} → {plant.clay_plant.bin.t:.0f} т, склад глинистой руды "
+                f"{self.mark['pile']:.0f} → {plant.clay_stock.stock.t:.0f} т.")
 
     def chain(self) -> list[Indicator]:
-        return [Indicator("Индекс Бонда питания мельницы", "кВт·ч/т", 2, "mean", "bwi"),
-                Indicator("Предел мельницы по мощности (среднее за окно)", "т/ч", 0, "mean", "max_feed"),
-                Indicator("Удельный расход энергии измельчения", "кВт·ч/т", 2, "ratio", "mill_kwh", per="milled_t"),
-                Indicator("Медь в концентрате", "т/ч", 2, "rate", "cu_t")]
+        return [Indicator("Глинистость питания ОФ-1", "%", 1, "mean", "clay_feed"),
+                Indicator("Извлечение меди на ОФ-1", "%", 1, "mean", "recovery1"),
+                Indicator("Предел мельницы ОФ-1 (среднее за окно)", "т/ч", 0, "mean", "max_feed"),
+                Indicator("Глинистая руда на ОФ-2 и склад глинистой руды", "т/ч", 0, "rate", "to_clay_t")]
 
     def delay_text(self) -> str:
-        ramp = self.sim.params["scenario"]["hard_ore_ramp_min"]
-        what = "уходит" if self.status == "cancelling" else "приходит"
-        return (f"Крепкая руда {what} в питание мельницы за {ramp:.0f} мин модели; мельница ограничена мощностью сразу, "
-                f"медь меняется в течение того же времени, ещё через 30 мин сравнение по окнам устоится. "
-                f"{_speed_hint(self.sim)}")
+        sim = self.sim
+        belt_min = sim.plant.conveyor.transport_s / 60.0
+        return (f"Руда забоя приходит на склад дроблёной руды ОФ-1 с первыми рейсами через дробилку и конвейер (около "
+                f"{belt_min:.0f} мин в пути по ленте); склад, {num(_stock_hours(sim))} ч питания мельницы, разбавляет её, "
+                f"так что глинистость питания, извлечение и предел мельницы меняются за несколько часов модели. Если руду "
+                f"забоя везут на ОФ-2 или склад глинистой руды, меняется их загрузка, а питание ОФ-1 остаётся прежним. "
+                f"{_speed_hint(sim)}")
+
+
+class ClayPlantStop(Scenario):
+    """Stop the clay-ore plant ОФ-2 until cancelled. Its feed stockpile keeps taking the clay ore the trucks bring
+    until it is full; then the trucks tip on the clay-ore stockpile beside it (the rule of the shift), or where the
+    grade-control module sends them. ОФ-2 makes no copper while it stands."""
+
+    kpi_label = "Запас приёмного склада ОФ-2"
+    kpi_unit = "т"
+    kpi_digits = 0
+    feed_label = "переработка ОФ-2"
+    idle = "Сценарий не активен: ОФ-2 работает."
+
+    def kpi_now(self) -> float:
+        return self.sim.plant.clay_plant.bin.t
+
+    def feed_live(self) -> float:
+        return self.sim.kpis.clay_feed.per_hour(self.sim.now)
+
+    def feed_total(self) -> float:
+        return self.sim.plant.clay_plant.total_t
+
+    def feed_current(self) -> float:
+        return 0.0
+
+    def take_mark(self) -> None:
+        super().take_mark()
+        plant = self.sim.plant
+        self.mark.update(bin=plant.clay_plant.bin.t, pile=plant.clay_stock.stock.t)
+
+    def start(self, target: str, params: dict) -> None:
+        sim, plant = self.sim, self.sim.plant.clay_plant
+        plant.stop(self.name)
+        sim.log("alarm", target, f"{plant.title} остановлена (сценарий «{self.title}»): глинистая руда копится на "
+                                 f"приёмном складе ({plant.bin.t:.0f} т из {plant.capacity_t:.0f} т), потом идёт на склад "
+                                 f"глинистой руды")
+
+    def stop(self) -> None:
+        sim, plant = self.sim, self.sim.plant.clay_plant
+        plant.start()
+        sim.log("info", self.target, f"{plant.title} запущена, сценарий «{self.title}» отменён; приём руды через "
+                                     f"{sim.params['clay_plant']['restart_min']:.0f} мин")
+        self.finish()
+
+    def on_expected(self) -> None:
+        plant = self.sim.plant.clay_plant
+        plant.restart_at = self.expected_end if self.status != "inactive" else None
+
+    def affected(self) -> list[str]:
+        plant = self.sim.plant
+        names = [self.target, "desliming", "clay-flotation"]
+        if plant.clay_stock.queue or plant.clay_stock.truck or plant.clay_stock.stock.t > self.mark.get("pile", 0.0) + 1.0:
+            names.append(plant.clay_stock.name)
+        names += [t.name for t in self.sim.fleet.trucks if t.source == "overflow" and t.dump_target == plant.clay_stock.name
+                  and t.state in ("hauling", "queue_dump", "dumping")]
+        return names
+
+    def text(self, v: dict) -> str:
+        sim, plant = self.sim, self.sim.plant
+        clay = plant.clay_plant
+        to_pile = max(0.0, plant.clay_stock.stock.t - self.mark["pile"])
+        room_h = clay.room_t() / max(float(sim.params["clay_plant"]["design_tph"]), 1.0)
+        return (f"ОФ-2 стоит {self.elapsed_s() / 60:.0f} мин. Приёмный склад {self.mark['bin']:.0f} → {clay.bin.t:.0f} т "
+                f"({100 * clay.bin.t / clay.capacity_t:.0f} %, свободно {clay.room_t():.0f} т — около {num(room_h)} ч работы "
+                f"забоя глинистой руды), на склад глинистой руды ушло {to_pile:.0f} т. Медь ОФ-2 не идёт.")
+
+    def chain(self) -> list[Indicator]:
+        return [Indicator("Переработка ОФ-2", "т/ч", 0, "rate", "clay_milled_t"),
+                Indicator("Запас приёмного склада ОФ-2", "т", 0, "level", "clay_bin_t"),
+                Indicator("Глинистая руда на склад глинистой руды", "т/ч", 0, "rate", "to_clay_stock_t"),
+                Indicator("Медь в концентрате ОФ-2", "т/ч", 2, "rate", "clay_cu_t")]
+
+    def delay_text(self) -> str:
+        sim = self.sim
+        clay = sim.plant.clay_plant
+        hours = clay.room_t() / max(float(sim.params["clay_plant"]["design_tph"]), 1.0)
+        return (f"ОФ-2 перестаёт давать медь сразу. Приёмный склад принимает руду забоя ещё около {num(hours)} ч модели "
+                f"({_real(sim, hours)} стенда при ×{sim.speedup}); потом самосвалы с глинистой рудой везут её на склад "
+                f"глинистой руды. {_speed_hint(sim)}")
 
 
 KINDS = {
@@ -1068,7 +1176,8 @@ KINDS = {
     "scenario-crusher-stop": CrusherStop,
     "scenario-heavy-rain": HeavyRain,
     "scenario-blast": Blast,
-    "scenario-hard-ore": HardOre,
+    "scenario-clay-face": ClayFace,
+    "scenario-clay-plant-stop": ClayPlantStop,
 }
 
 

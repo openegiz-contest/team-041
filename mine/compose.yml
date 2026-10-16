@@ -1,14 +1,14 @@
-# The Aktogay mine slice: an overlay on deploy/compose/docker-compose.yml,
+# The Bozshakol mine model: an overlay on deploy/compose/docker-compose.yml,
 # started by `make mine` from the repository root. Paths are relative to
 # deploy/compose/, the directory of the first compose file.
 #
 # MINE_NAMESPACE (environment or deploy/compose/.env) sets the namespace of
 # the twins for every service; empty means the one in mine/model/world.yaml,
-# kz.aktogay.
+# kz.bozshakol.
 
 # What the module services have in common.
 x-mine-module: &mine-module
-  image: aktogay/mine:local
+  image: bozshakol/mine:local
   pull_policy: never
   restart: unless-stopped
   mem_limit: 128m
@@ -41,7 +41,7 @@ services:
   # `build:` is here so that a plain `docker compose up --build` works too.
   mine-twins:
     build: ../../mine
-    image: aktogay/mine:local
+    image: bozshakol/mine:local
     restart: "no"
     command: ["python", "-m", "mine.model.setup_twins"]
     environment:
@@ -59,7 +59,7 @@ services:
   # container (up to `forecast.max_parallel` = 12 at a time for the advisor and
   # the modules, plus the page's two branches; about 30 MB each).
   mine-sim:
-    image: aktogay/mine:local
+    image: bozshakol/mine:local
     pull_policy: never
     restart: unless-stopped
     mem_limit: 1024m
@@ -126,7 +126,8 @@ services:
       # the mine moves to another namespace, set MINE_NAMESPACE_PREVIOUS to the
       # old one: the page then shows whichever of the two holds the mine, the
       # new one first, and follows the move by itself.
-      MINE_NAMESPACES: "${MINE_NAMESPACE:-kz.aktogay} ${MINE_NAMESPACE_PREVIOUS:-}"
+      # Default for the move from the Aktogay model (October 2026): kz.aktogay.
+      MINE_NAMESPACES: "${MINE_NAMESPACE:-kz.bozshakol} ${MINE_NAMESPACE_PREVIOUS-kz.aktogay}"
     ports:
       - "${OPENEGIZ_BIND:-127.0.0.1}:${MINE_UI_PORT:-8088}:80"
     volumes:
@@ -141,7 +142,7 @@ services:
       timeout: 5s
       retries: 6
 
-  # The platform's Grafana, plus the mine history «Актогай — история»
+  # The platform's Grafana, plus the mine history «Бозшаколь — история»
   # (mine/grafana/dashboards/aktogay-history.json). In the platform's
   # organisation it is provisioned from the file and needs a login like
   # everything there. Visitors without an account enter a separate
@@ -152,7 +153,7 @@ services:
     entrypoint: ["/bin/sh", "/etc/mine-grafana/start.sh"]
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_NAME: "Актогай"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Бозшаколь"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
     volumes:

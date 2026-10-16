@@ -33,12 +33,76 @@ PATH_TOLERANCE_M = 0.5          # how far a kept path may stray from the ramp's 
 RING_POINTS = 120               # points of a bench outline
 
 
+class Rim:
+    """The top edge of the pit, in plan: an ellipse (`{ellipse: {a, b}}`, half-axes) or a stadium
+    (`{stadium: {length, width}}`: two half-circles of the half-width joined by straight walls, the shape of a
+    long narrow pit). A point on it is given by an angle t, counted counter-clockwise from the east end; on a
+    stadium t runs evenly along the perimeter (t = 90° is the middle of the north wall). `at` returns the point
+    and the outward unit normal there. A stadium's walls can be set back by up to its half-width without the
+    bench lines folding over, which an ellipse as long and narrow does not allow at its ends."""
+
+    def __init__(self, spec: dict):
+        if "stadium" in spec:
+            self.kind = "stadium"
+            length, width = float(spec["stadium"]["length"]), float(spec["stadium"]["width"])
+            self.r = width / 2.0
+            self.h = (length - width) / 2.0              # half the length of the straight walls
+            self.a, self.b = length / 2.0, width / 2.0
+            self.perimeter = 4.0 * self.h + 2.0 * math.pi * self.r
+        else:
+            self.kind = "ellipse"
+            self.a, self.b = float(spec["ellipse"]["a"]), float(spec["ellipse"]["b"])
+
+    @property
+    def length_m(self) -> float:
+        return 2.0 * self.a
+
+    @property
+    def width_m(self) -> float:
+        return 2.0 * self.b
+
+    def at(self, t: float) -> tuple[float, float, float, float]:
+        if self.kind == "ellipse":
+            px, py = self.a * math.cos(t), self.b * math.sin(t)
+            nx, ny = self.b * math.cos(t), self.a * math.sin(t)
+            n = math.hypot(nx, ny)
+            return px, py, nx / n, ny / n
+        h, r = self.h, self.r
+        s = (t % (2.0 * math.pi)) / (2.0 * math.pi) * self.perimeter
+        quarter = math.pi * r / 2.0
+        for length, piece in ((quarter, "east1"), (2.0 * h, "north"), (2.0 * quarter, "west"),
+                              (2.0 * h, "south"), (quarter, "east2")):
+            if s <= length + 1e-9:
+                break
+            s -= length
+        if piece == "east1":
+            phi = s / r
+            return h + r * math.cos(phi), r * math.sin(phi), math.cos(phi), math.sin(phi)
+        if piece == "north":
+            return h - s, r, 0.0, 1.0
+        if piece == "west":
+            phi = math.pi / 2.0 + s / r
+            return -h + r * math.cos(phi), r * math.sin(phi), math.cos(phi), math.sin(phi)
+        if piece == "south":
+            return -h + s, -r, 0.0, -1.0
+        phi = 1.5 * math.pi + s / r
+        return h + r * math.cos(phi), r * math.sin(phi), math.cos(phi), math.sin(phi)
+
+    def polygon(self, centre: list, points: int = 72) -> list[list[float]]:
+        out = []
+        for i in range(points):
+            px, py, _, _ = self.at(2.0 * math.pi * i / points)
+            out.append([round(centre[0] + px), round(centre[1] + py)])
+        return out
+
+
 class Wall:
     """The pit wall: bench toe lines as functions of the angle on the rim."""
 
     def __init__(self, pit: dict, params: dict):
         self.cx, self.cy = pit["centre"]
-        self.a, self.b = pit["rim"]["ellipse"]["a"], pit["rim"]["ellipse"]["b"]
+        self.rim = Rim(pit["rim"])
+        self.a, self.b = self.rim.a, self.rim.b
         self.rim_z, self.floor_z = float(pit["rim_z"]), float(pit["floor_z"])
         p = params["pit"]
         self.h = float(params["drill"]["bench_height_m"])
@@ -100,10 +164,8 @@ class Wall:
 
     def point(self, t: float, inset: float) -> tuple[float, float]:
         """The point `inset` metres in from the rim along the rim's normal at angle t."""
-        px, py = self.a * math.cos(t), self.b * math.sin(t)
-        nx, ny = self.b * math.cos(t), self.a * math.sin(t)
-        n = math.hypot(nx, ny)
-        return self.cx + px - inset * nx / n, self.cy + py - inset * ny / n
+        px, py, nx, ny = self.rim.at(t)
+        return self.cx + px - inset * nx, self.cy + py - inset * ny
 
     def ring(self, inset_of, points: int = RING_POINTS) -> list[list[float]]:
         out = []

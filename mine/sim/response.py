@@ -5,6 +5,7 @@ Each resource is a live message to the twin it acts on, applied like every other
 
     crusher        expedite-repair {}      a second repair crew with the contractor's specialists: the rest of the
                                            crusher's repair takes `second_crew_factor` of the time
+    clay-plant     expedite-repair {}      the same on the clay-ore plant ОФ-2
     loader-*       expedite-repair {}      the same on a broken-down loader
     loader-*       prioritise-repair {}    the crew of one workshop bay goes to the loader's face: its repair takes
                                            `workshop_lend_factor` of the time, the bay stands meanwhile
@@ -110,6 +111,22 @@ class Response:
         sim.log("info", crusher.name, f"{crusher.title}: на ремонт вышла вторая бригада со специалистами подрядчика "
                                       f"({rate(self.crew_kzt_h)}, вызов подрядчика {money(self.callout_kzt)} млн тг); "
                                       f"пуск ожидается в {_hhmm(sim, scenario.expected_end)} вместо {_hhmm(sim, before)}")
+
+    def expedite_clay_plant(self) -> None:
+        sim, plant = self.sim, self.sim.plant.clay_plant
+        scenario = sim.scenarios.get(plant.stopped_by)
+        if not plant.stopped_by or scenario is None:
+            sim.refuse(plant.name, f"{plant.title}: вторая бригада не нужна, фабрика работает")
+            return
+        if self._engaged("crew", plant.name):
+            sim.refuse(plant.name, f"{plant.title}: вторая бригада уже на ремонте")
+            return
+        before = scenario.expected_end
+        scenario.shorten(float(self.p["second_crew_factor"]), KINDS["crew"])
+        self._crew(plant.name, scenario.name)
+        sim.log("info", plant.name, f"{plant.title}: на ремонт вышла вторая бригада со специалистами подрядчика "
+                                    f"({rate(self.crew_kzt_h)}, вызов подрядчика {money(self.callout_kzt)} млн тг); "
+                                    f"пуск ожидается в {_hhmm(sim, scenario.expected_end)} вместо {_hhmm(sim, before)}")
 
     @property
     def callout_kzt(self) -> float:
@@ -251,6 +268,8 @@ class Response:
         sim = self.sim
         if job.kind == "crew" and job.thing == sim.plant.crusher.name:
             return bool(sim.plant.crusher.stopped_by)
+        if job.kind == "crew" and job.thing == sim.plant.clay_plant.name:
+            return bool(sim.plant.clay_plant.stopped_by)
         if job.kind in ("crew", "lend"):
             return sim.fleet.loaders[job.thing].state == "down"
         if job.kind == "grader":

@@ -1,21 +1,30 @@
-"""Block model of the modelled Aktogay pit slice: copper grade and ore hardness.
+"""Block model of the modelled Bozshakol pit: copper grade, ore hardness and clay content.
 
-Both are smooth random fields over the mine grid, so neighbouring blocks are
-alike and a loader moving along a bench sees the grade drift, not jump. The
-grade field is turned into grades by rank, in three classes whose shares
+All three are smooth random fields over the mine grid, so neighbouring blocks
+are alike and a loader moving along a bench sees the grade drift, not jump.
+The grade field is turned into grades by rank, in three classes whose shares
 come from KAZ Minerals' figures (params.yaml, group `geology`):
 
     waste      below the cut-off grade; its share follows the strip ratio
-    low-grade  from the cut-off to `low_grade_below_pct`; goes to the low-grade
-               stockpile, as the sulphide ore mined beyond what the
-               concentrators process does at Aktogay; its share is that excess
-    ore        above it, log-normal around the mean head grade of the mill feed
+    low-grade  from the cut-off to `low_grade_below_pct`; goes to the
+               sub-economic (low-grade) stockpile
+    ore        above it, log-normal around the mean grade of the sulphide feed
+
+Clay (params.yaml, group `clay`): the top of the Bozshakol deposit is a
+weathering crust with kaolinised (clay) ore. A block's clay content is the
+background clay of sulphide ore plus kaolinisation that fades with depth below
+the surface, grows towards the west end of the pit and follows zones (faults)
+of a random field of its own. An ore block with at least `clay.clay_ore_min_pct`
+of clay is clay ore (class `clay`): it goes to the clay-ore plant ОФ-2 and its
+grade is `clay.clay_grade_factor` times that of the sulphide ore it would have
+been (supergene enrichment, as in Q4 2020). Waste and low-grade blocks keep their
+class whatever their clay.
 
 The same ranking prices the blocks of every later pushback, so the mine
 keeps its strip ratio, its low-grade share and its head grade for as long as
 it runs.
 
-Every number comes from params.yaml (group `geology`) or world.yaml.
+Every number comes from params.yaml (groups `geology`, `clay`) or world.yaml.
 """
 from __future__ import annotations
 
@@ -25,6 +34,7 @@ import random
 from statistics import NormalDist
 
 NORMAL = NormalDist()
+CLAY_PLANT = "clay-plant"
 
 
 class Field:
@@ -44,21 +54,36 @@ class Field:
         return self.scale * sum(math.cos(kx * x + ky * y + phase) for kx, ky, phase in self.waves)
 
 
+def clay_class(params: dict, material: str, clay_pct: float) -> str:
+    """The class of a block once its clay is known: ore with enough clay is clay ore."""
+    if material == "ore" and clay_pct >= params["clay"]["clay_ore_min_pct"]:
+        return "clay"
+    return material
+
+
 class BlockModel:
-    """Grade, hardness and material class of a block from where it lies."""
+    """Grade, hardness, clay and material class of a block from where it lies."""
 
     def __init__(self, world: dict, params: dict, cells: list[dict]):
         """`cells` are the blocks of the first cut: {bench, x, y}."""
+        self.params = params
         self.p = params["geology"]
+        self.c = params["clay"]
         geology = world["geology"]
         self.shift_m = geology["pushback_shift_m"]
         self.trend = {b["id"]: b["grade_trend"] for b in world["benches"]}
+        self.depth = {b["id"]: float(world["pit"]["rim_z"]) - float(b["elevation_m"]) for b in world["benches"]}
+        rim = world["pit"]["rim"]
+        self.half_length = float(rim["stadium"]["length"]) / 2.0 if "stadium" in rim else float(rim["ellipse"]["a"])
+        self.centre_x = float(world["pit"]["centre"][0])
         self.waste_dump = "waste-dump"
         self.low_grade_pad = next(pad["id"] for pad in world["rom_pads"] if pad["role"] == "low-grade")
         shortest = self.p["correlation_length_m"] * self.p["wavelength_min_factor"]
         longest = self.p["correlation_length_m"] * self.p["wavelength_max_factor"]
         self.grade_field = Field(f"{geology['seed']}/grade", shortest, longest)
         self.hardness_field = Field(f"{geology['seed']}/hardness", shortest, longest)
+        self.clay_field = Field(f"{geology['seed']}/clay", shortest, longest)
+        self.background_field = Field(f"{geology['seed']}/clay-background", shortest, longest)
         # The scores of the first cut are the yardstick for every later one.
         self.reference = sorted(self._score(c["bench"], c["x"], c["y"], 0) for c in cells)
 
@@ -97,6 +122,22 @@ class BlockModel:
         mu = math.log(p["mean_head_grade_pct"] - upper) - sigma ** 2 / 2.0
         return upper + math.exp(mu + sigma * NORMAL.inv_cdf(q))
 
+    def kaolinisation(self, bench: str, x: float, y: float, generation: int = 0) -> float:
+        """0 (fresh sulphide rock) to 1 (fully kaolinised): weathering fading with depth, the west end, the zones."""
+        c = self.c
+        west = max(0.0, (self.centre_x - x) / self.half_length)
+        index = (math.exp(-self.depth[bench] / c["weathering_depth_m"]) + c["west_bias"] * min(west, 1.0)
+                 + c["zone_amp"] * self._sample(self.clay_field, x, y, generation))
+        return min(1.0, max(0.0, (index - c["kaolin_from"]) / (c["kaolin_full"] - c["kaolin_from"])))
+
+    def clay_pct(self, bench: str, x: float, y: float, generation: int = 0) -> float:
+        c = self.c
+        background = c["sulphide_clay_pct"] * math.exp(
+            c["sulphide_clay_sigma"] * self._sample(self.background_field, x, y, generation)
+            - c["sulphide_clay_sigma"] ** 2 / 2.0)
+        k = self.kaolinisation(bench, x, y, generation)
+        return background + (c["kaolin_clay_pct"] - background) * k
+
     def material(self, grade_pct: float) -> str:
         if grade_pct < self.p["cutoff_grade_pct"]:
             return "waste"
@@ -105,15 +146,22 @@ class BlockModel:
     def block(self, bench: str, x: float, y: float, generation: int = 0) -> dict:
         """Properties of the block centred on (x, y) in the given pushback."""
         p = self.p
-        grade = round(self.grade_pct(self._quantile(self._score(bench, x, y, generation))), 3)
+        grade = self.grade_pct(self._quantile(self._score(bench, x, y, generation)))
         hardness = p["bwi_mean_kwh_t"] + p["bwi_sd_kwh_t"] * self._sample(self.hardness_field, x, y, generation)
         hardness = round(min(max(hardness, p["bwi_min_kwh_t"]), p["bwi_max_kwh_t"]), 1)
-        material = self.material(grade)
-        return {"grade_pct": grade, "hardness_bwi": hardness, "material": material,
+        clay = round(self.clay_pct(bench, x, y, generation), 1)
+        material = clay_class(self.params, self.material(grade), clay)
+        if material == "clay":
+            grade *= self.c["clay_grade_factor"]
+        grade = round(grade, 3)
+        return {"grade_pct": grade, "hardness_bwi": hardness, "clay_pct": clay, "material": material,
                 "destination": self.destination(material)}
 
     def destination(self, material: str) -> str:
-        """The base rule of the mine: ore to the crusher, low-grade ore to the low-grade stockpile, waste to the dump."""
+        """The base rule of the mine: sulphide ore to the crusher of ОФ-1, clay ore to ОФ-2, low-grade ore to the
+        low-grade stockpile, waste to the dump."""
         if material == "waste":
             return self.waste_dump
+        if material == "clay":
+            return CLAY_PLANT
         return self.low_grade_pad if material == "low-grade" else "crusher"

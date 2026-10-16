@@ -146,7 +146,7 @@ lint:
 	@echo "lint: ok"
 
 # ---------------------------------------------------------------------------
-# Aktogay mine slice (mine/): twins, simulator and web page on the platform
+# Bozshakol mine model (mine/): twins, simulator and web page on the platform
 # ---------------------------------------------------------------------------
 .PHONY: mine mine-check mine-down mine-logs mine-test mine-params
 
@@ -159,10 +159,10 @@ MINE_PLATFORM_UP := $(MAKE) --no-print-directory up MINE_MARKER=deploy/compose/.
 # then yields the very same image, so repeating `make mine` leaves the running
 # simulator alone instead of recreating it. (`up --build` would also rebuild
 # the platform's own image, which `up` has just built.)
-MINE_BUILD := docker build -q --provenance=false -t aktogay/mine:local mine
+MINE_BUILD := docker build -q --provenance=false -t bozshakol/mine:local mine
 MINE_UP := { $(MINE_BUILD) && $(MINE_STACK) up -d --wait --wait-timeout 300; }
 
-## Start the platform and the Aktogay mine slice, check that the stand is ready, print its address.
+## Start the platform and the Bozshakol mine model, check that the stand is ready, print its address.
 ## Safe to repeat; a failed start of either part is retried once. The readiness
 ## check waits generously and fails only if twins, telemetry, history or the page
 ## are missing; the functional round trips are checked by `make mine-check`.
@@ -173,7 +173,7 @@ mine:
 	@$(MINE_UP) || { echo "The mine services did not start; trying once more in 10 s ..."; sleep 10; $(MINE_UP); }
 	@bash mine/tests/wait_ready.sh
 	@bash mine/tests/ready_check.sh
-	@bash -c 'set -a; . deploy/compose/.env; echo; echo "Aktogay mine slice is running: http://$${OPENEGIZ_PUBLIC_HOST:-localhost}:$${MINE_UI_PORT:-8088}"'
+	@bash -c 'set -a; . deploy/compose/.env; echo; echo "Bozshakol mine model is running: http://$${OPENEGIZ_PUBLIC_HOST:-localhost}:$${MINE_UI_PORT:-8088}"'
 
 ## End-to-end check of the running mine stand: twins, history, page, and the round trips of
 ## the modules, the scenarios, the forecast and the advisor
@@ -192,9 +192,9 @@ mine-logs:
 ## docs/mine is mounted because the tests compare docs/mine/parameters.md with params.yaml.
 mine-test:
 	$(MINE_BUILD)
-	docker run --rm -v "$(CURDIR)/docs/mine:/app/docs/mine:ro" aktogay/mine:local python -m unittest discover -s mine/tests -t .
+	docker run --rm -v "$(CURDIR)/docs/mine:/app/docs/mine:ro" bozshakol/mine:local python -m unittest discover -s mine/tests -t .
 
 ## Regenerate docs/mine/parameters.md from mine/model/params.yaml
 mine-params:
 	$(MINE_BUILD)
-	docker run --rm --user "$$(id -u):$$(id -g)" -v "$(CURDIR)/docs/mine:/app/docs/mine" aktogay/mine:local python -m mine.model.build_params_doc --write
+	docker run --rm --user "$$(id -u):$$(id -g)" -v "$(CURDIR)/docs/mine:/app/docs/mine" bozshakol/mine:local python -m mine.model.build_params_doc --write

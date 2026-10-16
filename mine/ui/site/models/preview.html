@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Models of the 3D view: preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="../favicon.svg">
+  <!-- A check page for the Blender-built models (tools/blender/): every model
+       from models.json, loaded with the vendored GLTFLoader + DRACOLoader, on a
+       turntable. Parameters:
+         ?lineup=machines|plant|all     side by side at true scale (default: machines)
+         ?model=<id>&lod=0|1            one model close up
+         &pose=work                     moving parts in a working pose (pivot check)
+         &yaw=<deg>&pitch=<deg>&zoom=<k> camera; &spin=0 stops the turntable
+         &compare=1                     LOD0 and LOD1 side by side
+         &hide=roof,ore                 hide nodes by name (e.g. the mill hall's roof) -->
+  <script type="importmap">{ "imports": { "three": "../vendor/three/three.module.min.js", "three/addons/": "../vendor/three/addons/" } }</script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #c9d3d9; font: 13px/1.35 system-ui, sans-serif; color: #1d2329; }
+    canvas { display: block; }
+    #info { position: fixed; left: 10px; top: 10px; background: rgba(255,255,255,0.82); padding: 8px 10px; border-radius: 6px; max-width: 46vw; }
+    #info b { font-weight: 600; }
+    #info table { border-collapse: collapse; margin-top: 4px; }
+    #info td { padding: 0 8px 0 0; white-space: nowrap; }
+    #info td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div id="info">loading…</div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+    window.__errors = [];
+    window.addEventListener('error', (e) => window.__errors.push(String(e.message)));
+    const q = new URLSearchParams(location.search);
+    const only = q.get('model');
+    const lod = Number(q.get('lod') ?? 0);
+    const lineup = q.get('lineup') ?? 'machines';
+    const pose = q.get('pose') ?? 'rest';
+    const spin = q.get('spin') !== '0';
+    const compare = q.get('compare') === '1';
+    const hide = (q.get('hide') ?? '').split(',').filter(Boolean);
+    const deg = Math.PI / 180;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    document.body.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#c9d3d9');
+    scene.fog = new THREE.Fog('#c9d3d9', 600, 2400);
+    const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.5, 6000);
+    scene.add(new THREE.HemisphereLight('#e8f0ff', '#8a7a62', 1.6));
+    const sun = new THREE.DirectionalLight('#fff3e0', 2.6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.02;
+    scene.add(sun, sun.target);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(3000, 48), new THREE.MeshStandardMaterial({ color: '#b5a68e', roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const draco = new DRACOLoader().setDecoderPath('../vendor/three/addons/libs/draco/gltf/');
+    const loader = new GLTFLoader().setDRACOLoader(draco);
+    const manifest = await fetch('models.json').then((r) => r.json());
+
+    let picks = manifest.models;
+    if (only) picks = picks.filter((m) => m.id === only);
+    else if (lineup === 'machines') picks = picks.filter((m) => m.kind === 'machine' || m.id === 'floodlight');
+    else if (lineup === 'plant') picks = picks.filter((m) => m.kind === 'plant');
+    const jobs = [];
+    for (const m of picks) {
+      const lods = compare ? m.lods : [m.lods.find((l) => l.lod === lod) ?? m.lods[0]];
+      for (const l of lods) jobs.push({ m, l });
+    }
+    const loaded = await Promise.all(jobs.map(async (job) => ({ ...job, gltf: await loader.loadAsync(job.l.file) })));
+
+    // Lay them out along X at true scale, a gap between.
+    const turntables = [];
+    let x = 0;
+    const box = new THREE.Box3();
+    const all = new THREE.Box3();
+    for (const item of loaded) {
+      const root = item.gltf.scene;
+      root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      if (pose === 'work') applyPose(item.m.id, item.l, root);
+      for (const name of hide) { const n = root.getObjectByName(name); if (n) n.visible = false; }
+      box.setFromObject(root);
+      const mid = box.getCenter(new THREE.Vector3());
+      root.position.x -= mid.x;
+      root.position.z -= mid.z;
+      const size = box.getSize(new THREE.Vector3());
+      const span = Math.max(size.x, size.z);
+      const holder = new THREE.Group();
+      holder.add(root);
+      holder.position.x = x + span / 2;
+      x += span + Math.max(4, span * 0.25);
+      scene.add(holder);
+      turntables.push(holder);
+      all.expandByObject(holder);
+    }
+    const centre = all.getCenter(new THREE.Vector3());
+    for (const t of turntables) t.position.x -= centre.x;
+    all.setFromCenterAndSize(new THREE.Vector3(0, centre.y, centre.z), all.getSize(new THREE.Vector3()));
+    const size = all.getSize(new THREE.Vector3());
+    const radius = Math.max(size.x * 0.5, size.y * 0.7, size.z * 0.5);
+    const yaw = Number(q.get('yaw') ?? 215) * deg;
+    const pitch = Number(q.get('pitch') ?? 18) * deg;
+    const zoom = Number(q.get('zoom') ?? 1);
+    const dist = (radius / Math.tan((camera.fov * deg) / 2)) * 1.05 / zoom;
+    const target = new THREE.Vector3(0, size.y * 0.38, 0);
+    camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, target.y + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+    camera.lookAt(target);
+    camera.far = dist * 6;
+    camera.updateProjectionMatrix();
+    const reach = Math.max(size.x, size.z) * 0.75 + 10;
+    sun.position.set(reach * 0.6, reach * 1.1, reach * 0.8);
+    Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach, near: 1, far: reach * 4 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.normalBias = Math.max(0.02, reach * 0.0012);
+    sun.shadow.bias = -0.0002 - reach * 0.000004;
+
+    // The table of what is shown.
+    const rows = loaded.map(({ m, l }) => `<tr><td>${m.title}</td><td>LOD${l.lod}</td><td class="n">${l.triangles.toLocaleString('en')} tris</td><td class="n">${(l.bytes / 1024).toFixed(0)} KB</td><td class="n">${l.size_m.map((v) => v.toFixed(1)).join(' × ')} m</td></tr>`).join('');
+    document.getElementById('info').innerHTML = `<b>${only ? loaded[0].m.title : 'Lineup: ' + lineup}</b>${pose === 'work' ? ' — working pose' : ''}<table>${rows}</table>`;
+
+    let last = performance.now();
+    let frames = 0;
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      if (spin) for (const t of turntables) t.rotation.y += dt * 0.25;
+      renderer.render(scene, camera);
+      frames += 1;
+      if (frames === 3) window.__ready = true;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    // Moving parts in a working pose: the pivots from models.json, and the
+    // hydraulic cylinders aimed at each other's pins.
+    function applyPose(id, l, root) {
+      const node = (name) => root.getObjectByName(name);
+      const set = (name, fn) => { const n = node(name); if (n) fn(n); };
+      if (id === 'cat785c') {
+        set('body', (n) => { n.rotation.x = 0.79; });
+        set('load', (n) => { n.visible = false; });
+        set('wheel_FL', (n) => { n.rotation.y = 0.3; });
+        set('wheel_FR', (n) => { n.rotation.y = 0.3; });
+      }
+      if (id === 'ex3600') {
+        set('upper', (n) => { n.rotation.y = 0.6; });
+        set('boom', (n) => { n.rotation.x = -0.25; });
+        set('stick', (n) => { n.rotation.x = 0.45; });
+        set('bucket', (n) => { n.rotation.x = -0.5; });
+      }
+      if (id === 'd55sp') set('mast', (n) => { n.rotation.x = l.nodes.find((k) => k.name === 'mast')?.range_rad?.[1] ?? 1.45; });
+      root.updateMatrixWorld(true);
+      const target = new THREE.Vector3();
+      for (const info of l.nodes) {
+        if (!info.aim) continue;
+        const a = node(info.name); const b = node(info.aim);
+        if (a && b) {
+          b.getWorldPosition(target);
+          a.lookAt(target);
+          const from = a.getWorldPosition(new THREE.Vector3());
+          a.scale.z = from.distanceTo(target) / info.rest_length_m;
+          a.updateMatrixWorld(true);
+        }
+      }
+      root.updateMatrixWorld(true);
+    }
+  </script>
+</body>
+</html>

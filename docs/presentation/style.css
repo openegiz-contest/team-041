@@ -95,6 +95,9 @@ ul.points li b { color: #fff; font-weight: 600; }
 /* A capture of one card of the page, shown whole at a given width. */
 .cardshot { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; flex: none; }
 .cardshot img { display: block; width: 100%; height: auto; }
+/* The top of a tall card capture: shown at --w px wide, cut at --h px. */
+.cardcrop { width: calc(var(--w) * 1px); height: calc(var(--h) * 1px); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; flex: none; }
+.cardcrop img { display: block; width: 100%; height: auto; }
 .pair-label { font-size: 13px; font-weight: 650; color: #fff; margin-bottom: 4px; }
 .pair-label.good { color: #4fd6a1; }
 
