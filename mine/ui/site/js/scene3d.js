@@ -1312,9 +1312,8 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     if (!model || !model.lods[0]) return null;
     const rigs = [model.lods[0], model.lods[1] ?? model.lods[0]];
     const meshes = rigs.map((rig, li) => rig.parts.map((part) => part.layers.map((layer, k) => {
+      // instanced() records the model's own material as the realistic one before it puts on the hologram glass.
       const mesh = instanced(layer.geometry, count, materialOf(layer), 4, part.name === 'load' ? H.load : H.machine);
-      mesh.userData.real = mesh.material;
-      styleMesh(mesh);
       fleet[`${kind}:${li}:${part.name}:${k}`] = mesh;
       return mesh;
     })));
