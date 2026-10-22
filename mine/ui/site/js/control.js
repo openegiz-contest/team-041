@@ -618,8 +618,10 @@ const MODULE_FACTS = {
     ['blocks_classified', 'Блоков оценено', '', 0],
   ],
   'module-plant': [
-    ['feed_setpoint_tph', 'Уставка', 'т/ч', 0, (f) => (typeof f('power_limit_tph') === 'number' ? `потолок модуля ${formatFixed(f('power_limit_tph'), 0)}` : '')],
-    ['power_limit_tph', 'Предел по мощности', 'т/ч', 0, () => { const m = first('mill'); return m && typeof feature(m, 'max_feed_tph') === 'number' ? `${formatFixed(feature(m, 'max_feed_tph'), 0)}; потолок — 97 %` : ''; }, (f) => { const m = first('mill'); return m ? feature(m, 'max_feed_tph') : undefined; }],
+    ['feed_setpoint_tph', 'Уставка', 'т/ч', 0, (f) => (typeof f('power_limit_tph') === 'number' ? `потолок сейчас ${formatFixed(f('power_limit_tph'), 0)}` : '')],
+    ['sustained_tph', 'Устойчивый потолок', 'т/ч', 0, () => 'средняя 2024 г.'],
+    ['peak_left_min', 'Пик в эту смену', 'мин', 0, (f) => (typeof f('peak_tph') === 'number' ? `осталось; до ${formatFixed(f('peak_tph'), 0)}` : 'осталось')],
+    ['power_limit_tph', 'Предел по мощности', 'т/ч', 0, () => { const m = first('mill'); return m && typeof feature(m, 'max_feed_tph') === 'number' ? 'потолок — 97 %' : ''; }, (f) => { const m = first('mill'); return m ? feature(m, 'max_feed_tph') : undefined; }],
     ['ore_inflow_tph', 'Приток руды', 'т/ч', 0],
     ['hours_of_feed', 'Запас склада', 'ч', 1],
     ['predicted_recovery_pct', 'Извлечение', '%', 1, () => 'прогноз'],

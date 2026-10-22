@@ -626,6 +626,8 @@ class TwinBuilder:
             "overload_pct": (0.0, PCT),
             "stops_total": (0, ""),
             "tonnes_total": (0.0, T),
+            # Minutes of this shift with the setpoint above the working rate (`design_tph`, the 2024 average of ОФ-1).
+            "peak_min_shift": (0.0, MIN),
         }, links={"fed_by": self.tid("stockpile"), "feeds": self.tid("flotation"), "power": self.tid("substation"),
                   "units": self.tids(["mill-sag", "mill-ball"])},
             geo={"x": x, "y": y, "z": z},
@@ -975,6 +977,11 @@ class TwinBuilder:
             "module-plant": {
                 "feed_setpoint_tph": (0.0, TPH),
                 "power_limit_tph": (0.0, TPH),
+                # The two-level ceiling: the sustained one (the 2024 average of ОФ-1) and the minutes of peaks
+                # up to the 2024 trial rate still allowed this shift.
+                "sustained_tph": (float(self.params["plant_control"]["sustained_tph"]), TPH),
+                "peak_tph": (float(int(self.params["plant_control"]["max_feed_tph"] / 10.0) * 10), TPH),
+                "peak_left_min": (float(self.params["plant_control"]["peak_h_shift"]) * 60.0, MIN),
                 "ore_inflow_tph": (0.0, TPH),
                 "hours_of_feed": (0.0, H),
                 "predicted_recovery_pct": (0.0, PCT),

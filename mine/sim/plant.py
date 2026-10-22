@@ -323,6 +323,9 @@ class Mill:
         self.stops = 0                          # every stop: an empty stockpile, a zero setpoint, an overload trip
         self.overloads = 0                      # of them, the feed cut off because the circuit was overloaded
         self.total_t = self.total_cu = self.energy_kwh = 0.0
+        # Seconds of the current shift the mill ran with its setpoint above the working rate `design_tph`
+        # (the 2024 average of ОФ-1): the plant-control module allows such peaks for a limited time per shift.
+        self.peak_s_shift = 0.0
 
     def specific_energy(self, bwi: float) -> float:
         return self.p["specific_energy_kwh_t"] * bwi / self.p["bwi_ref_kwh_t"]
@@ -373,6 +376,8 @@ class Mill:
                     return 0.0, 0.0, 0.0, 0.0
             else:
                 t, cu, bwi_t, p80_t, clay_t = stockpile.take(self.setpoint_tph / 3600.0 * dt)
+                if self.setpoint_tph > self.p["design_tph"] + 0.5:
+                    self.peak_s_shift += dt
                 self.charge.add(t, cu, bwi_t * hardness_factor, p80_t, clay_t)
                 self.feed_tph = t / dt * 3600.0
         out = (0.0, 0.0, 0.0, 0.0)
@@ -1016,6 +1021,7 @@ class Plant:
 
     def new_shift(self) -> None:
         self.energy_shift_kwh = 0.0
+        self.mill.peak_s_shift = 0.0
 
     # -- published --------------------------------------------------------------------
 
@@ -1078,6 +1084,7 @@ class Plant:
                 "overload_pct": round(100.0 * mill.charge.t / mill.p["overload_t"], 1),
                 "stops_total": mill.stops,
                 "tonnes_total": round(mill.total_t),
+                "peak_min_shift": round(mill.peak_s_shift / 60.0, 1),
             },
             "flotation": {
                 "state": flotation.state,

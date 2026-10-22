@@ -2,18 +2,24 @@
 
 Every control period the module sets the setpoint to
 
-    min( power limit,  max( lowest stable feed,  ore arriving + (stockpile - reserve) / horizon ) )
+    min( ceiling,  max( lowest stable feed,  ore arriving + (stockpile - reserve) / horizon ) )
 
-- the power limit is the feed the installed mill power can grind at the
-  hardness of the ore on the stockpile, less a small margin; feeding more
-  would overload the mill. It is capped at the highest rate ОФ-1 has shown
-  (`plant_control.max_feed_tph`, the 2024 trials): with soft ore the power
-  would allow more, but the plant has never run faster;
+- the ceiling has two levels. The sustained one is what ОФ-1 processed on
+  average in 2024 (`plant_control.sustained_tph`: 28.67 Mt over 8,059 operating
+  hours, 3,557 t/h). Above it the module goes only in short peaks, up to the
+  2024 trial rate (`plant_control.max_feed_tph`, 3,902 t/h): a peak starts when
+  the stockpile is nearly full (`peak_from_pct`) and the crusher runs, lasts
+  while the stockpile holds above `peak_hold_pct`, and the shift has
+  `peak_h_shift` hours of it. The mill counts the minutes of the shift its
+  setpoint stood above the working rate (`mill.peak_min_shift`), so the shift
+  average stays within `shift_margin_pct` of the sustained ceiling. Both levels
+  are capped by the feed the installed mill power grinds at the hardness and
+  clay of the ore on the stockpile, less a small margin: feeding more would
+  overload the mill;
 - the second term lets the stockpile glide towards its reserve over the
-  horizon: with a full stockpile it exceeds the power limit, so the mill runs
-  as fast as its power allows; when the stockpile falls it shrinks to what
-  arrives, so the feed is cut early and smoothly instead of the mill running
-  flat out until it is empty;
+  horizon: with a full stockpile it exceeds the ceiling, so the mill runs at
+  the ceiling; when the stockpile falls it shrinks to what arrives, so the feed
+  is cut early and smoothly instead of the mill running until it is empty;
 - while the crusher is stopped and its twin says when it is expected back
   (`restart_expected_sim_time`) sooner than the horizon, the stockpile only has
   to last until then: the horizon is that time, so a stop the stockpile covers
@@ -26,8 +32,9 @@ Every control period the module sets the setpoint to
 With the setpoint the module publishes what it predicts for it: recovery
 (the flotation model of params.yaml) and the copper rate.
 
-Without the module the setpoint is the design rate, whatever the stockpile
-and the ore.
+Without the module the setpoint is the working rate (the same 3,557 t/h),
+whatever the stockpile and the ore: on hard or clay-rich ore the mill then
+overloads and stops.
 """
 from __future__ import annotations
 
@@ -54,9 +61,11 @@ class PlantCore(Core):
         self.capacity_t = float(w.spec(self.stockpile, "capacity_t"))
         self.design_tph = float(w.spec(self.mill, "design_tph"))
         self.min_tph = float(w.spec(self.mill, "min_feed_tph"))
-        # The module's ceiling: the highest feed the mill accepts, but never above what ОФ-1 has shown it can take
-        # (the 2024 trials, `plant_control.max_feed_tph`).
+        # The two levels of the ceiling: the sustained one, ОФ-1's 2024 average (`plant_control.sustained_tph`), and
+        # the peak one, the 2024 trial rate (`plant_control.max_feed_tph`), never above what the mill accepts.
+        self.sustained_tph = float(self.p["sustained_tph"])
         self.max_setpoint_tph = min(float(w.spec(self.mill, "max_setpoint_tph")), float(self.p["max_feed_tph"]))
+        self.peak_min = float(self.p["peak_h_shift"]) * 60.0
         self.reserve_t = self.p["reserve_pct"] / 100.0 * self.capacity_t
         self.restart()
 
@@ -68,7 +77,9 @@ class PlantCore(Core):
         self.next_control = 0.0
         self.setpoint = 0.0
         self.inflow_tph = 0.0
-        self.power_limit_tph = 0.0
+        self.power_limit_tph = 0.0                  # the ceiling of this round: sustained, peak or the power limit
+        self.peaking = False
+        self.peak_left_min = 0.0
         self.predicted = (0.0, 0.0)                 # recovery %, copper t/h
         self.last_cu: float | None = None
         self.stops_at_start: int | None = None
@@ -131,46 +142,82 @@ class PlantCore(Core):
         bwi = float(w.get(self.stockpile, "hardness_bwi", 0.0)) or float(w.get(self.mill, "feed_bwi", 14.0))
         grade = float(w.get(self.stockpile, "grade_pct", 0.0))
         max_feed = float(w.get(self.mill, "max_feed_tph", self.design_tph))
-        self.power_limit_tph = min(max_feed * self.p["power_margin"], self.max_setpoint_tph)
+        clay = float(w.get(self.stockpile, "clay_pct", 0.0))
+        level_pct = 100.0 * level / self.capacity_t
+        power_tph = max_feed * self.p["power_margin"]
+        # A peak above the sustained ceiling: only with the stockpile nearly full and the crusher running, while the
+        # shift has peak time left (the mill counts the minutes of the shift above its working rate).
+        self.peak_left_min = max(0.0, self.peak_min - float(w.get(self.mill, "peak_min_shift", 0.0)))
+        room = self.peak_left_min >= float(self.p["control_min"]) and w.get(self.crusher, "state") != "stopped"
+        threshold = self.p["peak_hold_pct"] if self.peaking else self.p["peak_from_pct"]
+        self.peaking = room and level_pct >= threshold and min(power_tph, self.max_setpoint_tph) > self.sustained_tph + 10.0
+        if power_tph < self.sustained_tph:
+            ceiling, kind = float(int(power_tph / 10.0) * 10), "power"
+        elif self.peaking:
+            ceiling, kind = float(int(min(power_tph, self.max_setpoint_tph) / 10.0) * 10), "peak"
+        else:
+            ceiling, kind = self.sustained_tph, "sustained"
+        self.power_limit_tph = ceiling
         # While the crusher is stopped and expected back sooner than the horizon, the stockpile only has to
         # last until then: the feed is not cut for a stop the stockpile covers.
         horizon_h, restart_h = float(self.p["horizon_h"]), self._restart_in_h(now)
         if restart_h is not None and restart_h < horizon_h:
             horizon_h = max(restart_h, 0.25)
         glide = self.inflow_tph + (level - self.reserve_t) / horizon_h
-        setpoint = min(self.power_limit_tph, max(self.min_tph, glide))
-        # In steps of 10 t/h, never below the lowest stable feed (rounded up to a step).
-        setpoint = max(float(int(setpoint / 10.0) * 10), math.ceil(self.min_tph / 10.0) * 10.0)
+        floor = math.ceil(self.min_tph / 10.0) * 10.0
+        # At the ceiling the setpoint is the ceiling itself (the sustained one is 3557, not a step of 10); below it
+        # the setpoint goes in steps of 10 t/h, never below the lowest stable feed (rounded up to a step).
+        setpoint = ceiling if glide >= ceiling else max(float(int(max(glide, self.min_tph) / 10.0) * 10), floor)
+        setpoint = max(min(setpoint, ceiling), floor)
         recovery = recovery_pct(self.params, grade, bwi, setpoint) if grade > 0 else 0.0
         self.predicted = (recovery, setpoint * grade / 100.0 * recovery / 100.0)
-        if setpoint >= self.power_limit_tph - 10.0:
-            reason = (f"склад заполнен на {100 * level / self.capacity_t:.0f} %, уставка на потолке модуля "
-                      f"{self.power_limit_tph:.0f} т/ч")
-        elif setpoint <= self.min_tph:
-            reason = (f"склад {100 * level / self.capacity_t:.0f} %, приход руды {self.inflow_tph:.0f} т/ч: "
+        pile = f"склад заполнен на {level_pct:.0f} %"
+        if setpoint >= ceiling - 10.0 and kind == "peak":
+            state = "peak"
+            reason = (f"{pile} — пик выше устойчивого потолка, пока склад не ниже {self.p['peak_hold_pct']:.0f} %; "
+                      f"пикового времени в этой смене осталось {self.peak_left_min:.0f} мин из {self.peak_min:.0f}")
+        elif setpoint >= ceiling - 10.0 and kind == "power":
+            state = "power"
+            reason = f"{pile}, уставка на пределе мельницы по мощности для этой руды"
+        elif setpoint >= ceiling - 10.0:
+            state = "sustained"
+            why = ("пиковое время смены израсходовано" if self.peak_left_min < float(self.p["control_min"])
+                   else "дробилка стоит" if w.get(self.crusher, "state") == "stopped"
+                   else f"пик начинается при складе от {self.p['peak_from_pct']:.0f} %")
+            reason = f"{pile}, уставка на устойчивом потолке модуля ({why})"
+        elif setpoint <= floor:
+            state = "min"
+            reason = (f"склад {level_pct:.0f} %, приход руды {self.inflow_tph:.0f} т/ч: "
                       f"наименьшее устойчивое питание")
         elif restart_h is not None and restart_h < float(self.p["horizon_h"]):
-            reason = (f"склад {100 * level / self.capacity_t:.0f} %, дробилка стоит: питание снижено, чтобы склад не "
+            state = "restart"
+            reason = (f"склад {level_pct:.0f} %, дробилка стоит: питание снижено, чтобы склад не "
                       f"опустился ниже {self.p['reserve_pct']:.0f} % до её ожидаемого пуска через {num(restart_h)} ч")
         else:
-            reason = (f"склад {100 * level / self.capacity_t:.0f} %, приход руды {self.inflow_tph:.0f} т/ч: питание снижено заранее, "
+            state = "glide"
+            reason = (f"склад {level_pct:.0f} %, приход руды {self.inflow_tph:.0f} т/ч: питание снижено заранее, "
                       f"чтобы склад не опустился ниже {self.p['reserve_pct']:.0f} % за {self.p['horizon_h']:.0f} ч")
         text = None
-        if abs(setpoint - self.setpoint) >= 30.0 or reason.split(":")[-1] != self.last_reason:
-            if self.power_limit_tph < max_feed * self.p["power_margin"] - 1.0:
-                ceiling = (f"наибольшая производительность ОФ-1 на испытаниях 2024 года "
-                           f"({num(float(self.p['max_feed_tph']), 0)} т/ч); предел мельницы по мощности {max_feed:.0f} т/ч")
+        if abs(setpoint - self.setpoint) >= 30.0 or state != self.last_reason:
+            if kind == "power":
+                ceiling_text = (f"Потолок модуля {ceiling:.0f} т/ч — {100 * self.p['power_margin']:.0f} % предела мельницы "
+                                f"по мощности {max_feed:.0f} т/ч при крепости {num(bwi)} кВт·ч/т и глинистости {num(clay)} %, "
+                                f"ниже устойчивого потолка {self.sustained_tph:.0f} т/ч")
             else:
-                ceiling = f"{100 * self.p['power_margin']:.0f} % предела мельницы по мощности {max_feed:.0f} т/ч"
-            text = (f"Уставка питания {setpoint:.0f} т/ч: {reason}. Потолок уставки модуля {self.power_limit_tph:.0f} т/ч — "
-                    f"{ceiling} при крепости {num(bwi)} кВт·ч/т; прогноз: извлечение {num(recovery)} %, медь "
-                    f"{num(self.predicted[1], 2)} т/ч.")
-            self.last_reason = reason.split(":")[-1]
+                ceiling_text = (f"Устойчивый потолок {self.sustained_tph:.0f} т/ч — средняя производительность ОФ-1 за "
+                                f"2024 год; пик до {int(min(power_tph, self.max_setpoint_tph) / 10.0) * 10:.0f} т/ч "
+                                f"(испытания 2024 года — {num(float(self.p['max_feed_tph']), 0)} т/ч) только при складе от "
+                                f"{self.p['peak_from_pct']:.0f} % и не дольше {num(self.peak_min / 60.0, 0)} ч за смену; "
+                                f"предел мельницы по мощности {max_feed:.0f} т/ч при крепости {num(bwi)} кВт·ч/т")
+            text = (f"Уставка питания {setpoint:.0f} т/ч: {reason}. {ceiling_text}; прогноз: извлечение {num(recovery)} %, "
+                    f"медь {num(self.predicted[1], 2)} т/ч.")
+            self.last_reason = state
         self.setpoint = setpoint
         self.send(self.mill, "set-feed-rate", {"tph": setpoint}, text)
 
     def revert(self) -> list[Message]:
         self.next_control, self.setpoint, self.predicted, self.last_reason = 0.0, 0.0, (0.0, 0.0), ""
+        self.peaking = False
         return [(self.mill, "release", {})]
 
     def switched_on(self) -> None:
@@ -207,6 +254,9 @@ class PlantCore(Core):
         return {
             "feed_setpoint_tph": round(self.setpoint) if self.enabled else 0,
             "power_limit_tph": round(self.power_limit_tph) if self.enabled else 0,
+            "sustained_tph": round(self.sustained_tph),
+            "peak_tph": int(self.max_setpoint_tph / 10.0) * 10,          # the peak setpoint, in steps of 10 t/h
+            "peak_left_min": round(max(0.0, self.peak_min - float(w.get(self.mill, "peak_min_shift", 0.0)))),
             "ore_inflow_tph": round(self.inflow_tph) if self.enabled else 0,
             "hours_of_feed": round(level / rate, 1) if rate > 0 else 0.0,
             "predicted_recovery_pct": round(self.predicted[0], 1),
@@ -218,6 +268,7 @@ class PlantCore(Core):
         text = self.effect_sentence() + self.since_text("медь в концентрате", "т/ч", 2)
         if self.enabled and self.tally.hours(True) > 0:
             stops = int(self.world.get(self.mill, "stops_total", 0)) - (self.stops_at_start or 0)
-            text += (f" Сверх проектной производительности {self.design_tph:.0f} т/ч за это время переработано "
+            text += (f" Сверх устойчивого потолка {self.design_tph:.0f} т/ч (средняя производительность ОФ-1 за 2024 год) "
+                     f"за это время переработано "
                      f"{self.extra_t:+.0f} т руды (около {num(self.extra_cu_t, 1)} т меди); остановок мельницы: {max(stops, 0)}.")
         return text

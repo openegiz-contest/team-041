@@ -31,8 +31,14 @@ def week(modules: tuple[str, ...] = (), days: int = 7, seed: int | None = None) 
     longest_message_gap = 0
     drilled_at_start = sum(r.metres for r in sim.pit.rigs)
     rig_standby_s = 0
+    # Each full shift: tonnes the mill ground and minutes its setpoint stood above the working rate.
+    shift_at, shift_t, peak_s, shifts = sim.shift_index, plant.mill.total_t, 0.0, []
     for step in range(days * 24 * 3600):
+        peak_s = plant.mill.peak_s_shift
         sim.step()
+        if sim.shift_index != shift_at:
+            shifts.append((plant.mill.total_t - shift_t, peak_s / 60.0))
+            shift_at, shift_t = sim.shift_index, plant.mill.total_t
         rig_standby_s += sum(1 for r in sim.pit.rigs if r.state == "standby")
         if int(sim.now) % rig.period_s == 0:
             rig.exchange()
@@ -104,6 +110,9 @@ def week(modules: tuple[str, ...] = (), days: int = 7, seed: int | None = None) 
         "cu_tph": site_cu / hours,
         "mill_stops": mill.stops,
         "mill_kwh_t": mill.energy_kwh / mill.total_t,
+        # Full shifts only: the first one may have begun before the run (a model warmed up to mid-shift).
+        "shift_tph": [t / 12.0 for t, _ in shifts[1:]],
+        "shift_peak_min": [m for _, m in shifts[1:]],
         "truck_availability_pct": 100.0 * (1.0 - kpis.unavailable_s / kpis.truck_s),
         "use_of_available_pct": 100.0 * kpis.productive_s / (kpis.truck_s - kpis.unavailable_s),
         "breakdowns": sim.reliability.breakdowns,
@@ -145,5 +154,15 @@ def weeks(configs: list[tuple[str, ...]]) -> dict[tuple[str, ...], dict]:
     return {c: _WEEKS[c] for c in configs}
 
 
-# The module sets the test suite runs for a week: none, each module alone, all four.
-WEEK_CONFIGS = [(), *((name,) for name in ALL), ALL]
+# The module sets the test suite runs for a week: none, each module alone, all four, and all but plant control
+# (plant control peaks only with a full stockpile, which the other modules bring about).
+ALL_BUT_PLANT = tuple(name for name in ALL if name != "plant")
+WEEK_CONFIGS = [(), *((name,) for name in ALL), ALL, ALL_BUT_PLANT]
+
+
+def shift_ceiling_tph(params: dict, shift_h: float = 12.0) -> float:
+    """The highest shift average plant control allows: the sustained ceiling, plus the shift's peak hours at the
+    peak ceiling (in steps of 10 t/h) instead of the sustained one."""
+    p = params["plant_control"]
+    peak = min(int(p["max_feed_tph"] / 10.0) * 10.0, params["mill"]["design_tph"] * params["mill"]["setpoint_max_factor"])
+    return p["sustained_tph"] + p["peak_h_shift"] / shift_h * (peak - p["sustained_tph"])

@@ -16,7 +16,7 @@ from mine.sim.forecast import ForecastDesk
 from mine.model.build_twins import load_params
 from mine.modules.base import short
 from mine.sim.reliability import Fault
-from mine.tests.coupled import ALL, WEEK_CONFIGS, Coupled, weeks
+from mine.tests.coupled import ALL, ALL_BUT_PLANT, WEEK_CONFIGS, Coupled, shift_ceiling_tph, weeks
 from mine.tests.test_model import NS, THINGS, UNITS, new_sim, run, texts
 
 PARAMS = load_params()
@@ -65,13 +65,47 @@ class Effects(unittest.TestCase):
         # Clay: the feed of ОФ-1 keeps within the module's clay limit.
         self.assertLessEqual(on["ofs1_clay_pct"], PARAMS["grade_control"]["clay_limit_pct"])
 
-    def test_plant_control_produces_more_copper_without_mill_stops(self):
+    def test_plant_control_alone_costs_nothing(self):
+        """Alone, plant control finds the stockpile at 40-65 %: the fixed plan seldom fills it to the 65 % a peak
+        needs, and the mill at its working rate is not overloaded. The module keeps the sustained ceiling, which is
+        the working rate itself, so the week is about the same as without it, never worse."""
         off, on = effect("plant")
-        show("Plant control", off, on, ("cu_t", "cu_tph", "ore_milled_t", "mill_feed_pct_of_design", "recovery_pct",
-                                        "mill_kwh_t", "mill_stops", "lowest_stockpile_t"))
-        self.assertGreater(on["cu_t"], 1.03 * off["cu_t"])
+        show("Plant control alone", off, on, ("cu_t", "cu_tph", "ore_milled_t", "mill_feed_pct_of_design", "recovery_pct",
+                                              "mill_kwh_t", "mill_stops", "lowest_stockpile_t"))
+        self.assertGreaterEqual(on["cu_t"], 0.999 * off["cu_t"])
         self.assertLessEqual(on["mill_stops"], off["mill_stops"])
-        self.assertGreater(on["ore_milled_t"], off["ore_milled_t"])
+        self.assertGreaterEqual(on["ore_milled_t"], 0.999 * off["ore_milled_t"])
+
+    def test_plant_control_peaks_when_the_stockpile_is_full(self):
+        """With the other modules on, the stockpile fills: the module adds short peaks up to the 2024 trial rate,
+        within the peak hours of each shift, and the copper of the ore they grind."""
+        runs = weeks(WEEK_CONFIGS)
+        off, on = runs[ALL_BUT_PLANT], runs[ALL]
+        show("Plant control with the other three modules", off, on,
+             ("cu_t", "cu_tph", "ore_milled_t", "mill_feed_pct_of_design", "recovery_pct", "mill_stops", "rom_pads_t"))
+        self.assertGreater(on["cu_t"], 1.003 * off["cu_t"])
+        self.assertGreater(on["ore_milled_t"], 1.01 * off["ore_milled_t"])
+        self.assertLessEqual(on["mill_stops"], off["mill_stops"])
+        self.assertGreater(max(on["shift_peak_min"]), 60.0)
+
+    def test_every_shift_keeps_within_the_sustained_ceiling_and_its_margin(self):
+        """The shift average with plant control is at most the sustained ceiling (ОФ-1's 2024 average) plus the
+        stated margin; the minutes above it are at most the shift's peak hours (plus one control period, the
+        round in which the budget runs out)."""
+        p = PARAMS["plant_control"]
+        bound = shift_ceiling_tph(PARAMS)
+        self.assertAlmostEqual(100.0 * (bound / p["sustained_tph"] - 1.0), p["shift_margin_pct"], delta=0.05)
+        self.assertEqual(p["sustained_tph"], PARAMS["mill"]["design_tph"])     # the working rate, without the module
+        runs = weeks(WEEK_CONFIGS)
+        for config in WEEK_CONFIGS:
+            if "plant" not in config:
+                continue
+            r = runs[config]
+            print(f"\n{r['modules']}: shift averages {min(r['shift_tph']):.0f}-{max(r['shift_tph']):.0f} t/h (bound "
+                  f"{bound:.0f}), minutes above {p['sustained_tph']:.0f} t/h per shift up to {max(r['shift_peak_min']):.0f}")
+            self.assertGreaterEqual(len(r["shift_tph"]), 12)
+            self.assertLessEqual(max(r["shift_tph"]), bound + 2.0, config)
+            self.assertLessEqual(max(r["shift_peak_min"]), 60.0 * p["peak_h_shift"] + p["control_min"] + 1.0, config)
 
     def test_maintenance_raises_availability_and_prevents_failures(self):
         off, on = effect("maint")

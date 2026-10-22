@@ -242,8 +242,12 @@ class Desk(unittest.TestCase):
         self.assertTrue(twin["summary_text"].startswith("Прогноз на 12 ч от"), twin["summary_text"][:60])
         self.assertIn(twin["verdict_text"], twin["summary_text"])
         # The copper difference is explained: tonnes milled and head grade, the sources of the mill's ore, the fleet work.
-        for phrase in ("Медь ", "переработано руды", "Руда на мельницу", "Добыто руды", "работа парка"):
+        # The tonnes milled are named when they differ: with the stockpile the stand holds, the plant-control module
+        # at its sustained ceiling may feed the mill alike in both branches through a closure of 6 hours.
+        for phrase in ("Медь ", "Руда на мельницу", "Добыто руды", "работа парка"):
             self.assertIn(phrase, twin["copper_text"])
+        if abs(twin["b_milled_t"] - twin["a_milled_t"]) >= 50:
+            self.assertIn("переработано руды", twin["copper_text"])
         self.assertIn(twin["copper_text"], twin["summary_text"])
         self.assertEqual(sim.scenarios["scenario-road-closure"].status, "inactive")    # only the branch closed the road
         self.assertLess(latency, 60.0)

@@ -13,8 +13,9 @@ Ranges and why:
     clay_share_pct           8-26 %       clay ore in the ore mined: 14.2-30.5 % in 2019-2025, 17.1 % in 2024
     mill_kwh_t               16.5-22      17.7 kWh/t at the reference hardness; harder blocks draw more
     strip_ratio              0.35-0.75    waste per tonne of ore and low-grade ore, 0.545 by design (0.7 with the low-grade)
-    annual_ore_mt            28.0-29.3    ОФ-1: 28.67 Mt derived for 2024 (no modules: the mill at its setpoint)
-    annual_processed_mt      33.8-35.6    both plants: 34.755 Mt processed in 2024
+    annual_ore_mt            28.0-29.3    ОФ-1: 28.67 Mt derived for 2024 (no modules: the mill at its setpoint);
+                                          with plant control at most 1.6 % more (peaks of 2 h a shift)
+    annual_processed_mt      33.8-35.6    both plants: 34.755 Mt processed in 2024; with plant control as above
     annual_cu_kt             ±10 %        copper in concentrate 2024: 109.6 kt
     rock_vs_required         1.00-1.30    the fleet carries what the plants need, with its 10 % reserve and a little over
     use_of_available_pct     70-88 %      the design basis assumes 80 % (crew change, meal break, refuelling, queues)
@@ -23,12 +24,15 @@ Ranges and why:
 import unittest
 
 from mine.model.build_twins import full_power_fuel_lph, load_params
-from mine.tests.coupled import ALL, WEEK_CONFIGS, weeks
+from mine.tests.coupled import ALL, WEEK_CONFIGS, shift_ceiling_tph, weeks
 
 PARAMS = load_params()
 FULL = full_power_fuel_lph(PARAMS)
 HOURS_A_YEAR = 8760 * PARAMS["plan"]["plant_availability"]
 CU_KT = 109.6                                   # Bozshakol, copper in concentrate 2024 (both plants)
+# Plant control feeds at most this much above the working rate over a shift: its peaks, 2 h a shift at the
+# 2024 trial rate (`plant_control.shift_margin_pct`); a week is a run of such shifts.
+PEAK = shift_ceiling_tph(PARAMS) / PARAMS["mill"]["design_tph"]
 COMMON = {
     "cycle_min": (15.0, 30.0),
     "fuel_lph": (PARAMS["truck"]["cycle_load_factor_min"] * FULL, PARAMS["truck"]["cycle_load_factor_max"] * FULL),
@@ -48,11 +52,12 @@ COMMON = {
 RANGES = {
     (): {**COMMON, "mill_feed_pct_of_design": (99.0, 100.0 + 1e-6), "truck_availability_pct": (82.0, 92.0),
          "annual_ore_mt": (28.0, 29.3), "annual_processed_mt": (33.8, 35.6), "annual_cu_kt": (0.9 * CU_KT, 1.1 * CU_KT)},
-    # Plant control may feed up to the setpoint limit; maintenance keeps more trucks available.
-    ALL: {**COMMON, "mill_feed_pct_of_design": (100.0, 100.0 * PARAMS["mill"]["setpoint_max_factor"]),
-          "truck_availability_pct": (90.0, 98.0), "annual_ore_mt": (28.0, 28.67 * PARAMS["mill"]["setpoint_max_factor"]),
-          "annual_processed_mt": (33.8, 34.755 * PARAMS["mill"]["setpoint_max_factor"]),
-          "annual_cu_kt": (0.9 * CU_KT, 1.2 * CU_KT)},
+    # Plant control feeds at the sustained ceiling (the 2024 average) with short peaks: at most PEAK times the
+    # working rate over the week; maintenance keeps more trucks available.
+    ALL: {**COMMON, "mill_feed_pct_of_design": (100.0, 100.0 * PEAK + 0.05),
+          "truck_availability_pct": (90.0, 98.0), "annual_ore_mt": (28.0, 28.67 * PEAK + 0.01),
+          "annual_processed_mt": (33.8, 34.755 * PEAK + 0.01),
+          "annual_cu_kt": (0.9 * CU_KT, 1.1 * CU_KT)},
 }
 SHOWN = ("trips", "queue_min_per_trip", "tonnes_moved", "ore_mined_t", "waste_mined_t", "rom_pads_t", "ore_milled_t",
          "clay_milled_t", "clay_head_grade_pct", "ofs1_clay_pct", "clay_stock_t", "cu_ofs1_t",
