@@ -109,12 +109,13 @@ try {
       const grid = document.querySelector('.concept');
       if (!grid) return;
       let size = 16;
-      const over = () => grid.scrollHeight > grid.clientHeight + 1;
+      // A box can overflow into its neighbour while the grid itself still fits, so every box is checked too.
+      const over = () => [grid, ...grid.querySelectorAll('.q')].some((box) => box.scrollHeight > box.clientHeight + 1);
       while (over() && size > 10.5) { size -= 0.5; grid.style.setProperty('--concept-size', size + 'px'); }
     })()`);
     await sleep(300);
     const pages = await page.evaluate('document.querySelectorAll(".slide").length');
-    const overflow = await page.evaluate(`[...document.querySelectorAll('.slide')].map((s, i) => [i + 1, s.scrollHeight > s.clientHeight + 1 || s.scrollWidth > s.clientWidth + 1]).filter(([, o]) => o).map(([i]) => i)`);
+    const overflow = await page.evaluate(`[...document.querySelectorAll('.slide')].map((s, i) => [i + 1, [s, ...s.querySelectorAll('.concept .q')].some((b) => b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1)]).filter(([, o]) => o).map(([i]) => i)`);
     // The laid-out page, with the fitted Concept type, is what gets printed.
     writeFileSync(join(work, 'slides.html'), `<!doctype html>
 ${await page.evaluate('document.documentElement.outerHTML')}`);
