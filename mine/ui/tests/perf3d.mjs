@@ -1,7 +1,8 @@
 // Cost of the 3D view in headless Chrome without a graphics card: when the
 // first frame of the mine is drawn, frames per second and the cost of a
-// frame drawn to the end while the camera turns, and what the scene draws
-// while the camera stands still, for each window size.
+// frame drawn to the end while the camera turns (at the points of view
+// «Обзор», «Забои», «Фабрика» and «Разрез»), and what the scene draws while
+// the camera stands still, for each window size.
 //
 //   node mine/ui/tests/perf3d.mjs [base URL] [sizes, e.g. 1280x720,1920x1080]
 //
@@ -58,6 +59,8 @@ for (const [width, height] of sizes) {
     await measure('overview', 'overview');
     await measure('faces', 'faces');
     await measure('plant', 'plant');
+    // «Разрез»: the site as a block cut out of the ground (built at the first press; the overview leaves it).
+    if (await page.evaluate('window.minePlan.scene().canCutaway')) await measure('cutaway', 'cut');
     await page.evaluate('window.minePlan.scene().preset("overview")');
     await sleep(2500);
     await page.evaluate('window.minePlan.scene().frameStats()');

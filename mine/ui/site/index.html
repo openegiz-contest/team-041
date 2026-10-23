@@ -25,6 +25,15 @@
       </div>
       <div class="scale-bar" id="scale-bar" aria-hidden="true"><span id="scale-line"></span><span id="scale-text"></span></div>
       <div class="plan-tip" id="plan-tip" hidden></div>
+      <aside class="cut-legend glass" id="cut-legend" aria-label="Разрез: условные обозначения" hidden>
+        <h2>Разрез: что под карьером</h2>
+        <ul>
+          <li><span class="sw cut-sw" style="--c: var(--cut-clayOre)"></span>глинистая (каолинизированная) руда</li>
+          <li><span class="sw cut-sw" style="--c: var(--cut-ore)"></span>сульфидная руда</li>
+          <li><span class="sw cut-sw cut-sw-waste"></span>пустая порода <span class="cut-note">(сверху — каолинизированная)</span></li>
+        </ul>
+        <div class="cut-text"><p id="cut-caption"></p><p class="cut-note" id="cut-source"></p></div>
+      </aside>
     </div>
   </main>
 
@@ -119,6 +128,7 @@
       <button type="button" data-camera="faces" aria-pressed="false">Забои</button>
       <button type="button" data-camera="ramps" aria-pressed="false">Съезды</button>
       <button type="button" data-camera="plant" aria-pressed="false">Фабрика</button>
+      <button type="button" data-camera="cut" aria-pressed="false" title="Разрез: площадка блоком, вырезанным из земли, — на гранях глинистая (каолинизированная) руда у поверхности, сульфидная руда под карьером и пустая порода; ещё раз — вернуться к прежнему виду">Разрез</button>
     </div>
     <div class="seg" role="group" aria-label="Масштаб">
       <button type="button" data-zoom="out" aria-label="Отдалить">−</button>

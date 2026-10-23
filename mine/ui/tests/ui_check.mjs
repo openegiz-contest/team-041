@@ -21,6 +21,11 @@
 //      overlapping each other or the page's panels; «Реалистичный» switches
 //      the look (no panels), keeps the choice and writes ?style=realistic in
 //      the address, «Голограмма» brings it back; ?style=realistic opens it;
+//  2c. «Разрез» shows the site as a block cut out of the ground: the block is
+//      drawn (and only it), the layers are named on its face, the legend names
+//      the three rocks, it keeps 15 frames a second while it turns, in both
+//      looks; «Разрез» again brings back the view and the scene as they were,
+//      and another point of view leaves it too;
 //   3. the ribbon of figures: six of them, each opens its detail with the
 //      process chain, and the chain shows the same rates as the figures;
 //   4. the object list is a drawer, closed by default; it holds every twin of
@@ -327,6 +332,68 @@ try {
     kept: (() => { try { return localStorage.getItem('bozshakol.style3d'); } catch { return null; } })(), panels: window.minePlan.scene().panels().length })`);
   check(back.style === 'hologram' && back.url === null && back.kept === 'hologram' && back.panels > 0,
     `«Голограмма» brings the hologram back with its panels (${back.panels}), kept «${back.kept}», no ?style in the address`);
+  // 2c. «Разрез»: the site as a block cut out of the ground, and back.
+  {
+    await page.click('[data-camera="overview"]');
+    await sleep(1800);
+    const sceneState = `(() => { const s = window.minePlan.scene(); const p = s.probe(); return { camera: p.camera, meshes: p.meshes, filled: p.filled, style: s.style,
+      cut: s.cutaway(), labels: s.cutLabels(), panels: s.panels().length,
+      pressed: document.querySelector('[data-camera="cut"]').getAttribute('aria-pressed'),
+      legend: (() => { const n = document.querySelector('#cut-legend'); return { shown: !n.hidden && n.getClientRects().length > 0, items: [...n.querySelectorAll('li')].map((li) => li.textContent.trim()), caption: n.querySelector('#cut-caption').textContent }; })() }; })()`;
+    const before = await page.evaluate(sceneState);
+    const t0 = Date.now();
+    await page.click('[data-camera="cut"]');
+    await page.waitFor('window.minePlan.scene().cutaway().on', 20000, 'the cutaway').catch(() => {});
+    const builtMs = Date.now() - t0;
+    await sleep(2500);
+    const inCut = await page.evaluate(sceneState);
+    const captionsCut = await page.evaluate('window.minePlan.scene().captions()');
+    const names = ['глинистая (каолинизированная) руда', 'сульфидная руда', 'пустая порода'];
+    console.log(`      «Разрез»: built and shown ${builtMs} ms after the click; block ${Math.round(inCut.cut.sizeX ?? 0)} × ${Math.round(inCut.cut.sizeY ?? 0)} m, ${inCut.cut.depth} m deep; ${(100 * inCut.filled).toFixed(0)} % of the picture is the block; labels: ${inCut.labels.map((l) => l.text).join(', ')}`);
+    check(inCut.cut.on && inCut.pressed === 'true' && inCut.filled > 0.12 && inCut.filled < before.filled && inCut.labels.length >= 2 && inCut.panels === 0
+      && inCut.legend.shown && names.every((name, i) => inCut.legend.items[i]?.startsWith(name)) && inCut.legend.caption.length > 40 && overlaps(captionsCut) === 0,
+    `«Разрез» shows the block (${(100 * inCut.filled).toFixed(0)} % of the picture, the whole site ${(100 * before.filled).toFixed(0)} %), names ${inCut.labels.length} layers on its face, its legend lists ${inCut.legend.items.length} rocks, ${captionsCut.length} captions, overlaps ${overlaps(captionsCut)}`);
+    // Turning the block: it stays, at 15 frames a second or more.
+    await page.evaluate('window.minePlan.scene().setTiming(true); window.minePlan.scene().frameStats()');
+    const until = Date.now() + 8000;
+    let k = 0;
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: centre.x, y: centre.y, button: 'left', clickCount: 1 });
+    while (Date.now() < until) {
+      k += 1;
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: centre.x + 120 * Math.sin(k / 20), y: centre.y + 15 * Math.sin(k / 31), button: 'left', buttons: 1 });
+      await sleep(16);
+    }
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: centre.x, y: centre.y, button: 'left', clickCount: 1 });
+    const cutTurning = await page.evaluate('window.minePlan.scene().frameStats()');
+    await page.evaluate('window.minePlan.scene().setTiming(false)');
+    const cutFps = cutTurning.frames / cutTurning.seconds;
+    const turned = await page.evaluate(sceneState);
+    check(cutFps >= 15 && turned.cut.on && turned.pressed === 'true',
+      `«Разрез» keeps at least 15 frames a second while the block turns (${cutFps.toFixed(1)}, ${cutTurning.triangles} triangles, ${cutTurning.drawCalls} draw calls) and stays on`);
+    await page.click('#style-buttons [data-style="realistic"]');
+    await sleep(1500);
+    const cutReal = await page.evaluate(sceneState);
+    await page.click('#style-buttons [data-style="hologram"]');
+    await sleep(1500);
+    check(cutReal.style === 'realistic' && cutReal.cut.on && cutReal.filled > 0.12 && cutReal.legend.shown,
+      `«Разрез» works in the realistic look too (${(100 * cutReal.filled).toFixed(0)} % of the picture is the block)`);
+    // «Разрез» again: the view before it and the scene as it was.
+    await page.click('[data-camera="cut"]');
+    await sleep(1800);
+    const after = await page.evaluate(sceneState);
+    const sameCamera = ['x', 'y', 'z', 'distance', 'azimuth', 'elevation'].every((key) => Math.abs(after.camera[key] - before.camera[key]) < (key === 'azimuth' || key === 'elevation' ? 1e-3 : 0.5));
+    const sameMeshes = Object.keys(before.meshes).filter((key) => !['machines', 'events', 'marks', 'blast'].includes(key)).every((key) => before.meshes[key] === after.meshes[key]);
+    check(!after.cut.on && after.pressed === 'false' && !after.legend.shown && sameCamera && sameMeshes && Math.abs(after.filled - before.filled) < 0.05 && after.panels > 0,
+      `«Разрез» again brings back the view before it (camera ${sameCamera ? 'the same' : `moved: ${JSON.stringify(after.camera)} vs ${JSON.stringify(before.camera)}`}) and the scene as it was (meshes ${sameMeshes ? 'the same' : 'differ'}, ${(100 * after.filled).toFixed(0)} % drawn, ${after.panels} panels, legend hidden)`);
+    await page.click('[data-camera="cut"]');
+    await page.waitFor('window.minePlan.scene().cutaway().on', 20000, 'the cutaway').catch(() => {});
+    await sleep(1200);
+    await page.click('[data-camera="faces"]');
+    await sleep(1500);
+    const left = await page.evaluate(sceneState);
+    check(!left.cut.on && left.pressed === 'false' && !left.legend.shown && left.camera.distance < 1000,
+      `another point of view («Забои») leaves «Разрез» (${left.camera.distance.toFixed(0)} m from the face)`);
+  }
   // Frame cost while the camera turns all the time (drawn to the end of each frame).
   await page.click('[data-camera="overview"]');
   await sleep(1500);
@@ -845,13 +912,13 @@ try {
     await soft.goto(`${base}/`);
     await soft.waitFor('window.minePlan?.scene?.()?.firstFrameAt > 0', 60000, 'the 2D-canvas scene').catch(() => {});
     await sleep(4000);
-    const result = await soft.evaluate('(() => { const s = window.minePlan.scene(); const p = s.probe(); return { soft: p.soft, filled: p.filled, triangles: p.triangles, note: document.querySelector("#scene-note").textContent }; })()').catch((error) => ({ error: error.message }));
+    const result = await soft.evaluate('(() => { const s = window.minePlan.scene(); const p = s.probe(); return { soft: p.soft, filled: p.filled, triangles: p.triangles, note: document.querySelector("#scene-note").textContent, cutHidden: document.querySelector("[data-camera=cut]").hidden }; })()').catch((error) => ({ error: error.message }));
     await soft.evaluate('window.minePlan.scene().frameStats()').catch(() => {});
     await sleep(5000);
     const stats = await soft.evaluate('window.minePlan.scene().frameStats()').catch(() => ({ frames: 0, seconds: 1, avgCostMs: 0 }));
     console.log(`      without WebGL: ${result.triangles} triangles on a 2D canvas, ${(100 * (result.filled ?? 0)).toFixed(0)} % of the picture drawn; ${stats.frames} frames in ${stats.seconds.toFixed(0)} s, ${stats.avgCostMs.toFixed(0)} ms each`);
-    check(result.soft === true && result.filled > 0.3 && /WebGL/.test(result.note ?? '') && softProblems.length === 0,
-      `without WebGL the 3D view is drawn on a 2D canvas and says so («${result.note ?? result.error}»)${softProblems.length ? `; problems: ${softProblems.join('; ')}` : ''}`);
+    check(result.soft === true && result.filled > 0.3 && /WebGL/.test(result.note ?? '') && result.cutHidden === true && softProblems.length === 0,
+      `without WebGL the 3D view is drawn on a 2D canvas and says so («${result.note ?? result.error}»), without «Разрез»${softProblems.length ? `; problems: ${softProblems.join('; ')}` : ''}`);
   } catch (error) {
     check(false, `the check without WebGL stopped: ${error.message}`);
   } finally {

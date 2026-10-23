@@ -59,10 +59,14 @@ const FOG_UNIFORMS = () => ({ uFog: { value: lin(HOLO.fog) }, uFogNear: { value:
 // Opaque ground-like surfaces: a colour for walls, one for flats, a soft key
 // from the south-west, a rim glow at grazing angles and, on the floor, a grid.
 const SURFACE_VERTEX = `
+  #include <clipping_planes_pars_vertex>
   varying vec3 vW; varying vec3 vN; varying vec3 vV;
   void main() {
     vec4 w = modelMatrix * vec4(position, 1.0);
     vW = w.xyz;
+  #if NUM_CLIPPING_PLANES > 0
+    vClipPosition = -(viewMatrix * w).xyz;
+  #endif
     vN = normalize(mat3(modelMatrix) * normal);
     vV = cameraPosition - w.xyz;
     gl_Position = projectionMatrix * viewMatrix * w;
@@ -72,7 +76,9 @@ const SURFACE_FRAGMENT = `
   uniform vec3 uGrid; uniform float uGridK; uniform float uGridStep; uniform vec3 uTint;
   uniform vec3 uFog; uniform float uFogNear; uniform float uFogFar;
   varying vec3 vW; varying vec3 vN; varying vec3 vV;
+  #include <clipping_planes_pars_fragment>
   void main() {
+    #include <clipping_planes_fragment>
     vec3 N = normalize(vN);
     if (!gl_FrontFacing) N = -N;
     float dist = length(vV);
@@ -120,6 +126,7 @@ const GLASS_VERTEX = `
   attribute vec3 albedo;
   #endif
   varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec3 vTint; varying float vLum;
+  #include <clipping_planes_pars_vertex>
   void main() {
     vec4 p = vec4(position, 1.0);
     vec3 n = normal;
@@ -129,6 +136,9 @@ const GLASS_VERTEX = `
   #endif
     vec4 w = modelMatrix * p;
     vW = w.xyz;
+  #if NUM_CLIPPING_PLANES > 0
+    vClipPosition = -(viewMatrix * w).xyz;
+  #endif
     vN = normalize(mat3(modelMatrix) * n);
     vV = cameraPosition - w.xyz;
     vTint = vec3(1.0);
@@ -154,7 +164,9 @@ const GLASS_FRAGMENT = `
   varying vec3 vBary;
   #endif
   varying vec3 vW; varying vec3 vN; varying vec3 vV; varying vec3 vTint; varying float vLum;
+  #include <clipping_planes_pars_fragment>
   void main() {
+    #include <clipping_planes_fragment>
     vec3 N = normalize(vN);
     if (!gl_FrontFacing) N = -N;
     float dist = length(vV);
@@ -203,6 +215,7 @@ function surface({ flat, wall, rim = HOLO.rim, rimK = 0.5, grid = false, gridK =
     fragmentShader: SURFACE_FRAGMENT,
     defines: grid ? { GRID: '' } : {},
     side: THREE.DoubleSide,
+    clipping: true,          // clipped only when the renderer has clipping planes (the «Разрез» view)
   });
   material.userData.holo = 'surface';
   return material;
@@ -218,6 +231,7 @@ function glass({ color = HOLO.glass, opacity = 0.28, edges = false, tint = false
     vertexShader: GLASS_VERTEX,
     fragmentShader: GLASS_FRAGMENT,
     defines,
+    clipping: true,
     transparent: true,
     depthWrite,
     side,

@@ -37,6 +37,12 @@ function wireTools() {
   }
   for (const button of $$('#camera-buttons [data-camera]')) {
     button.addEventListener('click', () => {
+      // «Разрез» is a view of the 3D scene only: it presses itself while it is shown (event mine:cutaway).
+      if (button.dataset.camera === 'cut') {
+        if (views.mode() === '3d') views.scene()?.preset('cut');
+        else Promise.resolve(views.setMode('3d')).then(() => { if (views.mode() === '3d') views.scene()?.preset('cut'); });
+        return;
+      }
       for (const other of $$('#camera-buttons [data-camera]')) other.setAttribute('aria-pressed', String(other === button));
       if (views.mode() === '3d') views.scene()?.preset(button.dataset.camera);
       else if (PLAN_VIEW[button.dataset.camera] === 'all') map.fitAll();
@@ -44,7 +50,9 @@ function wireTools() {
     });
   }
   // A point of view stays pressed only until the camera is moved some other way.
-  const unpress = () => { for (const other of $$('#camera-buttons [data-camera]')) other.setAttribute('aria-pressed', 'false'); };
+  // «Разрез» stays on while the block is turned: it stays pressed.
+  const unpress = () => { for (const other of $$('#camera-buttons [data-camera]:not([data-camera="cut"])')) other.setAttribute('aria-pressed', 'false'); };
+  document.addEventListener('mine:cutaway', (event) => showCutaway(event.detail));
   for (const node of [$('#scene-gl'), $('#plan-live')]) {
     node.addEventListener('pointerdown', unpress);
     node.addEventListener('wheel', unpress, { passive: true });
@@ -105,6 +113,7 @@ export function showMode(mode) {
   $('#plan-view').dataset.shown = three ? '3d' : 'plan';
   $('[data-layer="none"]').hidden = !three;
   $('#style-buttons').hidden = !three;
+  $('#camera-buttons [data-camera="cut"]').hidden = !three || views.scene()?.canCutaway === false;
   if (!three && layer === 'none') {
     for (const other of $$('#layer-buttons [data-layer]')) other.setAttribute('aria-pressed', String(other.dataset.layer === 'status'));
   } else {
@@ -117,6 +126,23 @@ export function showMode(mode) {
 
 // Tell the plan and the 3D view what the panels cover: rectangles for the
 // captions to keep out of, and insets for framing views.
+// «Разрез»: its legend and caption while it is shown, the button pressed with it.
+function showCutaway(info) {
+  const on = Boolean(info?.on);
+  $('#camera-buttons [data-camera="cut"]').setAttribute('aria-pressed', String(on));
+  if (on) for (const other of $$('#camera-buttons [data-camera]:not([data-camera="cut"])')) other.setAttribute('aria-pressed', 'false');
+  const box = $('#cut-legend');
+  if (on) {
+    for (const [key, color] of Object.entries(info.colors ?? {})) box.style.setProperty(`--cut-${key}`, color);
+    const km = (m) => formatNumber(m / 1000, 1);
+    $('#cut-caption').textContent = `Блок ${km(info.sizeX)} × ${km(info.sizeY)} км на ${formatNumber(info.depth, 0)} м вглубь, передняя грань — вдоль карьера. `
+      + `Каолинизация затухает с глубиной (вдвое за ${formatNumber(info.weatheringM * Math.LN2, 0)} м) и сильнее на западе — поэтому глинистая руда идёт с верхних уступов.`;
+    $('#cut-source').textContent = `Глинистость — по правилу модели месторождения и ${info.blocks} блокам-двойникам; рудное тело — схема (класс совпадает у ${info.bodyAgree} из ${info.blocks} блоков).`;
+  }
+  box.hidden = !on;
+  reportOverlays();
+}
+
 export function reportOverlays() {
   const stage = $('#stage').getBoundingClientRect();
   const ribbon = $('#ribbon').getBoundingClientRect();
@@ -143,10 +169,13 @@ export function reportOverlays() {
   add($('#layers'));
   add($('#journal-panel'));
   add($('#scale-bar'));
+  const cutLegend = add($('#cut-legend'));
   const stack = $('#control').getBoundingClientRect();
   const dock = $('#dock').getBoundingClientRect();
   const left = drawer || details ? Math.round((drawer ?? details).right - stage.left + 8) : 0;
-  const insets = { top: top + 6, right: Math.round(stage.right - stack.left + 8), bottom: Math.round(stage.bottom - dock.top + 8), left };
+  // «Разрез» frames its block above its legend.
+  const bottom = Math.round(stage.bottom - (cutLegend ? cutLegend.top : dock.top) + 8);
+  const insets = { top: top + 6, right: Math.round(stage.right - stack.left + 8), bottom, left };
   map.setOverlays(rects);
   map.setInsets?.(insets);
   views.scene()?.setOverlays(rects);

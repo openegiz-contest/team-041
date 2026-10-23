@@ -64,6 +64,8 @@ const POOLS = 96;                // pools of light on the ground at night, at mo
 const K = 1 / TEXTURE_MEAN;
 
 const col = (hex) => new THREE.Color(hex);
+// «Разрез»: the names of the layers on its front face.
+const CUT_LABELS = { clay: 'Глинистая (каолинизированная) руда', kaolin: 'Каолинизированная пустая порода', ore: 'Сульфидная руда', waste: 'Пустая порода' };
 
 export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, onHover, soft = false, style: startStyle = 'hologram' }) {
   const renderer = soft ? createSoftRenderer(canvas)
@@ -104,6 +106,11 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   let marksKey = '';
   let notes = [];
   let timing = false;
+  // «Разрез» (cutaway3d.js): the world clipped to a block whose faces show the geology. Nothing of it exists
+  // until it is first asked for; while it is off the scene is drawn exactly as without it.
+  let cut = null;                  // {on, built, box, mod, background, back, look}
+  let cutModule = null;            // the import of cutaway3d.js, once asked for
+  let probing = false;
 
   // The mine grid is moved so that its middle is at the origin: numbers stay small for the GPU.
   const O = { x: 0, y: 0, z: 0 };
@@ -2519,6 +2526,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
 
   const projected = new THREE.Vector3();
   function toScreen(x, y, z) {
+    if (cut?.on && !insideCut(x, y)) return null;
     projected.set(x - O.x, y - O.y, z - O.z).project(camera);
     if (projected.z > 1 || projected.z < -1) return null;
     const sx = ((projected.x + 1) / 2) * width;
@@ -2568,6 +2576,8 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   // of the plant when the camera is at the plant, the machines near the
   // camera, and from afar the shovels and the crusher (in short).
   function panelRequests() {
+    // «Разрез» is a picture of the ground: captions name the plants, no panels of figures.
+    if (cut?.on) return [];
     const out = new Map();
     const machines = new Set([...fleetIds.truck, ...fleetIds.loader, ...fleetIds['drill-rig']]);
     const add = (id, priority, accent = null, forced = false, compact = false) => {
@@ -2810,6 +2820,13 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const at = anchor && toScreen(anchor.x, anchor.y, anchor.top ?? anchor.z);
       if (at) out.push({ priority: 0, text: titleOf(twin), at, pill: true, accent: C.select, bold: true, force: true });
     }
+    // «Разрез»: the layers named on the front face.
+    if (cut?.on && cut.built) {
+      for (const label of cut.built.labels) {
+        const at = toScreen(label.x, label.y, label.z);
+        if (at) out.push({ priority: 0.3, text: CUT_LABELS[label.key], at, pill: true, bold: true, accent: cut.mod.CUT_COLORS[label.key === 'clay' ? 'clayOre' : label.key], sides: ['r', 'l', 'br', 'bl', 'tr', 'tl'], gap: 22 });
+      }
+    }
     return out;
   }
 
@@ -3013,7 +3030,9 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       weather.rain.material.opacity = holo() ? 0.22 * fade : 0.38;
       weather.snow.material.opacity = holo() ? 0.5 * fade : 0.85;
     }
+    const undoCut = cut?.on && cut.built ? cutFrame() : null;
     renderer.render(scene, camera);
+    if (undoCut) undoCut();
     if (timing && gl) {
       const pixel = new Uint8Array(4);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
@@ -3127,7 +3146,10 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     ndc.set((px / width) * 2 - 1, -(py / height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
     const hits = raycaster.intersectObjects(pickables, false);
+    // In «Разрез» only what is inside the block, in front of its faces.
+    const wall = cut?.on && cut.built ? raycaster.intersectObjects(cut.built.faces, false)[0]?.distance ?? Infinity : Infinity;
     for (const hit of hits) {
+      if (cut?.on && (hit.distance > wall || !insideCut(hit.point.x + O.x, hit.point.y + O.y))) continue;
       const data = hit.object.userData;
       if (data.blocks) {
         if (!hit.object.visible) continue;
@@ -3296,6 +3318,168 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
   }
   if (canvas.parentElement) canvas.parentElement.dataset.look = style;
 
+  // -- «Разрез»: the site as a block cut out of the ground ------------------------------------------
+
+  const insideCut = (x, y) => {
+    const b = cut?.box;
+    return !b || (x >= b.minX - 1 && x <= b.maxX + 1 && y >= b.minY - 1 && y <= b.maxY + 1);
+  };
+
+  // The block: round the pit and both plants, its front face along the pit south of its axis (so the pit is seen
+  // in section, through the ore body at its west end), down to well below the pit floor.
+  function cutBox() {
+    const pit = terrain?.pit;
+    if (!pit) return null;
+    const pts = pit.loops[0].pts.map(([x, y]) => [x, y]);
+    const pitYs = pts.map((p) => p[1]);
+    const halfWidth = (Math.max(...pitYs) - Math.min(...pitYs)) / 2;
+    for (const kind of ['crusher', 'stockpile', 'mill', 'sag-mill', 'ball-mill', 'flotation', 'concentrate', 'substation', 'clay-plant', 'desliming', 'clay-flotation']) {
+      for (const twin of byKind(kind)) {
+        const u = units.get(twin.thingId);
+        if (u) { const r = u.r ?? 30; pts.push([u.at.x - r, u.at.y - r], [u.at.x + r, u.at.y + r]); }
+      }
+    }
+    for (const pad of byKind('clay-stockpile')) for (const [x, y] of pad.attributes?.geo?.polygon ?? []) pts.push([x, y]);
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const depth = pit.rimZ - pit.floorZ;
+    return { minX: Math.min(...xs) - 300, maxX: Math.max(...xs) + 300, minY: Math.round((Math.max(...pitYs) + Math.min(...pitYs)) / 2 - 0.45 * halfWidth),
+      maxY: Math.max(...ys) + 220, bottom: Math.round(pit.floorZ - Math.max(200, depth * 0.9)) };
+  }
+
+  // A backdrop for the block, a gradient behind it (sRGB).
+  function gradient(topColor, bottomColor) {
+    const c = document.createElement('canvas');
+    c.width = 4;
+    c.height = 256;
+    const g = c.getContext('2d');
+    const fill = g.createLinearGradient(0, 0, 0, 256);
+    fill.addColorStop(0, topColor);
+    fill.addColorStop(1, bottomColor);
+    g.fillStyle = fill;
+    g.fillRect(0, 0, 4, 256);
+    const texture = new THREE.CanvasTexture(c);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  // For one frame in «Разрез»: clip the world to the block, hide the sky and what floats in the air, put the
+  // backdrop behind. Returns what puts it all back (so nothing outlives the frame).
+  function cutFrame() {
+    if (cut.look !== style) { cut.built.setLook(holo()); cut.look = style; }
+    const tracks = groups.ground.children.find((node) => node.userData.real === M.tracks);      // the steppe tracks, all outside
+    const hide = [groups.sky, dust?.points, weather?.rain, weather?.snow, glows?.points, beacons?.points, tracks].filter((node) => node && node.visible);
+    for (const node of hide) node.visible = false;
+    const planes = renderer.clippingPlanes;
+    renderer.clippingPlanes = cut.built.planes;
+    const background = scene.background;
+    if (!probing) scene.background = cut.background[style];
+    // The ground drawn only round the block: the steppe to the horizon would be clipped away pixel by pixel.
+    const g = cut.ground;
+    const whole = g && g.mesh.parent ? g.mesh.geometry : null;
+    if (whole) {
+      for (const [name, attribute] of Object.entries(whole.attributes)) if (g.part.attributes[name] !== attribute) g.part.setAttribute(name, attribute);
+      g.mesh.geometry = g.part;
+    }
+    return () => {
+      for (const node of hide) node.visible = true;
+      renderer.clippingPlanes = planes;
+      scene.background = background;
+      if (whole) g.mesh.geometry = whole;
+    };
+  }
+
+  // The triangles of the ground near the block, sharing the ground's own vertices (and so its light).
+  function groundPart(box) {
+    const mesh = groups.ground.children.find((node) => node.userData.ground);
+    const geometry = mesh?.geometry;
+    if (!geometry?.index) return null;
+    const pos = geometry.attributes.position.array;
+    const index = geometry.index.array;
+    const m = 150;
+    const x0 = box.minX - O.x - m; const x1 = box.maxX - O.x + m; const y0 = box.minY - O.y - m; const y1 = box.maxY - O.y + m;
+    const keep = [];
+    for (let t = 0; t < index.length; t += 3) {
+      const a = index[t] * 3; const b = index[t + 1] * 3; const c = index[t + 2] * 3;
+      if (Math.max(pos[a], pos[b], pos[c]) < x0 || Math.min(pos[a], pos[b], pos[c]) > x1) continue;
+      if (Math.max(pos[a + 1], pos[b + 1], pos[c + 1]) < y0 || Math.min(pos[a + 1], pos[b + 1], pos[c + 1]) > y1) continue;
+      keep.push(index[t], index[t + 1], index[t + 2]);
+    }
+    const part = new THREE.BufferGeometry();
+    part.setIndex(keep);
+    part.setAttribute('position', geometry.attributes.position);
+    part.computeBoundingSphere();
+    return { mesh, part };
+  }
+  // Let go of the block (its faces) and of the ground's part (only its own index: the vertices are the ground's).
+  function dropCut() {
+    if (cut.built) { scene.remove(cut.built.group); cut.built.dispose(); cut.built = null; }
+    if (cut.ground) {
+      for (const name of Object.keys(cut.ground.part.attributes)) cut.ground.part.deleteAttribute(name);
+      cut.ground.part.dispose();
+      cut.ground = null;
+    }
+  }
+
+  function cutInfo() {
+    const on = Boolean(cut?.on && cut.built);
+    if (!on) return { on: false };
+    const b = cut.box;
+    const g = cut.built.geo;
+    return { on, sizeX: b.maxX - b.minX, sizeY: b.maxY - b.minY, bottom: b.bottom, depth: g.rimZ - b.bottom, rimZ: g.rimZ,
+      weatheringM: 60, blocks: g.blocks, bodyAgree: g.bodyAgree, colors: { ...cut.mod.CUT_COLORS } };
+  }
+  const announceCut = () => document.dispatchEvent(new CustomEvent('mine:cutaway', { detail: cutInfo() }));
+
+  function buildCut() {
+    const box = cutBox();
+    if (!box) return false;
+    dropCut();
+    cut.box = box;
+    cut.built = cut.mod.buildCutaway({ box, O, surfaces: [terrain.groundGeometry, terrain.faceGeometry, terrain.flatGeometry] });
+    cut.ground = groundPart(box);
+    cut.look = '';
+    return true;
+  }
+
+  // Into «Разрез»: built the first time, the camera from the south-west onto the block.
+  async function enterCut() {
+    if (soft) return false;
+    if (!cut) {
+      cutModule ??= import('./cutaway3d.js');
+      const mod = await cutModule;
+      if (!cut) cut = { on: false, built: null, box: null, mod, back: null, look: '',
+        background: { hologram: gradient('#020509', '#0b3445'), realistic: gradient('#3d5f80', '#a9bccb') } };
+    }
+    if (!active || (!cut.built && !buildCut())) return false;
+    if (!cut.on) {
+      const from = tween ? tween.to : cam;
+      cut.back = { target: from.target.clone(), distance: from.distance, azimuth: from.azimuth, elevation: from.elevation };
+      cut.on = true;
+      scene.add(cut.built.group);
+    }
+    follow = null;
+    announceCut();             // the legend shows first: the block is framed in what it leaves free
+    const b = cut.box;
+    const corners = [];
+    for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) corners.push([x, y, b.bottom], [x, y, heightAt(x, y) + 10]);
+    const view = fitPoints(corners, -0.55, 0.27, 0.96);
+    if (view) setCamera(view);
+    dirty = true;
+    return true;
+  }
+
+  // Out of «Разрез»: `back` flies the camera back to where it was before.
+  function leaveCut(back = false) {
+    if (!cut?.on) return;
+    cut.on = false;
+    scene.remove(cut.built.group);
+    if (back && cut.back) setCamera(cut.back);
+    cut.back = null;
+    dirty = true;
+    announceCut();
+  }
+
   // -- api ---------------------------------------------------------------------------------------
 
   let built = false;
@@ -3330,6 +3514,11 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       updateSky(true);
       marksKey = '';
       resize();
+      // «Разрез», once built, follows the world built again (when it is shown; otherwise when next asked for).
+      if (cut?.built) {
+        if (cut.on) { if (buildCut()) scene.add(cut.built.group); else leaveCut(false); }
+        else dropCut();
+      }
       if (!built) {
         built = true;
         const view = presetView('overview');
@@ -3365,6 +3554,7 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     setNotes(list) { notes = list ?? []; dirty = true; },
     get notes() { return notes; },
     setActive(on) {
+      if (!on) leaveCut(false);
       active = on;
       if (on) {
         resize();
@@ -3374,10 +3564,18 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
     },
     preset(name) {
       follow = null;
+      // «Разрез» once more leaves it, back to the view before; any other point of view leaves it there.
+      if (name === 'cut') { if (cut?.on) leaveCut(true); else enterCut(); return; }
+      leaveCut(false);
       const view = presetView(name === 'pit' ? 'overview' : name);
       if (view) setCamera(view);
     },
     zoomBy(factor) { zoomBy(factor); },
+    // «Разрез»: whether this view can show it (not without WebGL), and what it shows now.
+    get canCutaway() { return !soft; },
+    cutaway() { return cutInfo(); },
+    // Where the layers are named on the front face (mine grid), for the page check.
+    cutLabels() { return cut?.on && cut.built ? cut.built.labels.map((l) => ({ ...l, text: CUT_LABELS[l.key] })) : []; },
     // A camera looking at a point of the mine grid (for the screenshot scripts): from `distance`
     // metres, `azimuth` and `elevation` in radians as the camera API has them; `follow` a machine.
     look({ x, y, z, distance, azimuth = cam.azimuth, elevation = cam.elevation, follow: id = null, animate = false }) {
@@ -3393,7 +3591,9 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       const twin = twins.get(thingId);
       const anchor = anchorOf(twin);
       if (!anchor) return false;
-      const target = new THREE.Vector3(anchor.x - O.x, anchor.y - O.y, (units.get(thingId)?.base ?? anchor.z) - O.z);
+      // An object outside the block of «Разрез» is shown with the whole world again.
+      if (cut?.on && !insideCut(anchor.x, anchor.y)) leaveCut(false);
+      const target =new THREE.Vector3(anchor.x - O.x, anchor.y - O.y, (units.get(thingId)?.base ?? anchor.z) - O.z);
       const screen = toScreen(anchor.x, anchor.y, anchor.z);
       const free = screen && screen.x > insets.left + 40 && screen.x < width - insets.right - 40 && screen.y > insets.top + 30 && screen.y < height - insets.bottom - 30;
       if (!closer && free) return true;
@@ -3489,7 +3689,9 @@ export function createScene({ canvas, labelCanvas, panelLayer = null, onSelect, 
       scene.background = new THREE.Color(0, 0, 0);
       const fog = scene.fog;
       scene.fog = null;
+      probing = true;
       render(performance.now());
+      probing = false;
       let pixels;
       if (gl) {
         pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
