@@ -265,15 +265,32 @@ class Request:
         return [key for pair in self.keys for key in pair]
 
 
+def longest_horizon_h(sim: Simulation) -> int:
+    """The longest horizon a request may ask for: a day, or, while a reline of the SAG mill is planned or under
+    way, as long as the advisor needs to see the whole stop of its latest option (`forecast.planned_max_horizon_h`)."""
+    p = sim.params["forecast"]
+    reline = sim.scenarios.get("scenario-sag-reline")
+    if reline is not None and reline.status == "active":
+        return int(p["planned_max_horizon_h"])
+    return int(p["max_horizon_h"])
+
+
+def timeout_s(params: dict, horizon_h: int) -> float:
+    """How long one branch may compute: `forecast.timeout_s`, longer in proportion for a horizon beyond a day."""
+    p = params["forecast"]
+    return float(p["timeout_s"]) * max(1.0, horizon_h / float(p["max_horizon_h"]))
+
+
 def parse(body: dict, sim: Simulation, slots: int, counter: int) -> Request:
     p = sim.params["forecast"]
     slot = body.get("slot")
     if isinstance(slot, bool) or not isinstance(slot, int) or not 1 <= slot <= slots:
         raise RequestError(f"номер прогноза {slot!r}: допустимо от 1 до {slots}")
     horizon = body.get("horizon_h", p["horizon_h"])
+    longest = longest_horizon_h(sim)
     if isinstance(horizon, bool) or not isinstance(horizon, (int, float)) or float(horizon) != int(horizon) \
-            or not 1 <= horizon <= p["max_horizon_h"]:
-        raise RequestError(f"горизонт {horizon!r} ч: допустимо целое число от 1 до {p['max_horizon_h']}")
+            or not 1 <= horizon <= longest:
+        raise RequestError(f"горизонт {horizon!r} ч: допустимо целое число от 1 до {longest}")
     limit = int(p["max_actions"])
     actions_a = _actions(body.get("actions_a"), sim.things, limit, "ветвь A")
     actions_b = _actions(body.get("actions_b"), sim.things, limit, "ветвь B")
@@ -349,6 +366,7 @@ class ForecastDesk:
         model a forecast starts from, with its requests, so that the forecast
         can be run again outside the stand."""
         self.p = sim.params["forecast"]
+        self.params = sim.params
         self.dump_dir = Path(dump_dir) if dump_dir else None
         self.fork = fork and hasattr(os, "fork")
         self.names = [short(t["thingId"]) for t in things if t["attributes"]["kind"] == "forecast"]
@@ -545,9 +563,10 @@ class ForecastDesk:
                         break
                     job.data += chunk
             except BlockingIOError:
-                if now - job.started > float(self.p["timeout_s"]):
+                limit = timeout_s(self.params, job.horizon_h)
+                if now - job.started > limit:
                     self._kill(job)
-                    job.error = f"ветвь не досчитана за {self.p['timeout_s']} с"
+                    job.error = f"ветвь не досчитана за {limit:.0f} с"
 
     def _close(self, job: Job) -> None:
         os.close(job.fd)

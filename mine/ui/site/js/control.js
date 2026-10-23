@@ -19,6 +19,7 @@ const NOTES = {
   'scenario-blast': 'Взрыв блока → опасная зона, техника отходит, ближние дороги закрыты до допуска.',
   'scenario-clay-face': 'Забой вскрыл глинистую руду → в питании ОФ-1 растёт глина → мельница и флотация теряют; руду можно везти на ОФ-2 или на склад глинистой руды.',
   'scenario-clay-plant-stop': 'Фабрика глинистых руд ОФ-2 стоит → приёмный склад заполняется → глинистая руда идёт на склад, медь ОФ-2 теряется.',
+  'scenario-sag-reline': 'Плановая замена футеровки МПСИ → измельчение ОФ-1 стоит → дробилка заполняет склад → руда идёт на рудные склады; ОФ-2 работает. Советник сравнивает, когда начать.',
   'module-dispatch': 'Назначает самосвалу экскаватор, пункт разгрузки и маршрут. Выключен — самосвалы закреплены за экскаваторами.',
   'module-grade': 'Решает, куда везти руду блока: сульфидную на ОФ-1 по содержанию меди и глинистости, глинистую на ОФ-2 или на её склад. Выключен — руда идёт по блочной модели: сульфидная выше бортового содержания в дробилку, глинистая на ОФ-2, без управления смешиванием.',
   'module-plant': 'Задаёт подачу на мельницу по запасу склада и крепости руды. Выключен — подача постоянная.',
@@ -107,7 +108,7 @@ function forecastButton(text, label) {
 // -- scenarios ----------------------------------------------------------------
 
 function chosenTarget(card) {
-  const select = $('.target select:not(.cause):not(.clay)', card);
+  const select = $('.target select:not(.cause):not(.clay):not(.when)', card);
   return select ? select.value : $('.target', card)?.dataset.target || '';
 }
 
@@ -122,9 +123,15 @@ function activateBody(card) {
   const target = chosenTarget(card);
   const cause = chosenCause(card);
   const clay = Number($('select.clay', card)?.value);
-  const params = { ...(cause ? { cause } : {}), ...(clay > 0 ? { clay_pct: clay } : {}) };
+  const when = $('select.when', card)?.value || '';
+  const params = { ...(cause ? { cause } : {}), ...(clay > 0 ? { clay_pct: clay } : {}), ...(when ? { start: when } : {}) };
   return { ...(target ? { target } : {}), ...(Object.keys(params).length ? { params } : {}) };
 }
+
+// When a planned stop may be set to begin (the reline of the SAG mill), as the scenario's twin lists it.
+const startsOf = (twin) => [].concat(twin?.attributes?.spec?.start_choices ?? []).filter((choice) => choice && choice.id);
+// A simulated moment as «DD.MM HH:MM»: a planned stop lasts days.
+const dayClock = (iso) => { const m = /^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d)/.exec(iso ?? ''); return m ? `${m[2]}.${m[1]} ${m[3]}` : '—'; };
 
 // The clay share a clay-face scenario may be started with (the model takes 15–40 %).
 const CLAY_SHARES = [15, 20, 25, 32, 40];
@@ -229,7 +236,7 @@ function defaultTarget(scenario, targets) {
 
 // Fill the target list: valid targets first, each invalid one with its reason and not selectable.
 function fillTargets(card, scenario) {
-  const select = $('.target select:not(.cause):not(.clay)', card);
+  const select = $('.target select:not(.cause):not(.clay):not(.when)', card);
   if (!select) return;
   const targets = JSON.parse(select.dataset.targets);
   const shown = targets.map((target) => ({ target, ...targetValidity(scenario, target) }));
@@ -290,6 +297,12 @@ function buildScenario(twin) {
     ? el('select', { className: 'clay', 'aria-label': `Глинистость руды в забое: сценарий «${title}»` },
       ...CLAY_SHARES.map((value) => el('option', { value: String(value), selected: value === CLAY_DEFAULT }, `глина ${value} %`)))
     : null;
+  // A planned stop: when it begins.
+  const starts = startsOf(twin);
+  const when = starts.length
+    ? el('select', { className: 'when', 'aria-label': `Начало остановки: сценарий «${title}»` },
+      ...starts.map((item) => el('option', { value: item.id }, `Начало: ${item.title}`)))
+    : null;
   const start = el('button', { type: 'button', className: 'start', dataset: { action: 'activate' }, 'aria-label': `Запустить сценарий «${title}»` }, 'Запустить');
   const cancel = el('button', { type: 'button', className: 'cancel', dataset: { action: 'cancel' }, 'aria-label': `Отменить сценарий «${title}»` }, 'Отменить');
   const ask = forecast.available()
@@ -303,6 +316,7 @@ function buildScenario(twin) {
       el('div', { className: 'controls' }, chooser, start, cancel),
       cause && targets.length > 1 ? el('div', { className: 'controls' }, el('label', { className: 'target' }, cause)) : null,
       clay ? el('div', { className: 'controls' }, el('label', { className: 'target' }, clay)) : null,
+      when ? el('div', { className: 'controls' }, el('label', { className: 'target' }, when)) : null,
       el('p', { className: 'duration', hidden: true }),
       el('p', { className: 'hint', role: 'status' }),
       el('div', { className: 'live', hidden: true },
@@ -324,7 +338,7 @@ function buildScenario(twin) {
     const target = chosenTarget(card);
     const scenario = twins.get(id);
     const blocked = blockedReason(scenario);
-    const check = target && $('.target select:not(.cause):not(.clay)', card) ? targetValidity(scenario, target) : { ok: true };
+    const check = target && $('.target select:not(.cause):not(.clay):not(.when)', card) ? targetValidity(scenario, target) : { ok: true };
     if (blocked || !check.ok) {
       settle(card, `Сейчас не запустить: ${blocked || `${titleById(target)} ${check.reason}`}.`, 'warn');
       return;
@@ -436,11 +450,13 @@ function updateScenario(twin) {
     settle(card);
   }
   const target = resolveRef(feature(twin, 'target'));
-  const select = $('.target select:not(.cause):not(.clay)', card);
+  const select = $('.target select:not(.cause):not(.clay):not(.when)', card);
   const causeSelect = $('select.cause', card);
   if (causeSelect) causeSelect.disabled = running;
   const claySelect = $('select.clay', card);
   if (claySelect) claySelect.disabled = running;
+  const whenSelect = $('select.when', card);
+  if (whenSelect) whenSelect.disabled = running;
   if (select) {
     if (!running) fillTargets(card, twin);
     else if (target && select.value !== target) {
@@ -474,8 +490,16 @@ function updateScenario(twin) {
   let elapsed = feature(twin, 'elapsed_min');
   if (typeof elapsed !== 'number') elapsed = simMinutesBetween(feature(twin, 'started_sim_time'), feature(first('mine'), 'sim_time'));
   const since = feature(twin, 'started_sim_time');
-  const parts = [status === 'cancelling' ? 'Отменяется' : typeof elapsed === 'number' ? `Длится ${formatDuration(elapsed)}` : 'Активен'];
-  if (since) parts.push(`с ${formatSimClock(since)}`);
+  // A planned stop that has not begun yet says when it begins; once begun, how long it has stood.
+  const phase = feature(twin, 'phase');
+  const plannedAt = String(feature(twin, 'planned_start_sim_time') ?? '');
+  const toStart = plannedAt ? simMinutesBetween(feature(first('mine'), 'sim_time'), plannedAt) : undefined;
+  const parts = phase === 'planned' && plannedAt
+    ? [`Запланирована на ${dayClock(plannedAt)}${typeof toStart === 'number' && toStart > 0 ? `, через ${formatDuration(toStart)}` : ''}`]
+    : phase === 'reline' && plannedAt
+      ? [`Остановка идёт ${formatDuration(Math.max(0, simMinutesBetween(plannedAt, feature(first('mine'), 'sim_time')) ?? 0))}`, `с ${dayClock(plannedAt)}`]
+      : [status === 'cancelling' ? 'Отменяется' : typeof elapsed === 'number' ? `Длится ${formatDuration(elapsed)}` : 'Активен'];
+  if (since && !phase) parts.push(`с ${formatSimClock(since)}`);
   if (target) parts.push(titleById(target));
   setText($('.elapsed', card), parts.join(' · '));
 
@@ -571,8 +595,10 @@ function showExpected(card, twin) {
   if (!end) { holder.hidden = true; return; }
   const left = simMinutesBetween(feature(first('mine'), 'sim_time'), end);
   const status = feature(twin, 'status');
+  // A stop of days (the reline of the SAG mill) gives its end with the date.
+  const clock = feature(twin, 'phase') ? dayClock(end) : formatSimClock(end);
   const lead = status === 'active'
-    ? `Ожидаемое окончание ${formatSimClock(end)}${typeof left === 'number' && left > 0 ? `, через ${formatDuration(left)}` : ''}`
+    ? `Ожидаемое окончание ${clock}${typeof left === 'number' && left > 0 ? `, через ${formatDuration(left)}` : ''}`
     : `Окончание было ожидаемо в ${formatSimClock(end)}`;
   const basis = String(feature(twin, 'duration_basis') ?? '').trim();
   const response = String(feature(twin, 'response_text') ?? '').trim();

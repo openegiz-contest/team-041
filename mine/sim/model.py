@@ -262,6 +262,9 @@ class Simulation:
                 self.reliability.schedule(unit, body, loader=kind == "loader")
             else:
                 self.reliability.cancel(unit, loader=kind == "loader", body=body)
+        elif kind == "sag-mill" and subject == "plan-reline":
+            # The planned reline of the SAG mill moves (scenario «Замена футеровки МПСИ», an advisor's option).
+            self.scenarios["scenario-sag-reline"].reschedule(body)
         elif kind == "loader" and subject == "move-to-block":
             self.fleet.move_to_block(self.fleet.loaders[name], body)
         # The shift's response resources (mine/sim/response.py).

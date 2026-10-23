@@ -317,6 +317,33 @@ round_trip blast          "$NS:pit"              blast_state  '^clearing$'      
 # A face turns out clay-rich: the scenario's card tells the chain; ОФ-2 stops and starts again.
 round_trip clay-face      "$NS:scenario-clay-face" impact_text '^Глинистая руда в забое' '^Сценарий не активен'
 round_trip clay-plant-stop "$NS:clay-plant"      state        '^stopped$'           '^(running|starting|idle)$'
+# A planned reline of the SAG mill: planned for the next shift change (the SAG mill's twin shows start and end),
+# then begun at once by the live message the advisor's option «начать сейчас» sends to the SAG mill: ОФ-1 milling
+# stands; the cancel ends the stop and the mill starts again.
+rl="$NS:scenario-sag-reline"
+if [ "$(value "$rl" status || true)" != inactive ]; then
+  echo "        (scenario sag-reline was running before the check: left as it was)"
+else
+  code="$(send "$rl" activate '{}')"
+  if [ "$code" = 202 ] && wait_value "$rl" status active 20 && wait_value "$NS:mill-sag" reline_state planned 30; then
+    pass "sag-reline planned: $(value "$NS:mill-sag" reline_start_sim_time || true) → $(value "$NS:mill-sag" reline_end_sim_time || true), $(value "$rl" expected_duration_h || true) h ($(value "$rl" duration_basis || true))"
+  else
+    fail "sag-reline: not planned (HTTP $code, status '$(value "$rl" status || true)', mill-sag.reline_state '$(value "$NS:mill-sag" reline_state || true)')"
+  fi
+  code="$(send_ditto "$NS:mill-sag" plan-reline '{"start":"now"}')"
+  if [ "$code" = 202 ] && wait_value "$NS:mill" state reline 30 && wait_value "$rl" phase reline 30; then
+    pass "plan-reline {start: now} to mill-sag: mill.state = reline, mill feed $(value "$NS:mill" feed_tph || true) t/h, ОФ-2 $(value "$NS:clay-plant" state || true)"
+  else
+    fail "plan-reline: HTTP $code, mill.state '$(value "$NS:mill" state || true)', phase '$(value "$rl" phase || true)'"
+  fi
+  code="$(send "$rl" cancel '{}')"
+  if [ "$code" = 202 ] && wait_value "$rl" status inactive 30 && wait_match "$NS:mill" state '^(idle|running)$' 30 \
+      && [ -z "$(value "$NS:mill-sag" reline_state || true)" ]; then
+    pass "sag-reline cancelled: scenario inactive, mill.state = $(value "$NS:mill" state || true), no reline planned"
+  else
+    fail "sag-reline cancel: status '$(value "$rl" status || true)', mill.state '$(value "$NS:mill" state || true)'"
+  fi
+fi
 
 echo "Response resources"
 # The crusher jams: the scenario says when it is expected back and why; a second repair crew, sent as a live

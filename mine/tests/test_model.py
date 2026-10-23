@@ -82,7 +82,7 @@ class Telemetry(unittest.TestCase):
         self.assertEqual(values["mill"]["state"], "running")
         self.assertAlmostEqual(values["stockpile"]["level_pct"], 60, delta=15)
         self.assertFalse(any(n.startswith("module-") for n in values))
-        self.assertEqual([v["status"] for n, v in values.items() if n.startswith("scenario-")], ["inactive"] * 7)
+        self.assertEqual([v["status"] for n, v in values.items() if n.startswith("scenario-")], ["inactive"] * 8)
 
     def test_same_seed_same_run(self):
         a, b = new_sim(7), new_sim(7)

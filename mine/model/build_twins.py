@@ -32,6 +32,11 @@ from mine.sim.weather import BASIS as CLIMATE_BASIS, air_c, normals
 
 MODEL_DIR = Path(__file__).resolve().parent
 ADVISOR_OPTIONS = 4                 # response options the advisor publishes at most: one per advisor forecast slot
+# The planned reline of the SAG mill (scenario «Замена футеровки МПСИ»), on the mill and on the SAG mill.
+RELINE = {"reline_state": ("", ""), "reline_start_sim_time": ("", ""), "reline_end_sim_time": ("", "")}
+# When a planned reline may be set to begin (`params.start`), the first the default.
+RELINE_STARTS = [{"id": "next-shift", "title": "в начале следующей смены"}, {"id": "shift-after", "title": "через смену"},
+                 {"id": "now", "title": "сразу"}]
 SCENARIO_KPIS = 4                   # indicators along the causal chain of a scenario
 HOME_LABEL = "Место на начало работы модели; текущее положение — признаки pos_x, pos_y"
 PIT_DEPTH_BASIS = ("Глубина рабочего дна 225 м (отметка +5 м) — допущение модели по плану горных работ: второй этап "
@@ -628,6 +633,8 @@ class TwinBuilder:
             "tonnes_total": (0.0, T),
             # Minutes of this shift with the setpoint above the working rate (`design_tph`, the 2024 average of ОФ-1).
             "peak_min_shift": (0.0, MIN),
+            # The planned reline of the SAG mill: `planned`, `reline` while it runs, '' with none planned.
+            **RELINE,
         }, links={"fed_by": self.tid("stockpile"), "feeds": self.tid("flotation"), "power": self.tid("substation"),
                   "units": self.tids(["mill-sag", "mill-ball"])},
             geo={"x": x, "y": y, "z": z},
@@ -654,6 +661,7 @@ class TwinBuilder:
             }
             if key == "sag":
                 features["charge_pct"] = (float(mill["charge_full_pct"]), PCT)
+                features.update(RELINE)
             self.add(name, kind, w[name.replace("-", "_")]["name"], "mill", features,
                      links={"circuit": self.tid("mill"), "fed_by": self.tid(fed_by), "feeds": self.tid(feeds),
                             "power": self.tid("substation")},
@@ -891,6 +899,7 @@ class TwinBuilder:
             "module-maint": ["workshop", *self.names("trucks"), *self.names("loaders")],
             # The advisor asks for forecasts and, on `apply`, sends the levers of its options.
             "module-advisor": ["mine", *(f"forecast-{n}" for n in slots["advisor_slots"]), *self.names("loaders"), "mill",
+                               "mill-sag",
                                *self.names("rom_pads"), *self.names("trucks"), "crusher", "workshop", "clay-plant",
                                *(b["id"] for b in self.block_defs),
                                *(s["id"] for s in self.world["road_segments"]),
@@ -917,6 +926,8 @@ class TwinBuilder:
             "incident_basis": ("", ""),
             "analysis_status": ("idle", ""),
             "analysis_sim_time": ("", ""),
+            # The horizon the options were forecast over: the same for every option of the incident.
+            "analysis_horizon_h": (float(self.params["forecast"]["horizon_h"]), H),
             "options_count": (0, ""),
         }
         for n in range(1, ADVISOR_OPTIONS + 1):
@@ -1058,10 +1069,13 @@ class TwinBuilder:
                 "response_text": ("", ""),
                 "response_cost_kzt": (0, KZT),
                 **({"valid_targets": ("", "")} if s["id"] == "scenario-blast" else {}),
+                # A planned stop: `planned` until it begins, then `reline`; when it begins (the reline of the SAG mill).
+                **({"phase": ("", ""), "planned_start_sim_time": ("", "")} if s["id"] == "scenario-sag-reline" else {}),
                 "affected": ("", ""),
                 "impact_text": ("", ""),
             }, links={"targets": by_kind[s["targets"]], "default_target": self.tid(s["default_target"])},
-                spec={"causes": [{k: c[k] for k in ("id", "title", "hours", "basis")} for c in causes]} if causes else None)
+                spec={"causes": [{k: c[k] for k in ("id", "title", "hours", "basis")} for c in causes],
+                      **({"start_choices": RELINE_STARTS} if s["id"] == "scenario-sag-reline" else {})} if causes else None)
 
     def forecast_names(self) -> list[str]:
         return [f"forecast-{n}" for n in range(1, self.world["forecasts"]["slots"] + 1)]

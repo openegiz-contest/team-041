@@ -7,6 +7,7 @@ four module cores and the forecast desk in one process, as on the stand.
     make mine-test
 """
 import copy
+import math
 import time
 import unittest
 from datetime import datetime
@@ -775,6 +776,124 @@ class OperatorOrders(unittest.TestCase):
         sim.handle_message("loader-02", "move-to-block", {"block": f"{NS}:block-99"})
         self.assertEqual(texts(sim).count("перевод на другой блок не выполнен"), 2)
         self.assertEqual(fleet.loaders["loader-02"].block, free.name)
+
+
+class Reline(unittest.TestCase):
+    """A planned reline of the SAG mill (scenario «Замена футеровки МПСИ»): when to begin it, and whether to take the
+    ore shovels off ore for the stop. Every option is forecast over one horizon that holds the whole stop of the
+    latest of them and the restart, so that a later start cannot win by putting its stop beyond the forecast."""
+    NAME = "scenario-sag-reline"
+
+    def core_for(self, params: dict):
+        sim = new_sim()
+        sim.handle_message(self.NAME, "activate", {"params": params})
+        run(sim, 2)
+        core = AdvisorCore(things_now(sim), PARAMS)
+        self.assertEqual(core.step(), [])           # the first round only learns the clock
+        core.observe("mine", {"sim_time": sim.sim_time(sim.now + 20)})
+        return sim, core
+
+    def test_every_option_is_forecast_over_one_horizon_that_holds_its_whole_stop(self):
+        sim, core = self.core_for({"start": "next-shift"})
+        sent = core.step()
+        twin = core.twin()
+        self.assertEqual(twin["incident"], "sag-reline:planned")
+        self.assertEqual(twin["incident_end_sim_time"], sim.values()["mill-sag"]["reline_end_sim_time"])
+        self.assertIn("Bradken", twin["incident_basis"])
+        self.assertEqual(core.options[0]["label"], NOTHING)
+        starts = [o.get("start") for o in core.options[1:]]
+        self.assertEqual(starts, ["now", None, "shift-after"])           # begin now, prepare the pit, begin a shift later
+        self.assertEqual([a["subject"] for a in core.options[1]["actions"]], ["plan-reline"])
+        self.assertTrue(core.options[2]["actions"] and all(a["subject"] == "move-to-block" for a in core.options[2]["actions"]))
+        # One horizon for all: the latest start (a shift after the next shift change) + the reline + the restart.
+        hours, recovery = PARAMS["mill"]["reline_h"], PARAMS["scenario"]["reline_recovery_h"]
+        latest_h = (sim.next_shift_at + PARAMS["scenario"]["reline_shift_after_h"] * 3600 - sim.now - 20) / 3600.0
+        horizon = math.ceil(latest_h + hours + recovery)
+        self.assertEqual({m[2]["horizon_h"] for m in sent}, {horizon})
+        self.assertEqual(len(sent), len(core.options))
+        self.assertEqual((twin["analysis_horizon_h"], core.horizon_h), (float(horizon), horizon))
+        self.assertIn(f"на одном горизонте {horizon} ч", twin["incident_text"])
+        # Each option's whole stop and the restart lie inside it: the plan, begun now, begun a shift later.
+        for start_h in ((sim.next_shift_at - sim.now) / 3600.0, 0.0, latest_h):
+            self.assertLessEqual(start_h + hours + recovery, horizon + 1e-9)
+        self.assertGreater(horizon, PARAMS["forecast"]["max_horizon_h"])  # longer than any ordinary forecast…
+        self.assertLessEqual(horizon, PARAMS["forecast"]["planned_max_horizon_h"])   # …and accepted by the engine
+
+    def test_options_are_ranked_by_the_rule_of_every_incident(self):
+        sim, core = self.core_for({"start": "next-shift"})
+        core.step()
+        by_start = {o.get("start"): n for n, o in enumerate(core.options) if n}
+        deltas = [(0, 0.0)] * len(core.options)
+        deltas[by_start["now"]] = (17_000_000, 2.5)          # as measured: the mill back sooner on a full stockpile
+        deltas[by_start["shift-after"]] = (-6_800_000, -8.0)
+        deltas[by_start[None]] = (-133_000_000, -2.2)
+        scripted(core, deltas)
+        core.step()
+        twin = core.twin()
+        now = by_start["now"] + 1
+        self.assertEqual((twin["analysis_status"], twin["recommended"]), ("ready", now))
+        self.assertEqual(twin[f"option{now}_confidence"], "средняя")          # 17 / 4.6 standard errors
+        self.assertIn("Окупается", twin[f"option{now}_reason"])
+        self.assertFalse(twin[f"option{by_start['shift-after'] + 1}_recommendable"])
+        self.assertIn(f"за {core.horizon_h} ч", twin["last_decision"])
+
+    def test_a_running_reline_offers_only_the_pit(self):
+        sim, core = self.core_for({"start": "now", "expected_h": 24})
+        sent = core.step()
+        self.assertEqual(core.twin()["incident"], "sag-reline:reline")
+        self.assertEqual([o.get("start") for o in core.options], [None, None])
+        self.assertEqual(core.options[1]["actions"][0]["subject"], "move-to-block")
+        left = (sim.scenarios[self.NAME].expected_end - sim.now - 20) / 3600.0
+        self.assertEqual({m[2]["horizon_h"] for m in sent}, {math.ceil(left + PARAMS["scenario"]["reline_recovery_h"])})
+
+    def test_a_short_window_would_favour_the_later_start(self):
+        """Why one horizon must hold the whole stop of every option: over the usual 12 h the stop of the plan
+        begins inside the window and that of the later start does not, and the later start looks like tens of
+        tonnes of copper more; over the horizon that holds both stops the gain is gone."""
+        from mine.tests.test_forecast import wait
+        sim = new_sim()
+        rig = Coupled(sim)
+        rig.run(30)
+        sim.handle_message(self.NAME, "activate", {"params": {"start": "next-shift", "expected_h": 24}})
+        later = [{"thing": f"{NS}:mill-sag", "subject": "plan-reline", "body": {"start": "shift-after"}}]
+        latest_h = (sim.next_shift_at + 12 * 3600 - sim.now) / 3600.0
+        full = math.ceil(latest_h + 24 + PARAMS["scenario"]["reline_recovery_h"])
+        desk = ForecastDesk(sim, THINGS)
+        desk.request(sim, {"slot": 1, "horizon_h": 12, "actions_b": later})
+        desk.request(sim, {"slot": 10, "horizon_h": full, "actions_b": later})
+        values = wait(desk, sim, (1, 10), limit_s=600)
+        short, whole = values["forecast-1"], values["forecast-10"]
+        print(f"\nreline a shift later: {short['delta_cu_t']:+.1f} t Cu over 12 h, {whole['delta_cu_t']:+.1f} t over {full} h")
+        self.assertEqual((short["status"], whole["status"]), ("ready", "ready"))
+        self.assertGreater(short["delta_cu_t"], 15.0)
+        self.assertLess(whole["delta_cu_t"], 0.25 * short["delta_cu_t"])
+
+
+class RelineEndToEnd(unittest.TestCase):
+    def test_reline_ranked_applied_and_visible(self):
+        """A reline planned for the next shift change (24 h here, to keep the test short): the options are forecast
+        over one horizon, ranked by the usual rule, and «Применить» on «begin now» starts the stop."""
+        stand = Stand()
+        stand.sim.handle_message("scenario-sag-reline", "activate", {"params": {"start": "next-shift", "expected_h": 24}})
+        started = time.monotonic()
+        twin = stand.run_until_ranked(limit_s=600)
+        horizon = twin["analysis_horizon_h"]
+        print(f"\nadvisor, reline planned: ranked in {time.monotonic() - started:.1f} s over {horizon:.0f} h")
+        for n in range(1, twin["options_count"] + 1):
+            print(f"  {n}. {twin[f'option{n}_delta_kzt'] / 1e6:+8.1f} ± {twin[f'option{n}_gain_se_kzt'] / 1e6:.1f} млн тг "
+                  f"{twin[f'option{n}_cu_delta_t']:+6.2f} т Cu (место {twin[f'option{n}_rank']}) {twin[f'option{n}_label']}")
+            self.assertEqual(sum(twin[f"option{n}_split_{part}_kzt"] for part in MARGIN_SPLIT), twin[f"option{n}_delta_kzt"])
+            slot = twin[f"option{n}_forecast"].split(":")[1]
+            self.assertEqual(stand.desk.values()[slot]["horizon_h"], horizon)      # every option over the same horizon
+        self.assertGreater(horizon, 24)
+        now = next(n for n in range(2, twin["options_count"] + 1) if "start=now" in twin[f"option{n}_actions"])
+        stand.deliver(stand.advisor.command("apply", {"option": now}))
+        stand.run(2)
+        self.assertEqual(stand.sim.plant.mill.state, "reline")
+        self.assertIn("Советник: применён вариант", texts(stand.sim))
+        self.assertEqual(stand.advisor.twin()["applied_option"], now)
+        self.assertEqual(stand.advisor.twin()["incident"], "sag-reline:reline")     # the stop has begun: analysed anew
+        stand.sim.handle_message("scenario-sag-reline", "cancel", {})
 
 
 if __name__ == "__main__":

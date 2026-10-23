@@ -361,6 +361,7 @@ scenarios:
   - {id: scenario-blast,            name: "Взрыв блока",                      targets: block,        default_target: block-01}
   - {id: scenario-clay-face,        name: "Глинистая руда в забое",           targets: loader,       default_target: loader-03}
   - {id: scenario-clay-plant-stop,  name: "Остановка глинистой фабрики",      targets: clay-plant,   default_target: clay-plant}
+  - {id: scenario-sag-reline,       name: "Замена футеровки МПСИ",            targets: sag-mill,     default_target: mill-sag}
 
 journal:
   name: "Журнал событий"

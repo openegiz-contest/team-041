@@ -326,6 +326,31 @@ class Mill:
         # Seconds of the current shift the mill ran with its setpoint above the working rate `design_tph`
         # (the 2024 average of ОФ-1): the plant-control module allows such peaks for a limited time per shift.
         self.peak_s_shift = 0.0
+        # A planned reline of the SAG mill (scenario «Замена футеровки МПСИ»): when it starts and is expected to end.
+        # While it runs the state is `reline`: no feed, the charge is ground out, and the whole circuit stands.
+        self.reline_start: float | None = None
+        self.reline_end: float | None = None
+
+    def reline_state(self) -> str:
+        if self.state == "reline":
+            return "reline"
+        return "planned" if self.reline_start is not None else ""
+
+    def start_reline(self) -> None:
+        """The planned stop begins: the feeder stops, the mill grinds out what it holds and is opened."""
+        self.state, self.stops = "reline", self.stops + 1
+        self.sim.log("alarm", self.name, f"{self.title} остановлена на замену футеровки МПСИ (плановая остановка): "
+                                         f"измельчение ОФ-1 стоит, дробилка заполняет склад дроблёной руды")
+
+    def end_reline(self) -> None:
+        """The new liners are in: the mill starts again like after any stop, once the stockpile holds enough."""
+        self.reline_start = self.reline_end = None
+        if self.state != "reline":
+            return
+        self.state = "idle"
+        self.restart_at = self.sim.now + self.p["restart_min"] * 60.0
+        self.sim.log("info", self.name, f"{self.title}: замена футеровки МПСИ окончена, пуск мельницы через "
+                                        f"{self.p['restart_min']:.0f} мин")
 
     def specific_energy(self, bwi: float) -> float:
         return self.p["specific_energy_kwh_t"] * bwi / self.p["bwi_ref_kwh_t"]
@@ -1034,6 +1059,10 @@ class Plant:
         crusher_state = crusher.state(belt_tph)
         pile_bwi = pile.bwi * self.hardness_factor
         stopped = crusher_state == "stopped"
+        # The planned reline of the SAG mill, on the circuit and on the SAG mill's own twin.
+        reline = {"reline_state": mill.reline_state(),
+                  "reline_start_sim_time": sim.sim_time(mill.reline_start) if mill.reline_start is not None else "",
+                  "reline_end_sim_time": sim.sim_time(mill.reline_end) if mill.reline_end is not None else ""}
         out = {
             crusher.name: {
                 "state": crusher_state,
@@ -1085,6 +1114,7 @@ class Plant:
                 "stops_total": mill.stops,
                 "tonnes_total": round(mill.total_t),
                 "peak_min_shift": round(mill.peak_s_shift / 60.0, 1),
+                **reline,
             },
             "flotation": {
                 "state": flotation.state,
@@ -1130,6 +1160,7 @@ class Plant:
             }
             if unit == "sag":
                 out[name]["charge_pct"] = round(mill.charge_pct(), 1)
+                out[name].update(reline)
         by_module = any(pad.ordered_by == "grade-control" for pad in self.rom_pads.values())
         by_operator = any(pad.ordered_by == "operator" for pad in self.rom_pads.values())
         for name, pad in self.rom_pads.items():

@@ -43,6 +43,9 @@
 //      expected to end, ranks its options with the cost of their resources and
 //      a sentence on why each pays or not, and «Применить» sends `apply` and
 //      shows the advisor's journal entry;
+//  8b. the planned reline of the SAG mill: its card offers durations and starts,
+//      says when the stop begins, the SAG mill's card shows the plan, and the
+//      advisor ranks its options over one horizon (about 3–4 minutes);
 //   9. the blast card offers only blocks the model accepts (the others with
 //      their reason) and starts with its defaults at the first click;
 //  10. the plan: «План» shows it, its points of view frame it, its frame is
@@ -732,6 +735,61 @@ try {
     await page.click(`${failure} [data-action="cancel"]`);
     const over = await until(() => featureOf('scenario-shovel-failure', 'status'), (value) => value === 'inactive', 60000);
     check(over === 'inactive', `the shovel failure is cancelled (status: ${over})`);
+  }
+
+  // 8b. a planned reline of the SAG mill: the card offers how the reline is done (its duration) and when it begins;
+  // planned for the next shift change, the card and the SAG mill's card say when; the advisor compares when to begin
+  // over one horizon that holds every option's whole stop; cancelled again.
+  const relineCard = `.scenario[data-id="${NS}:scenario-sag-reline"]`;
+  if (!advisorTwin || !await page.evaluate(`Boolean(document.querySelector('${relineCard}'))`)) {
+    check(false, 'the reline scenario card and the advisor are on the page');
+  } else {
+    await page.waitFor(`document.querySelector('#advisor .adv-quiet')`, 60000, 'the advisor to be quiet again').catch(() => {});
+    await openCard(relineCard);
+    if (await featureOf('scenario-sag-reline', 'status') !== 'inactive') {
+      await page.click(`${relineCard} [data-action="cancel"]`);
+      await until(() => featureOf('scenario-sag-reline', 'status'), (value) => value === 'inactive');
+    }
+    const choices = await page.evaluate(`(() => { const card = document.querySelector('${relineCard}'); return {
+      causes: [...(card.querySelector('select.cause')?.options ?? [])].map((option) => option.textContent),
+      starts: [...(card.querySelector('select.when')?.options ?? [])].map((option) => option.value),
+      duration: card.querySelector('.duration')?.textContent ?? '' }; })()`);
+    check(choices.causes.length === 2 && choices.starts.join() === 'next-shift,shift-after,now' && /72\sч.*Bradken/.test(choices.duration),
+      `the reline card offers its durations (${choices.causes.join(' / ')}) and starts (${choices.starts.join(', ')}): «${choices.duration}»`);
+    posts.length = 0;
+    await page.click(`${relineCard} [data-action="activate"]`);
+    const planned = await until(() => featureOf('scenario-sag-reline', 'phase'), (value) => value === 'planned');
+    const sent = posts.find((post) => post.url.includes(':scenario-sag-reline/inbox/messages/activate'));
+    check(planned === 'planned' && Boolean(sent) && sent.body.includes('"start":"next-shift"'), `«Запустить» planned the reline (phase ${planned}; sent ${sent ? sent.body : 'nothing'})`);
+    const elapsed = await page.waitFor(`/^Запланирована на \\d\\d\\.\\d\\d \\d\\d:\\d\\d/.test(document.querySelector('${relineCard} .elapsed')?.textContent ?? '') && document.querySelector('${relineCard} .elapsed').textContent`,
+      20000, 'the card to say when the stop begins').catch(() => '');
+    check(Boolean(elapsed), `the reline card says when the stop begins: «${elapsed}»`);
+    await page.evaluate('location.hash = "#/twin/mill-sag"');
+    const sagCard = await page.waitFor(`[...document.querySelectorAll('#details-features tr')].map((row) => row.textContent).filter((text) => /футеровк/.test(text)).join(' | ')`,
+      20000, 'the SAG mill card to show the reline').catch(() => '');
+    check(/Замена футеровки МПСИ.*запланирована/.test(sagCard) && /Начало замены футеровки/.test(sagCard), `the SAG mill's card shows the planned reline: «${sagCard}»`);
+    const t2 = Date.now();
+    await page.waitFor(`document.querySelector('#advisor .advisor[data-status="ready"]') && /футеровки/.test(document.querySelector('#advisor .adv-incident')?.textContent ?? '') && document.querySelector('#advisor .adv-option[data-recommended="true"]')`,
+      300000, 'the advisor to rank the reline options').catch(() => {});
+    const relineAdvice = await page.evaluate(`(() => ({
+      incident: document.querySelector('#advisor .adv-incident')?.textContent ?? '',
+      lead: document.querySelector('#advisor .adv-lead')?.textContent ?? '',
+      options: [...document.querySelectorAll('#advisor .adv-option')].map((row) => ({
+        n: row.dataset.option, recommended: row.dataset.recommended, label: row.querySelector('.adv-label').textContent,
+        money: row.querySelector('.adv-figures').textContent, apply: !row.querySelector('button.apply').disabled })),
+    }))()`);
+    console.log(`      reline ranked after ${((Date.now() - t2) / 1000).toFixed(0)} s: «${relineAdvice.lead}»`);
+    for (const option of relineAdvice.options) console.log(`      ${option.n}. ${option.label} · ${option.money}${option.recommended === 'true' ? ' (рекомендуется)' : ''}`);
+    check(relineAdvice.options.length >= 3 && /на одном горизонте \d+\sч/.test(relineAdvice.incident) && /один горизонт для всех/.test(relineAdvice.lead)
+      && relineAdvice.options.some((option) => /^Начать замену футеровки сразу/.test(option.label)) && relineAdvice.options.every((option) => option.apply)
+      && relineAdvice.options.filter((option) => option.recommended === 'true').length === 1,
+      `the advisor card ranks ${relineAdvice.options.length} reline options over one horizon, each with «Применить»`);
+    await openCard(relineCard);
+    await page.click(`${relineCard} [data-action="cancel"]`);
+    const relineOver = await until(() => featureOf('scenario-sag-reline', 'status'), (value) => value === 'inactive', 60000);
+    check(relineOver === 'inactive' && await featureOf('mill-sag', 'reline_state') === '', `the reline is cancelled and no longer planned (status: ${relineOver})`);
+    // The reline's forecasts run on in the background until they are done; the rest of the check waits for them.
+    await until(() => featureOf('forecast-2', 'status'), (value) => value !== 'running', 240000);
   }
 
   // 9. the blast with the card's defaults

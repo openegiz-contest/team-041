@@ -13,6 +13,7 @@ def causes(params: dict) -> dict[str, list[dict]]:
     blast) runs by itself and has no expected end."""
     crusher, road, rel, weather, scenario, clay = (params["crusher"], params["road"], params["reliability"],
                                                    params["weather"], params["scenario"], params["clay_plant"])
+    mill = params["mill"]
     h = lambda value: f"{value:g}".replace(".", ",")
     return {
         "scenario-crusher-stop": [
@@ -53,5 +54,14 @@ def causes(params: dict) -> dict[str, list[dict]]:
             {"id": "pipeline", "title": "засор пульпопровода", "hours": float(clay["repair_pipeline_h"]),
              "basis": f"засор одного пульпопровода ОФ-2: промывка и прочистка без замены узлов, около "
                       f"{h(clay['repair_pipeline_h'])} ч — допущение модели"},
+        ],
+        # A planned stop, not a failure: the «cause» is how the reline is done, and with it how long it takes.
+        "scenario-sag-reline": [
+            {"id": "full", "title": "полная замена футеровки", "hours": float(mill["reline_h"]),
+             "basis": f"полная замена футеровки МПСИ 40 футов — около {h(mill['reline_h'])} ч по оценке Bradken для "
+                      f"мельницы этого диаметра; для Бозшаколя длительность не опубликована — допущение модели"},
+            {"id": "slow", "title": "замена прежними методами", "hours": float(mill["reline_slow_h"]),
+             "basis": f"замена футеровки МПСИ 40 футов прежними методами — больше {h(mill['reline_slow_h'])} ч по той же "
+                      f"оценке Bradken; допущение модели"},
         ],
     }

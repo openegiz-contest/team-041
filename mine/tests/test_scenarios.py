@@ -45,7 +45,8 @@ class ScenarioTwins(unittest.TestCase):
         sim = new_sim()
         for name, scenario in sim.scenarios.items():
             values = twin(sim, name)
-            self.assertEqual(tuple(values), SCALARS + (("valid_targets",) if name == "scenario-blast" else ()), name)
+            extra = {"scenario-blast": ("valid_targets",), "scenario-sag-reline": ("phase", "planned_start_sim_time")}
+            self.assertEqual(tuple(values), SCALARS + extra.get(name, ()), name)
             # Inactive: the chain shows the last hour, nothing compared, and when an effect would show.
             self.assertEqual(len(chain(values)), 4, name)
             for label, base, current, significant in chain(values):
@@ -65,7 +66,7 @@ class ScenarioTwins(unittest.TestCase):
         run(sim, 90)
         values = sim.values()
         self.assertEqual([values[n]["status"] for n in sim.scenarios],
-                         ["active", "active", "inactive", "active", "inactive", "active", "inactive"])
+                         ["active", "active", "inactive", "active", "inactive", "active", "inactive", "inactive"])
         self.assertEqual(values["road-segment-12"]["closed_by"], "scenario-road-closure")
         self.assertEqual(values[WEST_RAMP]["closed_by"], "scenario-heavy-rain")
         self.assertFalse(any(t.waiting_route for t in sim.fleet.trucks))
@@ -624,6 +625,103 @@ class ClayPlantStop(unittest.TestCase):
         self.assertGreater(values["clay-plant"]["cu_tph"], 0.5)
         b = balance(sim)
         self.assertAlmostEqual(b["copper_sources"], b["copper_sinks"], delta=1e-4)
+
+
+class SagReline(unittest.TestCase):
+    """A planned reline of the SAG mill: planned, then the mill stands while the crusher fills the stockpile and the
+    ore goes on to the ROM pads; ОФ-2 runs on; the start can be moved; a cancel before the start drops the plan."""
+    NAME = "scenario-sag-reline"
+
+    def test_planned_then_stop_then_restart(self):
+        sim = new_sim()
+        run(sim, 30)
+        pads = sum(p.stock.t for p in sim.plant.rom_pads.values())
+        sim.handle_message(self.NAME, "activate", {"params": {"start_in_h": 1}})
+        values = twin(sim, self.NAME)
+        self.assertEqual((values["status"], values["phase"]), ("active", "planned"))
+        self.assertEqual(values["expected_duration_h"], PARAMS["mill"]["reline_h"])
+        self.assertIn("Bradken", values["duration_basis"])
+        self.assertEqual(values["planned_start_sim_time"], sim.sim_time(sim.now + 3600))
+        self.assertEqual(values["expected_end_sim_time"], sim.sim_time(sim.now + 3600 * (1 + PARAMS["mill"]["reline_h"])))
+        mill = sim.values()["mill-sag"]
+        self.assertEqual((mill["state"], mill["reline_state"]), ("running", "planned"))
+        self.assertEqual(mill["reline_start_sim_time"], values["planned_start_sim_time"])
+        self.assertIn("запланирована", values["impact_text"])
+        run(sim, 61)
+        values = sim.values()
+        self.assertEqual(values[self.NAME]["phase"], "reline")
+        for name in ("mill", "mill-sag", "mill-ball"):
+            self.assertEqual(values[name]["state"], "reline", name)
+        self.assertEqual(values["mill"]["reline_state"], "reline")
+        # The crusher fills the stockpile until it is full; then the ore goes to the ROM pads; ОФ-2 runs on.
+        run(sim, 8 * 60)
+        values = sim.values()
+        self.assertEqual(values["mill"]["feed_tph"], 0)
+        self.assertEqual(values["flotation"]["cu_tph"], 0.0)
+        self.assertGreater(sim.plant.stockpile.t, 0.99 * sim.plant.capacity_t)
+        self.assertEqual(values["crusher"]["state"], "blocked")
+        self.assertGreater(sum(p.stock.t for p in sim.plant.rom_pads.values()), pads + 5000)
+        self.assertEqual(values["clay-plant"]["state"], "running")
+        self.assertGreater(values["clay-plant"]["cu_tph"], 0.5)
+        links = chain(twin(sim, self.NAME))
+        self.assertEqual([c[0] for c in links], ["Питание мельницы ОФ-1", "Производительность дробилки",
+                                                 "Запас склада дроблёной руды", "Руда на рудные склады"])
+        self.assertEqual(links[0][2], 0.0)
+        self.assertIn("замене футеровки", values[self.NAME]["impact_text"])
+        self.assertIn("mill-sag", names(values[self.NAME]))
+        sim.handle_message(self.NAME, "cancel", {})
+        values = sim.values()
+        self.assertEqual((values[self.NAME]["status"], values["mill"]["state"], values["mill-sag"]["reline_state"]),
+                         ("inactive", "idle", ""))
+        run(sim, PARAMS["mill"]["restart_min"] + 5)
+        values = sim.values()
+        self.assertEqual(values["mill"]["state"], "running")
+        self.assertGreater(values["mill"]["feed_tph"], 3000)
+        b = balance(sim)
+        self.assertAlmostEqual(b["copper_sources"], b["copper_sinks"], delta=1e-4)
+
+    def test_the_start_moves_and_wrong_requests_are_refused(self):
+        sim = new_sim()
+        sim.handle_message(self.NAME, "activate", {"params": {"start": "next-shift", "cause": "slow"}})
+        reline = sim.scenarios[self.NAME]
+        self.assertEqual(reline.start_at, sim.next_shift_at)
+        self.assertAlmostEqual(reline.duration_h(), PARAMS["mill"]["reline_slow_h"])
+        sim.handle_message("mill-sag", "plan-reline", {"start": "shift-after"})
+        self.assertEqual(reline.start_at, sim.next_shift_at + 12 * 3600)
+        self.assertAlmostEqual(reline.duration_h(), PARAMS["mill"]["reline_slow_h"])     # the duration stays
+        self.assertEqual(sim.values()["mill-sag"]["reline_start_sim_time"], sim.sim_time(reline.start_at))
+        self.assertIn("начало перенесено", sim.values()[self.NAME]["response_text"])
+        sim.handle_message("mill-sag", "plan-reline", {"start_in_h": 99})
+        self.assertTrue(sim.refusals)
+        sim.handle_message("mill-sag", "plan-reline", {"start": "now"})
+        self.assertEqual((reline.phase, sim.plant.mill.state), ("reline", "reline"))
+        sim.handle_message("mill-sag", "plan-reline", {"start": "shift-after"})
+        self.assertIn("уже идёт", sim.refusals[0])
+        sim.handle_message(self.NAME, "cancel", {})
+        for params in ({"start": "tomorrow"}, {"expected_h": 500}, {"cause": "unknown"}, {"start_in_h": -1}):
+            sim.handle_message(self.NAME, "activate", {"params": params})
+            self.assertTrue(sim.refusals, params)
+            self.assertEqual(sim.scenarios[self.NAME].status, "inactive")
+        # A cancel before the start drops the plan and leaves the mill as it was.
+        sim = new_sim()
+        sim.handle_message(self.NAME, "activate", {})
+        run(sim, 5)
+        sim.handle_message(self.NAME, "cancel", {})
+        values = sim.values()
+        self.assertEqual((values[self.NAME]["status"], values["mill"]["state"], values["mill-sag"]["reline_state"]),
+                         ("inactive", "running", ""))
+        sim.handle_message("mill-sag", "plan-reline", {"start": "now"})
+        self.assertIn("не запланирована", sim.refusals[0])
+
+    def test_a_forecast_ends_the_reline_at_its_expected_end(self):
+        sim = new_sim()
+        sim.auto_end = True
+        sim.handle_message(self.NAME, "activate", {"params": {"start": "now", "expected_h": 12}})
+        self.assertEqual(sim.plant.mill.state, "reline")
+        run(sim, 12 * 60 + 1)
+        self.assertEqual((sim.scenarios[self.NAME].status, sim.plant.mill.state), ("inactive", "idle"))
+        run(sim, PARAMS["mill"]["restart_min"] + 1)
+        self.assertEqual(sim.plant.mill.state, "running")
 
 
 class Windows(unittest.TestCase):

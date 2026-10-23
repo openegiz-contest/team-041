@@ -103,6 +103,11 @@ export function panelContent(twin, compact = false) {
       row('Питание', `${num(f(name))}${NB}т/ч`, 'ok', name);
       row('Мощность', `${num(f('power_mw'), 1)}${NB}МВт`, 'ok', 'power_mw');
       if (typeof f('drive_load_pct') === 'number') row('Загрузка привода', `${num(f('drive_load_pct'))}${NB}%`, f('drive_load_pct') > 99 ? 'warn' : 'ok', 'drive_load_pct');
+      // A planned reline of the SAG mill: when it begins, or, while it runs, when the mill starts again.
+      const reline = f('reline_state');
+      const at = (iso) => { const m = /^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d)/.exec(String(iso ?? '')); return m ? `${m[2]}.${m[1]} ${m[3]}` : '—'; };
+      if (reline === 'planned') row('Замена футеровки', `с ${at(f('reline_start_sim_time'))} до ${at(f('reline_end_sim_time'))}`, 'warn', 'reline_start_sim_time');
+      else if (reline === 'reline') row('Замена футеровки', `идёт, пуск ${at(f('reline_end_sim_time'))}`, 'bad', 'reline_end_sim_time');
       break;
     }
     case 'flotation': {

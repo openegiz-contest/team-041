@@ -46,6 +46,12 @@ def _hhmm(sim: "Simulation", at: float) -> str:
     return sim.sim_time(at)[11:16]
 
 
+def _day(sim: "Simulation", at: float) -> str:
+    """A simulated moment as «DD.MM HH:MM»: a planned stop lasts days."""
+    text = sim.sim_time(at)
+    return f"{text[8:10]}.{text[5:7]} {text[11:16]}"
+
+
 def _real(sim: "Simulation", model_h: float) -> str:
     """How long `model_h` simulated hours take on the stand at its present speed, in Russian."""
     seconds = model_h * 3600.0 / max(sim.speedup, 1)
@@ -1192,6 +1198,201 @@ class ClayPlantStop(Scenario):
                 f"глинистой руды. {_speed_hint(sim)}")
 
 
+class SagReline(Scenario):
+    """A planned reline of the SAG mill of ОФ-1: not a failure, a stop the shift supervisor knows is coming.
+
+    `activate {params: {start?, start_in_h?, cause?, expected_h?}}` plans it: it begins at the next shift change
+    (`start` = `next-shift`, the default), a shift later (`shift-after`), at once (`now`), or `start_in_h` hours
+    from now, and lasts as long as its cause says (`full`: the full reline, `slow`: the old way; or `expected_h`).
+    Until it begins the scenario is active in the phase `planned` and the mine runs as before; the mill twins show
+    the planned start and end. Then the phase is `reline`: the mill grinds out its charge and stands, the whole
+    milling of ОФ-1 with it (one SAG mill feeds both ball mills); the crusher fills the stockpile until it is full,
+    then the ore goes to the ROM pads by the shift rule (or where the dispatch module sends the trucks), and ОФ-2
+    runs on. The live message `plan-reline {start?, start_in_h?}` to the SAG mill moves a planned start (an
+    advisor's option). The reline ends at its expected end in a forecast; on the stand when it is cancelled, the
+    estimate moving on if it overruns, like a repair. A cancel before the start drops the plan."""
+
+    kpi_label = "Запас склада дроблёной руды"
+    kpi_unit = "т"
+    kpi_digits = 0
+    feed_label = "питание мельницы ОФ-1"
+    idle = "Сценарий не активен: замена футеровки МПСИ не запланирована."
+
+    def __init__(self, sim: "Simulation", thing: dict):
+        super().__init__(sim, thing)
+        self.start_at: float | None = None      # when the stop begins (planned) or began
+        self.phase = ""                          # planned / reline
+
+    # -- the plan -------------------------------------------------------------------------
+
+    def _start_from(self, params: dict) -> float | str:
+        """When the reline is to begin, from `start` or `start_in_h`; a Russian reason when neither fits."""
+        sim = self.sim
+        hours = params.get("start_in_h")
+        if hours is not None:
+            if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 <= hours <= 36:
+                return f"начало через {hours!r} ч вне диапазона 0–36 ч"
+            return sim.now + float(hours) * 3600.0
+        start = params.get("start", "next-shift")
+        if start == "now":
+            return sim.now
+        if start == "next-shift":
+            return sim.next_shift_at
+        if start == "shift-after":
+            return sim.next_shift_at + float(sim.params["scenario"]["reline_shift_after_h"]) * 3600.0
+        return f"начало {start!r} не подходит (возможны: next-shift, shift-after, now)"
+
+    def check_duration(self, params: dict) -> str | None:
+        cause, hours = params.get("cause"), params.get("expected_h")
+        if cause is not None and cause not in [c["id"] for c in self.causes]:
+            return f"способ замены {cause!r} не подходит (возможны: {', '.join(c['id'] for c in self.causes)})"
+        low, high = float(self.sim.params["mill"]["reline_min_h"]), float(self.sim.params["mill"]["reline_max_h"])
+        if hours is not None and (isinstance(hours, bool) or not isinstance(hours, (int, float)) or not low <= hours <= high):
+            return f"длительность {hours!r} ч вне диапазона {num(low, 0)}–{num(high, 0)} ч"
+        start = self._start_from(params)
+        return start if isinstance(start, str) else None
+
+    def check(self, target: str, params: dict) -> str | None:
+        if self.sim.plant.mill.state == "reline":
+            return "мельница уже на замене футеровки"
+        return None
+
+    def plan(self, params: dict) -> None:
+        super().plan(params)                    # the duration and its basis from the cause
+        hours = (self.expected_end - self.sim.now) / 3600.0
+        self.start_at = self._start_from(params)
+        self.expected_end = self.start_at + hours * 3600.0
+        self.phase = "planned"
+        self.on_expected()
+
+    def on_expected(self) -> None:
+        mill = self.sim.plant.mill
+        if self.status == "inactive":
+            mill.reline_start = mill.reline_end = None
+            return
+        mill.reline_start, mill.reline_end = self.start_at, self.expected_end
+
+    def duration_h(self) -> float:
+        return max(0.0, (self.expected_end or 0.0) - (self.start_at or 0.0)) / 3600.0
+
+    def reschedule(self, body: dict) -> None:
+        """Live message `plan-reline {start?, start_in_h?}` to the SAG mill: a planned start moves, the duration stays."""
+        sim = self.sim
+        if self.status != "active" or self.phase != "planned":
+            what = "уже идёт" if self.phase == "reline" else "не запланирована"
+            sim.refuse("mill-sag", f"Замена футеровки МПСИ {what}: начало не перенести")
+            return
+        start = self._start_from(body)
+        if isinstance(start, str):
+            sim.refuse("mill-sag", f"Начало замены футеровки МПСИ не перенесено: {start}")
+            return
+        hours, old = self.duration_h(), self.start_at
+        self.start_at, self.expected_end = start, start + hours * 3600.0
+        self.responses.append(f"начало перенесено с {_hhmm(sim, old)} на {_hhmm(sim, start)}")
+        sim.log("info", "mill-sag", f"Замена футеровки МПСИ: начало перенесено с {_day(sim, old)} "
+                                    f"на {_day(sim, start)}, окончание — "
+                                    f"{_day(sim, self.expected_end)}")
+        self.on_expected()
+        self.step()
+
+    # -- the stop -------------------------------------------------------------------------
+
+    def start(self, target: str, params: dict) -> None:
+        sim = self.sim
+        when = "сейчас" if self.start_at <= sim.now else f"в {_day(sim, self.start_at)}"
+        sim.log("warning", target, f"Запланирована замена футеровки МПСИ (сценарий «{self.title}»): начало {when}, "
+                                   f"{num(self.duration_h())} ч, до {_day(sim, self.expected_end)}")
+        self.step()
+
+    def take_mark(self) -> None:
+        super().take_mark()
+        plant = self.sim.plant
+        self.mark.update(level=plant.stockpile.t, pads=sum(p.stock.t for p in plant.rom_pads.values()))
+
+    def step(self) -> None:
+        sim, plant = self.sim, self.sim.plant
+        if self.phase == "planned" and self.start_at is not None and sim.now >= self.start_at:
+            self.phase = "reline"
+            self.mark.update(level=plant.stockpile.t, pads=sum(p.stock.t for p in plant.rom_pads.values()))
+            plant.mill.start_reline()
+
+    def stop(self) -> None:
+        sim = self.sim
+        was = self.phase
+        self.phase, self.start_at = "", None
+        self.finish()
+        sim.plant.mill.end_reline()
+        if was == "planned":
+            sim.log("info", self.target or "mill-sag", f"Замена футеровки МПСИ отменена до начала (сценарий «{self.title}»)")
+
+    def kpi_now(self) -> float:
+        return self.sim.plant.stockpile.t
+
+    def feed_live(self) -> float:
+        return self.sim.kpis.mill_feed.per_hour(self.sim.now)
+
+    def feed_total(self) -> float:
+        return self.sim.plant.mill.total_t
+
+    def expected_values(self) -> dict:
+        out = super().expected_values()
+        if self.status != "inactive" and self.start_at is not None:
+            out["expected_duration_h"] = round(self.duration_h(), 1)
+        return out
+
+    def values(self) -> dict:
+        out = super().values()
+        out["phase"] = self.phase if self.status != "inactive" else ""
+        out["planned_start_sim_time"] = self.sim.sim_time(self.start_at) if self.start_at is not None else ""
+        return out
+
+    def affected(self) -> list[str]:
+        plant = self.sim.plant
+        if self.phase != "reline":
+            return ["mill-sag", plant.mill.name]
+        names = ["mill-sag", plant.mill.name, "mill-ball", "flotation", plant.stockpile_name]
+        if plant.crusher.limited or plant.crusher.queue:
+            names += [plant.crusher.name, *(t.name for t in plant.crusher.queue)]
+        names += [name for name, pad in plant.rom_pads.items() if pad.queue or pad.truck]
+        return names
+
+    def _room_text(self) -> str:
+        plant = self.sim.plant
+        room = max(0.0, plant.capacity_t - plant.stockpile.t)
+        return (f"склад дроблёной руды {plant.stockpile.t:.0f} т ({100 * plant.stockpile.t / plant.capacity_t:.0f} %), "
+                f"свободно {room:.0f} т — около {num(room / float(self.sim.params['crusher']['rated_tph']))} ч работы "
+                f"дробилки")
+
+    def text(self, v: dict) -> str:
+        sim, plant = self.sim, self.sim.plant
+        end = _day(sim, self.expected_end)
+        if self.phase == "planned":
+            left = max(0.0, self.start_at - sim.now) / 3600.0
+            return (f"Замена футеровки МПСИ запланирована на {_day(sim, self.start_at)} "
+                    f"(через {num(left)} ч), {num(self.duration_h())} ч, пуск мельницы — {end}. Сейчас {self._room_text()}.")
+        to_pads = max(0.0, sum(p.stock.t for p in plant.rom_pads.values()) - self.mark.get("pads", 0.0))
+        return (f"МПСИ на замене футеровки с {_hhmm(sim, self.start_at)}, пуск ожидается {end}: измельчение и флотация ОФ-1 "
+                f"стоят, ОФ-2 работает. Склад дроблёной руды {self.mark.get('level', 0.0):.0f} → {plant.stockpile.t:.0f} т"
+                f"{' (заполнен, дробилка пропускает только то, что принимает склад)' if plant.crusher.limited else ''}; "
+                f"на рудные склады ушло {to_pads:.0f} т.")
+
+    def chain(self) -> list[Indicator]:
+        return [Indicator("Питание мельницы ОФ-1", "т/ч", 0, "rate", "milled_t"),
+                Indicator("Производительность дробилки", "т/ч", 0, "rate", "crushed_t"),
+                Indicator("Запас склада дроблёной руды", "т", 0, "level", "stock_t"),
+                Indicator("Руда на рудные склады", "т/ч", 0, "rate", "to_rom_t")]
+
+    def delay_text(self) -> str:
+        sim = self.sim
+        if self.phase == "planned":
+            left = max(0.0, self.start_at - sim.now) / 3600.0
+            return (f"До начала остановки {num(left)} ч модели ({_real(sim, left)} стенда при ×{sim.speedup}); до тех пор "
+                    f"рудник работает как обычно. Остановка длится {num(self.duration_h())} ч: дробилка заполняет склад, "
+                    f"потом руда идёт на рудные склады. {_speed_hint(sim)}")
+        return (f"Измельчение ОФ-1 стоит с начала остановки; {self._room_text()}. Когда склад заполнится, самосвалы с рудой "
+                f"разгружаются на рудных складах (или модуль диспетчеризации отправляет их на вскрышу). {_speed_hint(sim)}")
+
+
 KINDS = {
     "scenario-road-closure": RoadClosure,
     "scenario-shovel-failure": ShovelFailure,
@@ -1200,6 +1401,7 @@ KINDS = {
     "scenario-blast": Blast,
     "scenario-clay-face": ClayFace,
     "scenario-clay-plant-stop": ClayPlantStop,
+    "scenario-sag-reline": SagReline,
 }
 
 

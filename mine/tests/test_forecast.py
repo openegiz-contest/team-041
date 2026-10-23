@@ -13,7 +13,7 @@ import unittest
 from mine.common import envelope
 from mine.common.economics import Economics
 from mine.sim.coupling import ALL, Coupled
-from mine.sim.forecast import ForecastDesk, apply_action, explain, run_branch
+from mine.sim.forecast import ForecastDesk, apply_action, explain, run_branch, timeout_s
 from mine.tests.test_model import NS, PARAMS, THINGS, UNITS, new_sim, run
 
 ROAD_CLOSURE = [{"thing": f"{NS}:scenario-road-closure", "subject": "activate", "body": {}}]
@@ -329,6 +329,21 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.values()["forecast-2"]["status"], "error")
         self.assertIn("nothing-here", desk.values()["forecast-2"]["error_text"])
         self.assertEqual(desk.jobs, {})
+
+    def test_a_long_horizon_only_while_a_reline_is_planned(self):
+        """Beyond a day only while a reline of the SAG mill is planned or under way (the advisor must see the whole
+        stop of its latest option), and a branch that long may compute for longer in proportion."""
+        sim = new_sim()
+        desk = ForecastDesk(sim, THINGS)
+        desk.request(sim, {"slot": 2, "horizon_h": 97})
+        self.assertEqual(desk.values()["forecast-2"]["status"], "error")
+        sim.handle_message("scenario-sag-reline", "activate", {})
+        desk.request(sim, {"slot": 2, "horizon_h": 97})
+        self.assertEqual([r.horizon_h for r in desk.new], [97])
+        desk.request(sim, {"slot": 3, "horizon_h": PARAMS["forecast"]["planned_max_horizon_h"] + 1})
+        self.assertEqual(desk.values()["forecast-3"]["status"], "error")
+        self.assertEqual(timeout_s(PARAMS, 12), PARAMS["forecast"]["timeout_s"])
+        self.assertAlmostEqual(timeout_s(PARAMS, 96), 4 * PARAMS["forecast"]["timeout_s"])
 
     def test_modules_in_a_forecast_follow_the_stand(self):
         sim = new_sim()

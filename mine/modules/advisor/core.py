@@ -122,7 +122,8 @@ from mine.model.build_twins import MARGIN_SPLIT
 from mine.modules.base import Core, Message, num, short
 from mine.sim.text import thousands
 
-ORDER = ("crusher-stop", "clay-plant-stop", "loader-down", "clay-face", "road-closed", "rain", "truck-cluster", "hard-ore")
+ORDER = ("crusher-stop", "clay-plant-stop", "sag-reline", "loader-down", "clay-face", "road-closed", "rain", "truck-cluster",
+         "hard-ore")
 OUT_STATES = ("down", "service", "to_service")
 NOTHING = "Ничего не менять"
 # A gain beyond the scatter that rests on inventory, not copper: the verdict starts with ON_STOCK,
@@ -152,7 +153,12 @@ HANDLES = {
                                   "питание ОФ-1 больше 8 % глины",
                   "module-plant": "снижает уставку ОФ-1, если глина в питании опускает предел мельницы"},
     "clay-plant-stop": {"module-grade": "везёт глинистую руду на склад глинистой руды, когда приёмный склад ОФ-2 полон"},
+    "sag-reline": {"module-dispatch": "когда склад дроблёной руды полон, везёт руду на рудные склады и отправляет свободные "
+                                      "самосвалы на вскрышу",
+                   "module-plant": "после пуска мельницы поднимает подачу до пика, пока склад дроблёной руды полон"},
 }
+# When a planned reline of the SAG mill may begin instead of its plan: (start in `plan-reline`, label of the moment).
+RELINE_STARTS = (("now", "сразу"), ("next-shift", "в начале следующей смены"), ("shift-after", "через смену"))
 SPLIT_TITLES = {"revenue": "медь", "grade": "медь из запасов сверх средней руды", "work": "работа парка",
                 "rehandle": "перевалка", "diesel": "дизель", "power": "электроэнергия", "resources": "ресурсы смены"}
 # The parts of a gain that are money of the horizon: the copper at the mine's average grade (revenue less the
@@ -212,7 +218,8 @@ class AdvisorCore(Core):
         super().__init__(things, params, enabled)
         w = self.world
         self.p = params["advisor"]
-        self.horizon_h = int(params["forecast"]["horizon_h"])
+        # The horizon of an analysis: the forecast's default, longer for a planned reline (`_options`).
+        self.default_horizon_h = self.horizon_h = int(params["forecast"]["horizon_h"])
         self.replicas = int(self.p["replicas"])
         self.noise_kzt = float(params["forecast"]["noise_kzt"])
         self.hold_min = int(round(self.p["hold_h"] * 60))
@@ -222,6 +229,7 @@ class AdvisorCore(Core):
         self.segments, self.blocks = w.by_kind["road-segment"], w.by_kind["block"]
         self.pads = {w.get(pad, "role"): pad for pad in w.by_kind["rom-pad"]}
         self.crusher, self.mill, self.stockpile = w.by_kind["crusher"][0], w.by_kind["mill"][0], w.by_kind["stockpile"][0]
+        self.sag = w.by_kind["sag-mill"][0]
         self.clay_plant, self.clay_stock = w.by_kind["clay-plant"][0], w.by_kind["clay-stockpile"][0]
         self.clay_min = float(params["clay"]["clay_ore_min_pct"])
         self.clay_ref = float(params["flotation"]["clay_ref_pct"])
@@ -266,6 +274,9 @@ class AdvisorCore(Core):
                           f"({float(w.get(self.clay_plant, 'bin_t', 0.0)):.0f} т, свободно "
                           f"{float(w.get(self.clay_plant, 'room_t', 0.0)):.0f} т), потом идёт на склад глинистой руды "
                           f"(свободно {float(w.get(self.clay_stock, 'room_t', 0.0)):.0f} т); ОФ-2 не даёт меди."))
+        reline = self._reline()
+        if reline is not None:
+            found.append((f"sag-reline:{reline['phase']}", self.sag, reline["text"]))
         for loader in self.loaders:
             block = short(w.get(loader, "block", ""))
             if w.get(loader, "state") in ("loading", "waiting") and block in w.attrs \
@@ -375,7 +386,114 @@ class AdvisorCore(Core):
             return end, self._scenario_end("scenario-clay-plant-stop")[1] if end else ""
         if kind == "clay-face":
             return self._scenario_end("scenario-clay-face", thing)
+        if kind == "sag-reline":
+            end = str(w.get(self.sag, "reline_end_sim_time", ""))
+            return end, self._scenario_end("scenario-sag-reline")[1] if end else ""
         return "", ""
+
+    # -- the planned reline of the SAG mill ---------------------------------------------------
+
+    @staticmethod
+    def _day(at: float) -> str:
+        """A simulated moment as «DD.MM HH:MM»."""
+        return datetime.fromtimestamp(at).strftime("%d.%m %H:%M")
+
+    def _reline(self) -> dict | None:
+        """The planned (or running) reline of the SAG mill from its twin: phase, start, end, duration, text."""
+        w = self.world
+        phase = str(w.get(self.sag, "reline_state", ""))
+        start, end = w.time_of(w.get(self.sag, "reline_start_sim_time", "")), w.time_of(w.get(self.sag, "reline_end_sim_time", ""))
+        if phase not in ("planned", "reline") or start is None or end is None:
+            return None
+        hours = (end - start) / 3600.0
+        level = float(w.get(self.stockpile, "level_t", 0.0))
+        capacity = float(w.spec(self.stockpile, "capacity_t", 1.0) or 1.0)
+        room = max(0.0, capacity - level)
+        crusher_tph = float(self.params["crusher"]["rated_tph"])
+        if phase == "planned":
+            text = (f"Запланирована замена футеровки МПСИ: начало {self._day(start)} (через {num(max(0.0, start - w.now) / 3600.0)} ч), "
+                    f"{num(hours)} ч, пуск мельницы {self._day(end)}; на это время измельчение ОФ-1 стоит целиком, ОФ-2 "
+                    f"работает. Склад дроблёной руды заполнен на {100 * level / capacity:.0f} %: во время остановки "
+                    f"дробилка примет ещё {thousands(room)} т — около {num(room / crusher_tph)} ч, потом руда пойдёт на "
+                    f"рудные склады.")
+        else:
+            text = (f"МПСИ на замене футеровки с {self._day(start)}, пуск мельницы ожидается {self._day(end)} (через "
+                    f"{num(max(0.0, end - w.now) / 3600.0)} ч); измельчение ОФ-1 стоит, ОФ-2 работает. Склад дроблёной руды "
+                    f"заполнен на {100 * level / capacity:.0f} %" + ("; руда из забоев идёт на рудные склады." if room < 2000 else "."))
+        return {"phase": phase, "start": start, "end": end, "hours": hours, "text": text}
+
+    def _next_shift(self) -> float:
+        """The next shift change: shifts are 12 h, from the start of the current one (the mine twin)."""
+        w = self.world
+        began = w.time_of(w.get("mine", "shift_start_sim_time", "")) or w.now
+        at = began + 12 * 3600.0
+        while at <= w.now:
+            at += 12 * 3600.0
+        return at
+
+    def _reline_start(self, choice: str) -> float:
+        """When a reline set to begin `now`, at the `next-shift` change or `shift-after` it would begin."""
+        if choice == "now":
+            return self.world.now
+        later = float(self.params["scenario"]["reline_shift_after_h"]) * 3600.0 if choice == "shift-after" else 0.0
+        return self._next_shift() + later
+
+    def _reline_options(self, reline: dict) -> tuple[list[dict], float]:
+        """The options of a planned reline and the latest start among them and the plan (the horizon is set by it):
+        to begin it at another moment (`plan-reline`), and to take the ore shovels off ore for the stop."""
+        w, out = self.world, []
+        latest = reline["start"]
+        end = lambda start: start + reline["hours"] * 3600.0
+        if reline["phase"] == "planned":
+            for choice, title in RELINE_STARTS:
+                start = self._reline_start(choice)
+                if abs(start - reline["start"]) < 1800.0:
+                    continue                    # that is the plan itself
+                latest = max(latest, start)
+                earlier = start < reline["start"]
+                label = (f"Начать замену футеровки {title} ({self._day(start)}) вместо {self._day(reline['start'])}: "
+                         f"пуск мельницы около {self._day(end(start))}")
+                why = (f"мельница раньше встанет и раньше запустится со склада, заполненного за остановку"
+                       if earlier else "мельница дольше работает до остановки и позже запускается")
+                out.append({"label": label, "why": why, "start": choice,
+                            "actions": [self._action(self.sag, "plan-reline", {"start": choice})]})
+        prep = self._ore_shovels_to_waste(reline)
+        if prep is not None:
+            out.insert(min(len(out), 1), prep)
+        return out, latest
+
+    def _ore_shovels_to_waste(self, reline: dict) -> dict | None:
+        """For the stop: the shovels of the sulphide ore faces to free blasted waste blocks, so that the ore stays in the
+        pit instead of going onto the ROM pads (and being rehandled later) while the mill stands."""
+        w = self.world
+        taken = {short(w.get(l, "block", "")) for l in self.loaders}
+        free = [b for b in self.blocks if w.get(b, "status") == "blasted" and w.get(b, "material") == "waste"
+                and b not in taken and float(w.get(b, "tonnes_remaining", 0)) > 20000 and not self._in_blast_zone(b)]
+        ore = [l for l in self.loaders if w.get(l, "state") in ("loading", "waiting", "relocating", "setup")
+               and w.get(short(w.get(l, "block", "")), "material") == "ore"]
+        moves = []
+        for loader in sorted(ore):
+            if not free:
+                break
+            block = min(free, key=lambda b: (self._move_minutes(loader, b), b))
+            free.remove(block)
+            moves.append((loader, block))
+        if not moves:
+            return None
+        names = ", ".join(f"{w.title(l)} — на {w.title(b)}" for l, b in moves)
+        when = "сейчас" if reline["phase"] == "reline" else "сейчас, до начала остановки"
+        rehandle = float(self.params["rom"]["rehandle_kzt_t"])
+        return {"label": f"Подготовить карьер: экскаваторы рудных забоев на вскрышу {when} ({names}); руда остаётся в "
+                         f"забоях, а не уходит на рудные склады",
+                "why": f"во время остановки руда из забоев ложится на рудные склады, её перевалка в дробилку потом стоит "
+                       f"{rehandle:.0f} тг/т; вместо неё экскаваторы снимают вскрышу",
+                "actions": [self._action(l, "move-to-block", {"block": w.tid(b)}) for l, b in moves]}
+
+    def _reline_horizon_h(self, reline: dict, latest: float) -> int:
+        """One horizon for every option: from now to the end of the stop of the latest of them, plus the restart."""
+        end = latest + reline["hours"] * 3600.0
+        hours = (end - self.world.now) / 3600.0 + float(self.params["scenario"]["reline_recovery_h"])
+        return int(min(float(self.params["forecast"]["planned_max_horizon_h"]), math.ceil(max(1.0, hours))))
 
     # -- options ------------------------------------------------------------------------------
 
@@ -724,6 +842,7 @@ class AdvisorCore(Core):
         """Response options for the incident, the reference first."""
         w, kind = self.world, incident["kind"]
         self.hold_min = self._hold_for(incident)
+        self.horizon_h = self.default_horizon_h
         min_feed = float(w.spec(self.mill, "min_feed_tph", 1440.0))
         max_feed = float(w.get(self.mill, "max_feed_tph", 0.0))
         setpoint = float(w.get(self.mill, "feed_setpoint_tph", 0.0))
@@ -750,6 +869,18 @@ class AdvisorCore(Core):
             face = [(loader, short(w.get(loader, "block", "")))]
             candidates = [switch, self._move_off_clay(loader), self._clay_route(face, self.clay_stock),
                           self._clay_route(face, self.crusher), self._clay_route(face, self.clay_plant)]
+        elif kind == "sag-reline":
+            reline = self._reline()
+            timing, latest = self._reline_options(reline) if reline else ([], w.now)
+            candidates = [switch, *timing]
+            if reline:
+                # Every option over one horizon that holds the whole stop of the latest of them and the restart:
+                # a later start must not look better only because its stop falls outside the forecast.
+                self.horizon_h = self._reline_horizon_h(reline, latest)
+                incident["text"] = incident["text"].split(" Варианты сравниваются")[0] + (
+                    f" Варианты сравниваются на одном горизонте {self.horizon_h} ч: до конца остановки самого позднего "
+                    f"из них ({self._day(latest + reline['hours'] * 3600.0)}) и ещё "
+                    f"{num(float(self.params['scenario']['reline_recovery_h']), 0)} ч на пуск мельницы.")
         elif kind == "clay-plant-stop":
             faces = self._clay_faces()
             clay_loaders = [l for l, b in faces if w.get(b, "material") == "clay"]
@@ -802,7 +933,9 @@ class AdvisorCore(Core):
             self.last_decision = self.last_decision.replace(old, found["text"])
         if self.status == "running":
             self._collect()
-            if self.status == "running" and now - self.asked_at >= self.p["retry_min"] * 60.0:
+            # A long horizon (a planned reline) takes longer to compute: the wait grows with it.
+            wait_s = self.p["retry_min"] * 60.0 * max(1.0, self.horizon_h / self.default_horizon_h)
+            if self.status == "running" and now - self.asked_at >= wait_s:
                 self._ask(now)                  # no answer in time: ask again
         elif self.status == "ready" and found and not self.incident.get("applied") \
                 and self._stock_h() <= self.incident["stock_h"] - float(self.p["reanalyse_stock_h"]):
@@ -1118,6 +1251,7 @@ class AdvisorCore(Core):
 
     def _clear(self, why: str) -> None:
         self.incident, self.options, self.status, self.recommended = None, [], "idle", 0
+        self.horizon_h = self.default_horizon_h
         self.analysed_at = None
         self.last_decision = why
 
@@ -1222,6 +1356,9 @@ class AdvisorCore(Core):
                 parts.append(f"{title}: аварийная дорожная бригада")
             elif subject == "treat-surface":
                 parts.append(f"{title}: грейдер и подсыпка")
+            elif subject == "plan-reline":
+                when = dict(RELINE_STARTS).get(str(body.get("start", "")), f"через {body.get('start_in_h')} ч")
+                parts.append(f"{title}: начать замену футеровки {when}")
             else:
                 parts.append(f"{title}: {subject}")
         return "; ".join(parts)
@@ -1251,6 +1388,7 @@ class AdvisorCore(Core):
             "analysis_status": self.status,
             "analysis_sim_time": datetime.fromtimestamp(self.analysed_at).isoformat(timespec="seconds")
             if self.analysed_at else "",
+            "analysis_horizon_h": float(self.horizon_h),
             "options_count": len(self.options),
         }
         for n in range(1, 5):

@@ -1,7 +1,8 @@
 // The advisor card at the top of the right column. When an incident appears
 // (a loader down, the crusher stopped, a road closed, rain) the advisor module
 // builds a few responses, the first of them "change nothing", has the
-// simulator play each one 12 hours ahead in a forecast slot of its own, ranks
+// simulator play each one 12 hours ahead (a planned reline of the SAG mill: over
+// one horizon that holds the whole stop of every option) in a forecast slot of its own, ranks
 // them by money and copper and publishes the ranking in its twin. The card
 // shows that ranking and sends «Применить».
 
@@ -18,6 +19,8 @@ const CONFIRM_MS = 20000;
 let pending = null;                  // {option, sentAt, timer}: «Применить» sent, no answer yet
 
 const advisor = () => twins.get(advisorId());
+// A simulated moment as «DD.MM HH:MM»: a planned stop of the SAG mill lasts days.
+const formatSimDay = (iso) => { const m = /^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d)/.exec(iso ?? ''); return m ? `${m[2]}.${m[1]} ${m[3]}` : '—'; };
 // The card speaks of the module by its short name; the twin's full name is behind the link.
 const nameOf = (twin) => (twin ? titleOf(twin).replace(/^Модуль-/, '').replace(/^./, (c) => c.toUpperCase()) : 'Советник');
 
@@ -140,7 +143,7 @@ function shortSummary(option) {
   return parts.length ? `${parts.join(', ')}.` : '';
 }
 
-function optionRow(option, { recommended, applied, ready, reference }) {
+function optionRow(option, { recommended, applied, ready, reference, horizon }) {
   const apply = el('button', { type: 'button', className: 'apply', dataset: { option: String(option.n) }, disabled: !ready,
     'aria-label': `Применить вариант ${option.n} «${option.label}»`, title: option.actions ? `Что будет отправлено: ${option.actions}` : '' }, 'Применить');
   apply.addEventListener('click', () => send(option));
@@ -152,22 +155,22 @@ function optionRow(option, { recommended, applied, ready, reference }) {
     isReference
       ? el('span', { className: 'muted' }, 'точка отсчёта')
       : el('span', { className: 'adv-money', dataset: { tone: tone(option.deltaKzt) },
-        title: `Разница итога с поправкой за ${HORIZON_H} ч против «ничего не менять»: переменная маржа плюс оценка запасов руды и вскрыши${spread}` },
+        title: `Разница итога с поправкой за ${horizon} ч против «ничего не менять»: переменная маржа плюс оценка запасов руды и вскрыши${spread}` },
       typeof option.deltaKzt === 'number' ? formatTengeSpread(option.deltaKzt, option.spreadKzt, { sign: true }) : '—'),
     !isReference && typeof option.deltaCu === 'number'
-      ? el('span', { className: 'adv-cu', title: `Разница меди в концентрате за ${HORIZON_H} ч` }, `${formatDelta(option.deltaCu, 1)} т Cu`) : null,
+      ? el('span', { className: 'adv-cu', title: `Разница меди в концентрате за ${horizon} ч` }, `${formatDelta(option.deltaCu, 1)} т Cu`) : null,
     !isReference && sure
       ? el('span', { className: 'adv-conf', dataset: { level: sure.level },
         title: `Достоверность выигрыша против «ничего не менять» по разбросу прогноза: ${sure.full}` }, sure.text) : null,
     !isReference && option.cost >= 50000
-      ? el('span', { className: 'adv-cost', title: `Ресурсы смены за ${HORIZON_H} ч: бригады, техника и материалы этого варианта; уже вычтены из итога` },
+      ? el('span', { className: 'adv-cost', title: `Ресурсы смены за ${horizon} ч: бригады, техника и материалы этого варианта; уже вычтены из итога` },
         `ресурсы ${formatTenge(option.cost)}`) : null);
   // Where the margin difference comes from, in millions of tenge.
   // Parts that round to zero are left out; the tooltip names all of them.
   const parts = option.split.filter((part) => Math.abs(part.value) >= 50000);
   const split = !isReference && parts.length
     ? el('p', { className: 'adv-split',
-      title: `Из чего складывается разница за ${HORIZON_H} ч, млн ₸: ${option.split.map((part) => `${part.title} ${formatMillions(part.value, { sign: true, digits: 1 })}`).join(', ')}. «Из запасов» — медь сверх средней руды месторождения, которую отдали склады и забои: она вычитается, потому что эта руда не будет переработана потом; «работа парка» — выемка руды и вскрыши, которую иначе пришлось бы сделать позже.` },
+      title: `Из чего складывается разница за ${horizon} ч, млн ₸: ${option.split.map((part) => `${part.title} ${formatMillions(part.value, { sign: true, digits: 1 })}`).join(', ')}. «Из запасов» — медь сверх средней руды месторождения, которую отдали склады и забои: она вычитается, потому что эта руда не будет переработана потом; «работа парка» — выемка руды и вскрыши, которую иначе пришлось бы сделать позже.` },
       ...parts.flatMap((part, i) => [i ? ' · ' : '', `${part.title} `, el('b', { dataset: { tone: tone(part.value) } }, formatMillions(part.value, { sign: true, digits: 1 }))]),
       ' млн ₸')
     : null;
@@ -295,13 +298,18 @@ export function render() {
   const appliedText = appliedNow ? String(feature(twin, 'applied_text') ?? '') : '';
   const reference = options.find((option) => /^ничего не (менять|делать)/i.test(option.label))?.n ?? 1;
   const slots = options.map((option) => (option.result ? option.result.summary.length + option.result.a.mill.join() : option.failed));
-  const next = JSON.stringify([incident, status, enabled, options.map(({ result, ...rest }) => rest), slots, recommended, applied, appliedText, name]);
+  const next = JSON.stringify([incident, status, enabled, options.map(({ result, ...rest }) => rest), slots, recommended, applied, appliedText, name,
+    feature(twin, 'analysis_horizon_h')]);
   if (key === next) return;
   key = next;
 
+  // The horizon of this analysis: the forecast's 12 h, or longer when every option's whole stop must fit in it
+  // (a planned reline of the SAG mill: the same horizon for all of its options).
+  const horizon = Number(feature(twin, 'analysis_horizon_h')) || HORIZON_H;
+  const whole = horizon > HORIZON_H ? ' (один горизонт для всех: вся остановка и пуск мельницы каждого варианта)' : '';
   const lead = !enabled ? `${name} выключен: варианты не применяются.`
-    : status === 'ready' ? `Каждый вариант проигран на ${HORIZON_H} ч вперёд на копии рудника и сравнён с «ничего не менять».`
-      : `${name} готовит варианты и считает их прогнозы на ${HORIZON_H} ч…`;
+    : status === 'ready' ? `Каждый вариант проигран на ${horizon} ч вперёд${whole} на копии рудника и сравнён с «ничего не менять».`
+      : `${name} готовит варианты и считает их прогнозы на ${horizon} ч${whole}…`;
   const card = el('article', { className: 'card advisor', dataset: { id: advisorId(), status }, 'aria-labelledby': 'advisor-title' },
     el('header', {},
       el('h3', { id: 'advisor-title' }, el('a', { className: 'twin-link', href: twinHref(advisorId()) }, `${name}: что делать`)),
@@ -310,7 +318,9 @@ export function render() {
     incident.thing ? el('p', { className: 'adv-where' }, 'Объект: ', twinLink(incident.thing),
       incident.since ? ` · с ${formatSimClock(incident.since)}` : '') : null,
     incident.end ? el('p', { className: 'adv-end', title: 'Прогнозы вариантов считают, что инцидент закончится в это время, если вариант его не меняет' },
-      el('b', {}, `Ожидаемое окончание ${formatSimClock(incident.end)}`),
+      el('b', {}, /^sag-reline/.test(incident.key)
+        ? `Пуск мельницы после замены футеровки ${formatSimDay(incident.end)}`
+        : `Ожидаемое окончание ${formatSimClock(incident.end)}`),
       incident.basis ? el('span', { className: 'muted' }, ` · ${incident.basis}`) : null) : null,
     // The record ends with the raw messages sent; the card keeps the sentence, the tooltip all of it.
     appliedText ? el('p', { className: 'adv-result', title: appliedText },
@@ -322,7 +332,7 @@ export function render() {
         el('span', { className: 'fc-key' }, keySample('a'), 'ничего не менять'), ' ',
         el('span', { className: 'fc-key' }, keySample('b'), 'вариант')) : null),
     options.length ? el('ol', { className: 'adv-options' },
-      ...options.map((option) => optionRow(option, { recommended: ready && option.n === recommended, applied: option.n === applied, ready, reference }))) : null);
+      ...options.map((option) => optionRow(option, { recommended: ready && option.n === recommended, applied: option.n === applied, ready, reference, horizon }))) : null);
   const focused = document.activeElement?.closest?.('#advisor button.apply')?.dataset.option;
   holder.replaceChildren(card);
   if (focused) $(`button.apply[data-option="${focused}"]`, card)?.focus();

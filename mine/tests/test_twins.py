@@ -25,7 +25,7 @@ KINDS = {
     "flotation": (1, 1), "concentrate": (1, 1), "tailings": (1, 1),
     "clay-plant": (1, 1), "desliming": (1, 1), "clay-flotation": (1, 1), "clay-stockpile": (1, 1),
     "substation": (1, 1), "fuel-station": (1, 1), "workshop": (1, 1), "weather": (1, 1), "module": (5, 5),
-    "scenario": (7, 7), "forecast": (10, 10), "journal": (1, 1),
+    "scenario": (8, 8), "forecast": (10, 10), "journal": (1, 1),
 }
 MOBILE = ("truck", "loader", "drill-rig")     # their position is a feature; `home` says where they started
 
@@ -82,7 +82,7 @@ class TwinDefinitions(unittest.TestCase):
         for name in ("module-dispatch", "module-grade", "module-plant", "module-maint", "module-advisor",
                      "forecast-1", "forecast-5", "scenario-road-closure",
                      "scenario-shovel-failure", "scenario-crusher-stop", "scenario-heavy-rain", "scenario-blast",
-                     "scenario-clay-face", "scenario-clay-plant-stop", "mine", "journal", "truck-31", "rom-pad-02",
+                     "scenario-clay-face", "scenario-clay-plant-stop", "scenario-sag-reline", "mine", "journal", "truck-31", "rom-pad-02",
                      "clay-plant", "desliming", "clay-flotation", "clay-stockpile"):
             self.assertIn(f"{NS}:{name}", ids)
         self.assertNotIn(f"{NS}:scenario-hard-ore", ids)
