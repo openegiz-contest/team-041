@@ -3,7 +3,7 @@
 // visitor's last choice, kept in the browser (when the browser allows it).
 
 const KEY = 'bozshakol.style3d';
-const OLD_KEY = 'aktogay.style3d';         // the key before the mine moved to Bozshakol: read once, then moved
+const OLD_KEY = 'aktogay.style3d';         // the page's earlier key: read once, then moved
 export const STYLES = ['hologram', 'realistic'];
 
 export function initialStyle() {
